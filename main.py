@@ -21,6 +21,7 @@ import ctypes.wintypes as wt
 import json
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -564,6 +565,81 @@ def get_foreground_window_info():
 CF_UNICODETEXT = 13
 GMEM_MOVEABLE = 0x0002
 GMEM_ZEROINIT = 0x0040
+
+
+# ================= OCR（rapidocr_onnxruntime，参考旧项目） =================
+_ocr_engine = None
+_ocr_lock = threading.Lock()
+
+# 时间格式正则（按时间从近到远）:
+#   星期几/周X/礼拜X、今天/昨天/前天、x天前/x小时前/x分钟前
+#   年月日 2026-08-05（非今年）、月日 8月21日 或 08-05（今年）
+TIME_PATTERNS = (
+    r"星期[一二三四五六日天]|周[一二三四五六日]|礼拜[一二三四五六日天]",
+    r"今天|昨天|前天",
+    r"\d+\s*天前",
+    r"\d+\s*小时前",
+    r"\d+\s*分钟前",
+    r"\d{4}[-/. ]\d{1,2}[-/. ]\d{1,2}",   # 2026-08-05 / 2026/8/5
+    r"\d{1,2}月\d{1,2}日?",                # 8月21日 / 8月21
+    r"\d{1,2}[-/]\d{1,2}",                  # 08-05 / 8/5（今年月日）
+)
+TIME_RE = re.compile("|".join(f"({p})" for p in TIME_PATTERNS))
+
+
+def get_ocr_engine():
+    """懒加载 OCR 引擎（RapidOCR，线程安全）"""
+    global _ocr_engine
+    with _ocr_lock:
+        if _ocr_engine is None:
+            from rapidocr_onnxruntime import RapidOCR
+            log("正在加载 OCR 引擎 ...")
+            _ocr_engine = RapidOCR()
+            log("OCR 引擎加载完成")
+        return _ocr_engine
+
+
+def screenshot_region(box, path):
+    """截取屏幕指定区域并保存；box=(x1,y1,x2,y2)，返回 PIL 图"""
+    from PIL import ImageGrab
+    img = ImageGrab.grab(bbox=(int(box[0]), int(box[1]), int(box[2]), int(box[3])))
+    img.save(path)
+    return img
+
+
+def ocr_region(box):
+    """对屏幕区域 box=(x1,y1,x2,y2) 做 OCR，返回 [(中心x, 中心y, 文本, score), ...]
+    坐标已换算为屏幕坐标（OCR 结果 + 截图区域偏移）"""
+    from PIL import Image
+    engine = get_ocr_engine()
+    # 截图到内存
+    from PIL import ImageGrab
+    img = ImageGrab.grab(bbox=(int(box[0]), int(box[1]), int(box[2]), int(box[3])))
+    import io as _io
+    buf = _io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    result, _ = engine(buf.read())
+    ox, oy = int(box[0]), int(box[1])   # 截图区域偏移
+    items = []
+    if result:
+        for box_pts, text, score in result:
+            xs = [p[0] for p in box_pts]
+            ys = [p[1] for p in box_pts]
+            cx = int(sum(xs) / len(xs)) + ox   # 中心 x + 偏移
+            cy = int(sum(ys) / len(ys)) + oy
+            items.append((cx, cy, text, score))
+    return items
+
+
+def find_time_items(items):
+    """从 OCR 结果中筛选包含时间的条目，返回 [(中心x, 中心y, 文本), ...]
+    命中时间格式即认为该卡片可点击加载（文本中混有其他字符没关系）"""
+    found = []
+    for cx, cy, text, score in items:
+        if TIME_RE.search(text):
+            found.append((cx, cy, text))
+    return found
 
 
 def set_clipboard_text(text):
@@ -1738,6 +1814,53 @@ class App:
         if self._sleep(0.5):
             log("已停止：中止当前任务")
             return False
+        # 8) 文章列表页：OCR 采集循环
+        return self._collect_articles(pts)
+
+    # ---------- 文章采集循环（OCR） ----------
+    def _collect_articles(self, pts):
+        """等待5秒后页面为文章列表页：
+        点位5/7 圈出区域 -> OCR -> 识别到时间(卡片) -> 遍历点击 -> 5秒 -> Ctrl+W -> 0.5秒"""
+        log("等待 5 秒加载文章列表页...")
+        if self._sleep(5):
+            log("已停止：中止当前任务")
+            return False
+        p5 = pts.get(5)
+        p7 = pts.get(7)
+        if not p5 or not p7:
+            log("错误: 缺少点位5/7（截图区域），跳过文章采集")
+            return True
+        # 由两个对角点确定截图区域（自动归一化顺序）
+        x1, y1 = int(p5[2]), int(p5[3])
+        x2, y2 = int(p7[2]), int(p7[3])
+        box = (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
+        log(f"文章列表 OCR 区域: {box}")
+        log("OCR 识别中 ...")
+        try:
+            items = ocr_region(box)
+        except Exception as e:
+            log(f"OCR 失败: {e}")
+            return False
+        time_items = find_time_items(items)
+        if not time_items:
+            log("OCR 未识别到带时间的卡片，任务结束")
+            return True
+        log(f"识别到 {len(time_items)} 个文章卡片（含时间）")
+        for i, (cx, cy, text) in enumerate(time_items):
+            if self.stop_event.is_set():
+                log("已停止：中止文章采集")
+                break
+            log(f"点击文章卡片 {i + 1}/{len(time_items)} ({cx},{cy}) 时间[{text}]")
+            mouse_click(cx, cy)
+            log("等待 5 秒加载文章...")
+            if self._sleep(5):
+                log("已停止：中止当前任务")
+                break
+            log("Ctrl+W 关闭文章")
+            ctrl_key("W")
+            if self._sleep(0.5):
+                log("已停止：中止当前任务")
+                break
         return True
 
     def _finish_collection(self, stopped, total, done_n):
