@@ -1,0 +1,9 @@
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 运行时生成的设置记忆
+config/ui_state.json
+
+# 测试截图
+_ui.png
