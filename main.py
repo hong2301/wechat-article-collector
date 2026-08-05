@@ -720,6 +720,18 @@ def set_clipboard_text(text):
         u32.CloseClipboard()
 
 
+def clear_clipboard():
+    """清空剪贴板；成功返回 True"""
+    u32 = _u32()
+    if not u32.OpenClipboard(None):
+        return False
+    try:
+        u32.EmptyClipboard()
+        return True
+    finally:
+        u32.CloseClipboard()
+
+
 def read_clipboard_text():
     """读取剪贴板文本，失败返回 None（Win32，线程安全）"""
     u32 = _u32()
@@ -1490,6 +1502,9 @@ class App:
         self.time_var.trace_add("write", lambda *a: self._update_custom_state())
         self._update_custom_state()
 
+        # 快捷键：回车 = 点击开始（焦点在输入框时不触发）
+        root.bind("<Return>", self._on_return_key)
+
         # 窗口居中（按实际尺寸）
         root.update_idletasks()
         x = (root.winfo_screenwidth() - self.win_w) // 2
@@ -1629,6 +1644,16 @@ class App:
         self._save_input(f"已新增空行 [索引 {new_idx}]，双击链接/名称列填写内容，状态默认 null")
 
     # ---------- 控制区逻辑 ----------
+    def _on_return_key(self, event):
+        """回车 = 点击开始（避免焦点在输入框时误触）"""
+        try:
+            w = self.root.focus_get()
+            if isinstance(w, (tk.Entry, tk.Spinbox)):
+                return
+        except Exception:
+            pass
+        self.on_start()
+
     def _update_custom_state(self):
         """自定义时间范围选中时启用日期选择，否则禁用"""
         st = tk.NORMAL if self.time_var.get() == CUSTOM else tk.DISABLED
@@ -1745,7 +1770,7 @@ class App:
         log(f"记忆设置已读取: 时间范围[{dict(TIME_OPTIONS).get(self.time_var.get(), '?')}] "
             f"最大数量[{self.max_count_var.get() or '无限'}]")
         log("右侧任务区可编辑 input 数据（双击单元格修改，操作列删除，底部重置/新增）")
-        log("请在左侧采集控制设置索引范围、时间范围、最大数量后点击【开始】")
+        log("请在左侧采集控制设置索引范围、时间范围、最大数量后点击【开始】（或按回车）")
         if not self.input_rows:
             log("警告: input.csv 中没有有效链接，请先在任务区新增或填写数据")
 
@@ -2095,8 +2120,9 @@ class App:
                 return False
             cards = find_time_items(items)
             if not cards:
-                log("OCR 未识别到时间卡片（临时停止条件：无卡片即结束）")
-                break
+                log("错误: OCR 未识别到时间卡片（列表页异常），任务失败")
+                self.last_error = "未识别到文章卡片"
+                return False
             log(f"识别到 {len(cards)} 个文章卡片（含时间）")
             for i, (cx, cy, text) in enumerate(cards):
                 if self.stop_event.is_set():
@@ -2119,7 +2145,7 @@ class App:
                     break
                 log("Ctrl+W 关闭文章")
                 ctrl_key("W")
-                if self._sleep(0.5):
+                if self._sleep(1):
                     log("已停止：中止当前任务")
                     break
             # 全部点击完毕：鼠标移到点位7，向下滚动 70% 屏高，刷新列表
@@ -2137,61 +2163,68 @@ class App:
         return True
 
     def _collect_article_link(self, pts, name):
-        """正式文章操作：点位8 -> OCR找复制链接 -> 点击 -> 剪贴板取链接
+        """正式文章操作：3次尝试复制链接（点位8 -> OCR找复制链接 -> 点击 -> 检查剪贴板）
         -> fetch_article 抓取标题/时间并保存 HTML
         返回: True=成功继续 / "stop"=达到停止条件退出循环 / False=失败(error)"""
         p8 = pts.get(8)
-        if not p8:
-            log("错误: 缺少点位8，任务失败")
-            self.last_error = "缺少点位8"
-            return False
-        log(f"点击点位8({p8[2]},{p8[3]}) {p8[1]}")
-        mouse_click(int(p8[2]), int(p8[3]))
-        log("等待 2 秒...")
-        if self._sleep(2):
-            log("已停止：中止当前任务")
-            return False
         p9 = pts.get(9)
         p10 = pts.get(10)
-        if not p9 or not p10:
-            log("错误: 缺少点位9/10（复制链接区域），任务失败")
-            self.last_error = "缺少点位9/10"
+        if not p8 or not p9 or not p10:
+            log("错误: 缺少点位8/9/10，任务失败")
+            self.last_error = "缺少点位8/9/10"
             return False
-        x1, y1 = int(p9[2]), int(p9[3])
-        x2, y2 = int(p10[2]), int(p10[3])
-        box = (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
-        log(f"OCR 识别复制链接区域: {box}")
-        try:
-            items = ocr_region(box)
-        except Exception as e:
-            log(f"OCR 失败: {e}")
-            self.last_error = f"OCR 失败: {e}"
-            return False
-        # 找包含"复制链接"或"复制"的文本
-        target = next((it for it in items if "复制链接" in it[2] or "复制" in it[2]), None)
-        if not target:
-            log("错误: 未在区域内识别到'复制链接'，任务失败")
-            self.last_error = "未找到复制链接"
-            return False
-        tx, ty = target[0], target[1]
-        log(f"找到'复制链接' ({tx},{ty}) [{target[2]}]，点击")
-        # 点击前记录剪贴板旧内容
-        before = read_clipboard_text()
-        mouse_click(tx, ty)
-        # 轮询等待剪贴板更新为新链接（最多 5 秒，每 0.5 秒查一次）
+        box = (min(int(p9[2]), int(p10[2])), min(int(p9[3]), int(p10[3])),
+               max(int(p9[2]), int(p10[2])), max(int(p9[3]), int(p10[3])))
+        # 复制链接：最多尝试 3 次
         link = None
-        deadline = time.time() + 5
-        while time.time() < deadline:
+        for attempt in range(1, 4):
+            if self.stop_event.is_set():
+                log("已停止：中止当前任务")
+                return False
+            log(f"--- 复制链接尝试 {attempt}/3 ---")
+            log(f"点击点位8({p8[2]},{p8[3]}) {p8[1]}")
+            mouse_click(int(p8[2]), int(p8[3]))
+            log("等待 2 秒菜单弹出...")
+            if self._sleep(2):
+                log("已停止：中止当前任务")
+                return False
+            # OCR 找"复制链接"
+            log(f"OCR 识别复制链接区域: {box}")
+            try:
+                items = ocr_region(box)
+            except Exception as e:
+                log(f"OCR 失败: {e}")
+                self.last_error = f"OCR 失败: {e}"
+                return False
+            target = next((it for it in items if "复制链接" in it[2] or "复制" in it[2]), None)
+            if not target:
+                log(f"尝试{attempt}: 未识别到'复制链接'")
+                continue
+            tx, ty = target[0], target[1]
+            log(f"找到'复制链接' ({tx},{ty}) [{target[2]}]，点击")
+            # 点击前清空剪贴板，确保检测到的一定是新复制的链接
+            clear_clipboard()
             if self._sleep(0.5):
                 log("已停止：中止当前任务")
                 return False
-            cur = read_clipboard_text()
-            if cur and cur != before and "mp.weixin.qq.com" in cur:
-                link = cur
+            before = read_clipboard_text()
+            mouse_click(tx, ty)
+            # 轮询等待剪贴板更新（最多 10 秒，每 0.5 秒查一次 = 20 次）
+            deadline = time.time() + 10
+            while time.time() < deadline:
+                if self._sleep(0.5):
+                    log("已停止：中止当前任务")
+                    return False
+                cur = read_clipboard_text()
+                if cur and cur != before and "mp.weixin.qq.com" in cur:
+                    link = cur
+                    break
+            if link:
                 break
+            log(f"尝试{attempt}: 剪贴板未更新为文章链接")
         if not link:
-            log("错误: 剪贴板未更新为文章链接，任务失败")
-            self.last_error = "剪贴板未更新为文章链接"
+            log("错误: 3次尝试复制链接均失败，任务失败")
+            self.last_error = "复制链接失败(3次)"
             return False
         if not hasattr(self, "collected_links"):
             self.collected_links = []
