@@ -83,6 +83,8 @@ user32 = None
 kernel32 = None
 
 SW_RESTORE = 9
+SW_HIDE = 0
+SW_SHOW = 5
 SM_CXSCREEN = 0
 SM_CYSCREEN = 1
 SWP_NOZORDER = 0x0004
@@ -144,6 +146,8 @@ KEYEVENTF_KEYUP = 0x0002
 KEYEVENTF_UNICODE = 0x0004
 MOUSEEVENTF_LEFTDOWN = 0x0002
 MOUSEEVENTF_LEFTUP = 0x0004
+MOUSEEVENTF_WHEEL = 0x0800
+WHEEL_DELTA = 120
 VK_CONTROL = 0x11
 VK_SHIFT = 0x10
 VK_RETURN = 0x0D
@@ -229,6 +233,8 @@ def _u32():
         user32.CloseClipboard.restype = wt.BOOL
         user32.SetClipboardData.argtypes = [wt.UINT, wt.HANDLE]
         user32.SetClipboardData.restype = wt.HANDLE
+        user32.FindWindowW.argtypes = [wt.LPCWSTR, wt.LPCWSTR]
+        user32.FindWindowW.restype = wt.HWND
     return user32
 
 
@@ -441,6 +447,27 @@ class MousePointCollector:
             log(f"坐标采集: 单击预览 x={x} y={y}（再单击微调，双击确认）")
 
 
+def find_taskbar():
+    """查找 Windows 任务栏窗口句柄（找不到返回 None）"""
+    return _u32().FindWindowW("Shell_TrayWnd", None)
+
+
+def hide_taskbar():
+    """隐藏底部任务栏；返回是否成功"""
+    hwnd = find_taskbar()
+    if not hwnd:
+        return False
+    _u32().ShowWindow(hwnd, SW_HIDE)
+    return True
+
+
+def show_taskbar():
+    """恢复显示任务栏（程序退出时调用）"""
+    hwnd = find_taskbar()
+    if hwnd:
+        _u32().ShowWindow(hwnd, SW_SHOW)
+
+
 def snap_wechat_left(hwnd):
     """前置微信窗口并靠左半边屏幕；已就位则仅前置（返回 False）
     容差判断 + 设置后复查，防止窗口拒绝第一次移动"""
@@ -481,6 +508,17 @@ def mouse_click(x, y):
     u32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, None)
     u32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, None)
     time.sleep(0.15)
+
+
+def scroll_down_at(x, y, pixels, px_per_tick=120):
+    """鼠标移动到 (x,y) 后向下滚动 pixels 像素（滚轮，每格约滚动 px_per_tick 像素）"""
+    u32 = _u32()
+    u32.SetCursorPos(int(x), int(y))
+    time.sleep(0.1)
+    ticks = max(1, int(pixels / px_per_tick))
+    for _ in range(ticks):
+        u32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, -WHEEL_DELTA, None)  # 负值=向下
+        time.sleep(0.05)
 
 
 def type_text(text, char_delay=0.012):
@@ -1224,6 +1262,25 @@ class App:
                  fg="#888888").pack(side=tk.LEFT)
 
         # 开始按钮 + 点位设置（同一栏，点位设置靠右小按钮）
+        # 滚动距离配置（文章列表循环用）+ 测试滚动按钮
+        scroll_bar = tk.Frame(ctrl)
+        scroll_bar.pack(fill=tk.X, padx=10, pady=(6, 2))
+        tk.Label(scroll_bar, text="滚动距离:",
+                 font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
+        # 默认 = 屏幕高度 70%（若无记忆）
+        _def_scroll = int(_u32().GetSystemMetrics(SM_CYSCREEN) * 0.7)
+        saved_scroll = str(self.ui.get("scroll_px", _def_scroll))
+        self.scroll_px_var = tk.StringVar(value=saved_scroll)
+        tk.Spinbox(scroll_bar, from_=0, to=5000, increment=50,
+                   textvariable=self.scroll_px_var, width=6,
+                   font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=4)
+        tk.Label(scroll_bar, text="px",
+                 font=("Microsoft YaHei UI", 9), fg="#888888").pack(side=tk.LEFT)
+        self.btn_scroll_test = tk.Button(scroll_bar, text="测试滚动", width=10,
+                                         font=("Microsoft YaHei UI", 10),
+                                         command=self.on_scroll_test)
+        self.btn_scroll_test.pack(side=tk.RIGHT)
+
         btn_bar = tk.Frame(ctrl)
         btn_bar.pack(fill=tk.X, padx=10, pady=(4, 6))
         self.btn_points = tk.Button(btn_bar, text="点位设置", width=10,
@@ -1306,7 +1363,8 @@ class App:
 
         # 设置记忆：任何变更自动保存
         for v in (self.idx_start_var, self.idx_end_var, self.time_var,
-                  self.custom_start_var, self.custom_end_var, self.max_count_var):
+                  self.custom_start_var, self.custom_end_var, self.max_count_var,
+                  self.scroll_px_var):
             v.trace_add("write", lambda *a: self._save_state())
 
         # 时间范围变更时启用/禁用自定义日期行
@@ -1465,6 +1523,24 @@ class App:
         """打开点位设置弹窗"""
         PointsDialog(self.root)
 
+    def on_scroll_test(self):
+        """测试滚动：鼠标移到点位7，按配置的滚动距离向下滚动（人工已打开文章列表时用）"""
+        pts = {p[0]: p for p in load_points()}
+        p7 = pts.get(7)
+        if not p7:
+            log("错误: 缺少点位7，无法测试滚动")
+            return
+        try:
+            px = int(float(self.scroll_px_var.get()))
+        except ValueError:
+            log("滚动距离格式错误，请输入数字")
+            return
+        if px <= 0:
+            log("滚动距离应大于 0")
+            return
+        log(f"测试滚动: 鼠标移到点位7({p7[2]},{p7[3]}) 向下滚动 {px}px")
+        scroll_down_at(int(p7[2]), int(p7[3]), px)
+
     def append_log(self, msg):
         """日志：放入队列，由主线程轮询写入控制台（子线程安全）"""
         try:
@@ -1507,6 +1583,7 @@ class App:
             "custom_start": self.custom_start_var.get(),
             "custom_end": self.custom_end_var.get(),
             "max_count": self.max_count_var.get(),
+            "scroll_px": self.scroll_px_var.get(),
         })
 
     # ---------- 窗口布局（采集时微信左半屏 / main 右半屏） ----------
@@ -1535,6 +1612,9 @@ class App:
     def start(self):
         # 启动 UI 队列轮询（主线程定时处理子线程消息）
         self.root.after(50, self._poll_ui_queue)
+        # 隐藏任务栏（采集时屏幕全高）；退出时由 atexit 恢复
+        if hide_taskbar():
+            log("已隐藏任务栏（程序退出时自动恢复）")
         total = len(self.input_rows)
         todo = sum(1 for _, _, _, st in self.input_rows
                    if st in ("pending", "null") or "error" in st)
@@ -1819,8 +1899,9 @@ class App:
 
     # ---------- 文章采集循环（OCR） ----------
     def _collect_articles(self, pts):
-        """等待5秒后页面为文章列表页：
-        点位5/7 圈出区域 -> OCR -> 识别到时间(卡片) -> 遍历点击 -> 5秒 -> Ctrl+W -> 0.5秒"""
+        """文章列表循环采集：
+        循环: OCR识别卡片 -> 依次点击(5秒后Ctrl+W) -> 全部点完 -> 鼠标移到点位7滚动70%屏高 -> 再OCR
+        停止条件: 待定（当前：OCR 无卡片时停止）"""
         log("等待 5 秒加载文章列表页...")
         if self._sleep(5):
             log("已停止：中止当前任务")
@@ -1834,31 +1915,51 @@ class App:
         x1, y1 = int(p5[2]), int(p5[3])
         x2, y2 = int(p7[2]), int(p7[3])
         box = (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
-        log(f"文章列表 OCR 区域: {box}")
-        log("OCR 识别中 ...")
+        # 滚动距离：优先用界面配置，无配置则默认屏幕高度 70%
         try:
-            items = ocr_region(box)
-        except Exception as e:
-            log(f"OCR 失败: {e}")
-            return False
-        time_items = find_time_items(items)
-        if not time_items:
-            log("OCR 未识别到带时间的卡片，任务结束")
-            return True
-        log(f"识别到 {len(time_items)} 个文章卡片（含时间）")
-        for i, (cx, cy, text) in enumerate(time_items):
+            scroll_px = int(float(getattr(self, "scroll_px_var").get()))
+        except (AttributeError, ValueError):
+            scroll_px = int(_u32().GetSystemMetrics(SM_CYSCREEN) * 0.7)
+        if scroll_px <= 0:
+            scroll_px = int(_u32().GetSystemMetrics(SM_CYSCREEN) * 0.7)
+        log(f"文章列表 OCR 区域: {box}，滚动距离 {scroll_px}px")
+        loop_n = 0
+        while True:
             if self.stop_event.is_set():
                 log("已停止：中止文章采集")
                 break
-            log(f"点击文章卡片 {i + 1}/{len(time_items)} ({cx},{cy}) 时间[{text}]")
-            mouse_click(cx, cy)
-            log("等待 5 秒加载文章...")
-            if self._sleep(5):
-                log("已停止：中止当前任务")
+            loop_n += 1
+            log(f"--- 列表循环 {loop_n}：OCR 识别中 ---")
+            try:
+                items = ocr_region(box)
+            except Exception as e:
+                log(f"OCR 失败: {e}")
                 break
-            log("Ctrl+W 关闭文章")
-            ctrl_key("W")
-            if self._sleep(0.5):
+            cards = find_time_items(items)
+            if not cards:
+                log("OCR 未识别到时间卡片（临时停止条件：无卡片即结束）")
+                break
+            log(f"识别到 {len(cards)} 个文章卡片（含时间）")
+            for i, (cx, cy, text) in enumerate(cards):
+                if self.stop_event.is_set():
+                    log("已停止：中止文章采集")
+                    break
+                log(f"点击文章卡片 {i + 1}/{len(cards)} ({cx},{cy}) 时间[{text}]")
+                mouse_click(cx, cy)
+                log("等待 5 秒加载文章...")
+                if self._sleep(5):
+                    log("已停止：中止当前任务")
+                    break
+                log("Ctrl+W 关闭文章")
+                ctrl_key("W")
+                if self._sleep(0.5):
+                    log("已停止：中止当前任务")
+                    break
+            # 全部点击完毕：鼠标移到点位7，向下滚动 70% 屏高，刷新列表
+            log(f"全部点击完毕，移动鼠标到点位7({p7[2]},{p7[3]}) 向下滚动 {scroll_px}px")
+            scroll_down_at(int(p7[2]), int(p7[3]), scroll_px)
+            log("等待 1 秒列表刷新...")
+            if self._sleep(1):
                 log("已停止：中止当前任务")
                 break
         return True
@@ -1888,6 +1989,7 @@ class App:
     # ---------- 关闭 ----------
     def on_exit(self):
         self._save_state()
+        show_taskbar()              # 恢复任务栏
         log(f"退出（设置已记忆 -> {UI_STATE_FILE}）")
         self.root.destroy()
 
@@ -1899,6 +2001,9 @@ def main():
     except Exception:
         pass
     enable_dpi_awareness()
+    # 任何退出路径都恢复任务栏（含异常退出）
+    import atexit
+    atexit.register(show_taskbar)
     root = tk.Tk()
     app = App(root)
 
