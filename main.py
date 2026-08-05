@@ -483,6 +483,91 @@ def show_taskbar():
         _u32().ShowWindow(hwnd, SW_SHOW)
 
 
+# ================= 文章卡片高度采集（连续点两点取 y 差值） =================
+class HeightCollector:
+    """采集两点 y 差值（文章卡片高度）：
+    单击记录点（每两个点算一次差值），双击确认最新一对，右键暂停/恢复"""
+
+    def __init__(self):
+        self.q = queue.Queue()
+        self.hook = None
+        self.hook_ready = threading.Event()
+        self._proc = HOOKPROC(self._callback)
+
+    def _callback(self, code, wparam, lparam):
+        if code == 0:
+            ms = ctypes.cast(lparam, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
+            now = time.monotonic()
+            if wparam == WM_LBUTTONDOWN:
+                self.q.put(("left", ms.pt.x, ms.pt.y, now))
+            elif wparam == WM_RBUTTONDOWN:
+                self.q.put(("right", ms.pt.x, ms.pt.y, now))
+        return _u32().CallNextHookEx(self.hook, code, wparam, lparam)
+
+    def _hook_thread(self):
+        # 低层钩子必须在带消息循环的线程上安装
+        h = _u32().SetWindowsHookExW(WH_MOUSE_LL, self._proc,
+                                     _k32().GetModuleHandleW(None), 0)
+        if not h:
+            self.hook_ready.set()
+            return
+        self.hook = h
+        self.hook_ready.set()
+        msg = wt.MSG()
+        while _u32().GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
+            _u32().TranslateMessage(ctypes.byref(msg))
+            _u32().DispatchMessageW(ctypes.byref(msg))
+        _u32().UnhookWindowsHookEx(h)
+
+    def run(self):
+        """阻塞采集：返回 (y1, y2, 高度) 或 None(钩子失败)"""
+        threading.Thread(target=self._hook_thread, daemon=True).start()
+        if not self.hook_ready.wait(3):
+            log("高度采集: 鼠标钩子安装超时")
+            return None
+        if not self.hook:
+            log("高度采集: 安装鼠标钩子失败")
+            return None
+        dbl_ms = _u32().GetDoubleClickTime()
+        dbl_cx = _u32().GetSystemMetrics(SM_CXDOUBLECLK)
+        dbl_cy = _u32().GetSystemMetrics(SM_CYDOUBLECLK)
+        points = []
+        last_x = last_y = last_t = None
+        paused = False
+        log("卡片高度采集: 单击第一个点 -> 单击第二个点（y差值=高度）；双击确认；右键暂停/恢复；不满意继续点下一对")
+        while True:
+            try:
+                kind, x, y, evt_t = self.q.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            if kind == "right":
+                paused = not paused
+                log("高度采集: 已暂停（可移动窗口），右键恢复" if paused
+                    else "高度采集: 已恢复")
+                continue
+            if paused:
+                continue
+            # 双击：确认最新一对
+            if (last_x is not None
+                    and (evt_t - last_t) * 1000 <= dbl_ms
+                    and abs(x - last_x) <= dbl_cx
+                    and abs(y - last_y) <= dbl_cy):
+                if len(points) >= 2:
+                    y1, y2 = points[-2][1], points[-1][1]
+                    h = abs(y1 - y2)
+                    log(f"已确认: 文章卡片高度 = |{y1} - {y2}| = {h}px")
+                    return y1, y2, h
+                continue
+            points.append((x, y))
+            n = len(points)
+            if n % 2 == 0:
+                h = abs(points[-1][1] - points[-2][1])
+                log(f"第{n // 2}对: y1={points[-2][1]} y2={points[-1][1]} 高度={h}px（双击确认，不满意继续点下一对）")
+            else:
+                log(f"已点第{n}个点 ({x},{y})，请点第二个点")
+            last_x, last_y, last_t = x, y, evt_t
+
+
 def snap_wechat_left(hwnd):
     """前置微信窗口并靠左半边屏幕；已就位则仅前置（返回 False）
     容差判断 + 设置后复查，防止窗口拒绝第一次移动"""
@@ -1393,24 +1478,40 @@ class App:
                  fg="#888888").pack(side=tk.LEFT)
 
         # 开始按钮 + 点位设置（同一栏，点位设置靠右小按钮）
-        # 滚动距离配置（文章列表循环用）+ 测试滚动按钮
+        # 滚动距离 + 文章卡片高度 配置（紧凑排左）+ 设置/测试按钮
         scroll_bar = tk.Frame(ctrl)
         scroll_bar.pack(fill=tk.X, padx=10, pady=(6, 2))
         tk.Label(scroll_bar, text="滚动距离:",
-                 font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
+                 font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
         # 默认 = 屏幕高度 70%（若无记忆）
         _def_scroll = int(_u32().GetSystemMetrics(SM_CYSCREEN) * 0.7)
         saved_scroll = str(self.ui.get("scroll_px", _def_scroll))
         self.scroll_px_var = tk.StringVar(value=saved_scroll)
         tk.Spinbox(scroll_bar, from_=0, to=5000, increment=50,
-                   textvariable=self.scroll_px_var, width=6,
-                   font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=4)
+                   textvariable=self.scroll_px_var, width=5,
+                   font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(3, 0))
         tk.Label(scroll_bar, text="px",
-                 font=("Microsoft YaHei UI", 9), fg="#888888").pack(side=tk.LEFT)
-        self.btn_scroll_test = tk.Button(scroll_bar, text="测试滚动", width=10,
-                                         font=("Microsoft YaHei UI", 10),
+                 font=("Microsoft YaHei UI", 8), fg="#888888").pack(side=tk.LEFT, padx=1)
+        # 测试滚动按钮（跟滚动距离一组）
+        self.btn_scroll_test = tk.Button(scroll_bar, text="测试滚动", width=8,
+                                         font=("Microsoft YaHei UI", 9),
                                          command=self.on_scroll_test)
-        self.btn_scroll_test.pack(side=tk.RIGHT)
+        self.btn_scroll_test.pack(side=tk.LEFT, padx=4)
+        # 文章卡片高度
+        tk.Label(scroll_bar, text="卡片高度:",
+                 font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(8, 0))
+        self.card_height_var = tk.StringVar(
+            value=str(self.ui.get("card_height", 130)))
+        tk.Spinbox(scroll_bar, from_=10, to=1000, increment=10,
+                   textvariable=self.card_height_var, width=5,
+                   font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(3, 0))
+        tk.Label(scroll_bar, text="px",
+                 font=("Microsoft YaHei UI", 8), fg="#888888").pack(side=tk.LEFT, padx=1)
+        # 设置按钮（进入卡片高度采集模式，跟卡片高度一组）
+        self.btn_height_set = tk.Button(scroll_bar, text="设置", width=5,
+                                        font=("Microsoft YaHei UI", 9),
+                                        command=self.on_height_set)
+        self.btn_height_set.pack(side=tk.LEFT, padx=(4, 0))
 
         btn_bar = tk.Frame(ctrl)
         btn_bar.pack(fill=tk.X, padx=10, pady=(4, 6))
@@ -1495,7 +1596,7 @@ class App:
         # 设置记忆：任何变更自动保存
         for v in (self.idx_start_var, self.idx_end_var, self.time_var,
                   self.custom_start_var, self.custom_end_var, self.max_count_var,
-                  self.scroll_px_var):
+                  self.scroll_px_var, self.card_height_var):
             v.trace_add("write", lambda *a: self._save_state())
 
         # 时间范围变更时启用/禁用自定义日期行
@@ -1667,6 +1768,20 @@ class App:
         """打开点位设置弹窗"""
         PointsDialog(self.root)
 
+    def on_height_set(self):
+        """进入文章卡片高度设置模式：连续点两个点，y差值=卡片高度"""
+        log("开始文章卡片高度设置：请连续单击两个点（y差值=高度）")
+        threading.Thread(target=self._height_worker, daemon=True).start()
+
+    def _height_worker(self):
+        """后台采集卡片高度，完成后回主线程写入"""
+        c = HeightCollector()
+        result = c.run()
+        if result:
+            self.ui_queue.put(("height", result[2]))
+        else:
+            log("卡片高度采集失败/取消")
+
     def on_scroll_test(self):
         """测试滚动：鼠标移到点位7，按配置的滚动距离向下滚动（人工已打开文章列表时用）"""
         pts = {p[0]: p for p in load_points()}
@@ -1708,6 +1823,8 @@ class App:
                     self.pbar.config(value=item[2])
                 elif kind == "snap":
                     self._snap_main_right()
+                elif kind == "height":
+                    self.card_height_var.set(str(item[1]))
                 elif kind == "finish":
                     self._finish_collection(item[1], item[2], item[3])
         except queue.Empty:
@@ -1728,6 +1845,7 @@ class App:
             "custom_end": self.custom_end_var.get(),
             "max_count": self.max_count_var.get(),
             "scroll_px": self.scroll_px_var.get(),
+            "card_height": self.card_height_var.get(),
         })
 
     # ---------- 窗口布局（采集时微信左半屏 / main 右半屏） ----------
