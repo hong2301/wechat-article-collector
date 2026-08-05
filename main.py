@@ -52,13 +52,24 @@ TIME_OPTIONS = (
 CUSTOM = "custom"
 
 
+LOG_FILE = "log.txt"
+_log_lock = threading.Lock()
+
+
 def log(msg):
-    """记录日志：GUI 模式进控制台，同时打印"""
+    """记录日志：控制台打印 + 写入根目录 log.txt（每行带时间戳），GUI 控制台不带时间"""
     if CONSOLE_PRINT:
         try:
             print(msg, flush=True)
         except Exception:
             pass
+    # 写入 log.txt（线程安全，带时间戳）
+    try:
+        with _log_lock:
+            with open(os.path.join(_script_dir(), LOG_FILE), "a", encoding="utf-8") as f:
+                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
+    except Exception:
+        pass
     hook = UI_LOG_HOOK
     if hook is not None:
         try:
