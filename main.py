@@ -117,6 +117,38 @@ class MSLLHOOKSTRUCT(ctypes.Structure):
                 ("time", wt.DWORD), ("dwExtraInfo", ctypes.POINTER(wt.ULONG))]
 
 
+# ---- 模拟输入（SendInput / mouse_event）结构 ----
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [("wVk", wt.WORD), ("wScan", wt.WORD), ("dwFlags", wt.DWORD),
+                ("time", wt.DWORD), ("dwExtraInfo", ctypes.POINTER(wt.ULONG))]
+
+
+class MOUSEINPUT(ctypes.Structure):
+    _fields_ = [("dx", ctypes.c_long), ("dy", ctypes.c_long),
+                ("mouseData", wt.DWORD), ("dwFlags", wt.DWORD),
+                ("time", wt.DWORD), ("dwExtraInfo", ctypes.POINTER(wt.ULONG))]
+
+
+class _INPUTUNION(ctypes.Union):
+    _fields_ = [("ki", KEYBDINPUT), ("mi", MOUSEINPUT)]
+
+
+class INPUT(ctypes.Structure):
+    _anonymous_ = ("u",)
+    _fields_ = [("type", wt.DWORD), ("u", _INPUTUNION)]
+
+
+INPUT_KEYBOARD = 1
+KEYEVENTF_KEYUP = 0x0002
+KEYEVENTF_UNICODE = 0x0004
+MOUSEEVENTF_LEFTDOWN = 0x0002
+MOUSEEVENTF_LEFTUP = 0x0004
+VK_CONTROL = 0x11
+VK_SHIFT = 0x10
+VK_RETURN = 0x0D
+VK_DELETE = 0x2E
+
+
 class KBDLLHOOKSTRUCT(ctypes.Structure):
     _fields_ = [("vkCode", wt.DWORD), ("scanCode", wt.DWORD),
                 ("flags", wt.DWORD), ("time", wt.DWORD),
@@ -179,6 +211,23 @@ def _u32():
         user32.DispatchMessageW.restype = ctypes.c_long
         user32.GetDoubleClickTime.argtypes = []
         user32.GetDoubleClickTime.restype = wt.UINT
+        user32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
+        user32.SetCursorPos.restype = wt.BOOL
+        user32.mouse_event.argtypes = [wt.DWORD, wt.DWORD, wt.DWORD, wt.DWORD,
+                                       ctypes.POINTER(wt.ULONG)]
+        user32.mouse_event.restype = None
+        user32.SendInput.argtypes = [wt.UINT, ctypes.POINTER(INPUT), ctypes.c_int]
+        user32.SendInput.restype = wt.UINT
+        user32.GetForegroundWindow.argtypes = []
+        user32.GetForegroundWindow.restype = wt.HWND
+        user32.OpenClipboard.argtypes = [wt.HWND]
+        user32.OpenClipboard.restype = wt.BOOL
+        user32.EmptyClipboard.argtypes = []
+        user32.EmptyClipboard.restype = wt.BOOL
+        user32.CloseClipboard.argtypes = []
+        user32.CloseClipboard.restype = wt.BOOL
+        user32.SetClipboardData.argtypes = [wt.UINT, wt.HANDLE]
+        user32.SetClipboardData.restype = wt.HANDLE
     return user32
 
 
@@ -196,6 +245,12 @@ def _k32():
         kernel32.CloseHandle.restype = wt.BOOL
         kernel32.GetModuleHandleW.argtypes = [wt.LPCWSTR]
         kernel32.GetModuleHandleW.restype = wt.HINSTANCE
+        kernel32.GlobalAlloc.argtypes = [wt.UINT, ctypes.c_size_t]
+        kernel32.GlobalAlloc.restype = wt.HGLOBAL
+        kernel32.GlobalLock.argtypes = [wt.HGLOBAL]
+        kernel32.GlobalLock.restype = ctypes.c_void_p
+        kernel32.GlobalUnlock.argtypes = [wt.HGLOBAL]
+        kernel32.GlobalUnlock.restype = wt.BOOL
     return kernel32
 
 
@@ -414,6 +469,126 @@ def snap_wechat_left(hwnd):
         time.sleep(0.2)
     _force_foreground(hwnd)
     return True
+
+
+# ================= 模拟输入（SendInput / mouse_event，参考旧项目） =================
+def mouse_click(x, y):
+    """移动鼠标到 (x,y) 并左键单击"""
+    u32 = _u32()
+    u32.SetCursorPos(int(x), int(y))
+    time.sleep(0.08)
+    u32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, None)
+    u32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, None)
+    time.sleep(0.15)
+
+
+def type_text(text, char_delay=0.012):
+    """用 SendInput 逐字符输入文本（UNICODE 方式，支持任意字符）"""
+    text = str(text)
+    n = len(text)
+    arr = (INPUT * (n * 2))()
+    for i, ch in enumerate(text):
+        d = KEYBDINPUT()
+        d.wVk = 0
+        d.wScan = ord(ch)
+        d.dwFlags = KEYEVENTF_UNICODE
+        u = _INPUTUNION()
+        u.ki = d
+        arr[i * 2].type = INPUT_KEYBOARD
+        arr[i * 2].u = u
+
+        d2 = KEYBDINPUT()
+        d2.wVk = 0
+        d2.wScan = ord(ch)
+        d2.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP
+        u2 = _INPUTUNION()
+        u2.ki = d2
+        arr[i * 2 + 1].type = INPUT_KEYBOARD
+        arr[i * 2 + 1].u = u2
+    _u32().SendInput(len(arr), arr, ctypes.sizeof(INPUT))
+    if char_delay:
+        time.sleep(char_delay * n)
+
+
+def ctrl_key(letter):
+    """发送 Ctrl+字母 组合键"""
+    u32 = _u32()
+    vk = ord(letter.upper())
+    u32.keybd_event(VK_CONTROL, 0, 0, None)
+    time.sleep(0.04)
+    u32.keybd_event(vk, 0, 0, None)
+    time.sleep(0.04)
+    u32.keybd_event(vk, 0, KEYEVENTF_KEYUP, None)
+    u32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, None)
+    time.sleep(0.1)
+
+
+def ctrl_shift_key(letter):
+    """发送 Ctrl+Shift+字母 组合键（如关闭/切换窗口的 Ctrl+Shift+W）"""
+    u32 = _u32()
+    vk = ord(letter.upper())
+    u32.keybd_event(VK_CONTROL, 0, 0, None)
+    u32.keybd_event(VK_SHIFT, 0, 0, None)
+    time.sleep(0.04)
+    u32.keybd_event(vk, 0, 0, None)
+    time.sleep(0.04)
+    u32.keybd_event(vk, 0, KEYEVENTF_KEYUP, None)
+    u32.keybd_event(VK_SHIFT, 0, KEYEVENTF_KEYUP, None)
+    u32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, None)
+    time.sleep(0.1)
+
+
+def key_press(vk):
+    """发送单个按键（如 Delete）"""
+    u32 = _u32()
+    u32.keybd_event(vk, 0, 0, None)
+    time.sleep(0.03)
+    u32.keybd_event(vk, 0, KEYEVENTF_KEYUP, None)
+    time.sleep(0.1)
+
+
+def get_foreground_window_info():
+    """获取当前前台窗口的 (hwnd, title, pid)，无则 None"""
+    u32 = _u32()
+    hwnd = u32.GetForegroundWindow()
+    if not hwnd:
+        return None
+    buf = ctypes.create_unicode_buffer(256)
+    u32.GetWindowTextW(hwnd, buf, 256)
+    pid = wt.DWORD()
+    u32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    return (hwnd, buf.value, pid.value)
+
+
+# ================= 剪贴板（写） =================
+CF_UNICODETEXT = 13
+GMEM_MOVEABLE = 0x0002
+GMEM_ZEROINIT = 0x0040
+
+
+def set_clipboard_text(text):
+    """把文本写入剪贴板（Win32，线程安全）；成功返回 True"""
+    u32 = _u32()
+    k32 = _k32()
+    if not u32.OpenClipboard(None):
+        return False
+    try:
+        u32.EmptyClipboard()
+        data = (str(text) + "\x00").encode("utf-16-le")
+        h = k32.GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, len(data))
+        if not h:
+            return False
+        p = k32.GlobalLock(h)
+        if not p:
+            return False
+        try:
+            ctypes.memmove(p, data, len(data))
+        finally:
+            k32.GlobalUnlock(h)
+        u32.SetClipboardData(CF_UNICODETEXT, h)
+        return True
+    finally:
+        u32.CloseClipboard()
 
 
 def _script_dir():
@@ -1375,6 +1550,11 @@ class App:
                 "未找到微信窗口。\n\n请先启动微信后再点击【开始】。")
             return
         log(f"已找到微信窗口: [{wx[1]}] (PID={wx[2]})")
+        # 启动 ESC 键监听（采集中按 ESC 立即停止；幂等）
+        if self.esc.start():
+            log("ESC 键监听已启用（采集中按 ESC 可立即停止）")
+        else:
+            log("警告: ESC 键监听启动失败")
         # 立即前置微信并靠左半边屏幕（已就位则跳过）
         moved = snap_wechat_left(wx[0])
         log(f"微信窗口: 前置并靠左半屏{'（已就位，跳过）' if not moved else ''}")
@@ -1393,8 +1573,7 @@ class App:
                          args=(todo, desc, max_count, wx), daemon=True).start()
 
     def _run_collection(self, todo, desc, max_count, wx):
-        """采集线程：每个链接前置微信并靠左半屏（已就位则跳过），main 靠右半屏
-        具体采集动作待接入真实流程"""
+        """采集线程：遍历任务，每个任务执行点位操作流程"""
         total = len(todo)
         done_n = 0
         try:
@@ -1402,22 +1581,164 @@ class App:
                 if self.stop_event.is_set():
                     log("已停止：中止后续链接")
                     break
-                # 前置微信窗口并靠左半边屏幕（已就位则不做操作）
-                if wx:
-                    moved = snap_wechat_left(wx[0])
-                    log(f"微信窗口: 前置并靠左半屏{'（已就位，跳过）' if not moved else ''} [{wx[1]}]")
+                log(f"【{n + 1}/{total}】[{idx}] {name}  {url[:45]}{'...' if len(url) > 45 else ''}")
                 # main 界面靠右半边屏幕（通过队列交给主线程处理）
                 self.ui_queue.put(("snap",))
-                log(f"【{n + 1}/{total}】[{idx}] {name}  {url[:45]}{'...' if len(url) > 45 else ''}")
-                # ---- 真实采集流程将在这里展开（微信操作 + OCR 校验 + 时间范围/数量过滤） ----
-                time.sleep(0.5)   # 模拟采集耗时
-                done_n += 1
+                ok = self._process_task(idx, url, name, wx)
+                if self.stop_event.is_set():
+                    log("已停止：中止后续链接")
+                    break
+                if ok:
+                    done_n += 1
                 self._set_progress(f"进度: {n + 1}/{total}（{name}）",
                                    (n + 1) / total * 100)
         except Exception as e:
             log(f"采集线程异常: {e}")
         finally:
             self.ui_queue.put(("finish", self.stop_event.is_set(), total, done_n))
+
+    def _sleep(self, seconds):
+        """可中断 sleep：分段检查停止信号。被停止返回 True，正常结束返回 False"""
+        end = time.time() + seconds
+        while time.time() < end:
+            if self.stop_event.is_set():
+                return True
+            time.sleep(min(0.2, max(0.01, end - time.time())))
+        return False
+
+    def _process_task(self, idx, url, name, wx):
+        """单个任务流程：
+        1) 聚焦微信窗口，检查是否左半屏，不是则移动并等待0.5秒
+        2) 点击点位1 -> 等0.5秒 -> 输入1 -> 删除 -> 点击点位2
+        3) Ctrl+Shift+W
+        4) 再次：点位1 -> 输入1 -> 删除 -> 点位2（触发新窗口）
+        5) 新窗口调整到左半屏并聚焦（位置没错则仅聚焦）
+        6) 点击点位3 -> 全选删除 -> 输入任务链接（模仿旧项目输入）-> 按回车
+        7) 等待5秒 -> 点击点位4"""
+        # 1) 聚焦微信并确保左半屏
+        if wx:
+            moved = snap_wechat_left(wx[0])
+            if moved:
+                log(f"微信窗口: 已移动到左半屏 [{wx[1]}]，等待0.5秒")
+                if self._sleep(0.5):
+                    log("已停止：中止当前任务")
+                    return False
+            else:
+                log(f"微信窗口: 已在左半屏 [{wx[1]}]，不动")
+        # 加载点位
+        pts = {p[0]: p for p in load_points()}
+        p1 = pts.get(1)
+        p2 = pts.get(2)
+        if not p1 or not p2:
+            log("错误: 缺少点位1或点位2，任务失败")
+            return False
+        # 2) 点击点位1（搜索框）-> 输入1 -> 删除 -> 点击点位2
+        log(f"点击点位1({p1[2]},{p1[3]}) {p1[1]}")
+        mouse_click(p1[2], p1[3])
+        if self._sleep(0.5):
+            log("已停止：中止当前任务")
+            return False
+        log("输入 1")
+        type_text("1")
+        if self._sleep(0.3):
+            log("已停止：中止当前任务")
+            return False
+        log("删除")
+        ctrl_key("A")          # 全选（光标在末尾时 Delete 删不掉，先全选）
+        if self._sleep(0.15):
+            log("已停止：中止当前任务")
+            return False
+        key_press(VK_DELETE)
+        if self._sleep(0.3):
+            log("已停止：中止当前任务")
+            return False
+        log(f"点击点位2({p2[2]},{p2[3]}) {p2[1]}")
+        mouse_click(p2[2], p2[3])
+        if self._sleep(0.5):
+            log("已停止：中止当前任务")
+            return False
+        # 3) Ctrl+Shift+W
+        log("触发 Ctrl+Shift+W")
+        ctrl_shift_key("W")
+        if self._sleep(0.8):
+            log("已停止：中止当前任务")
+            return False
+        # 4) 再次：点位1 -> 输入1 -> 删除 -> 点位2（触发新窗口）
+        log(f"点击点位1({p1[2]},{p1[3]}) {p1[1]}")
+        mouse_click(p1[2], p1[3])
+        if self._sleep(0.5):
+            log("已停止：中止当前任务")
+            return False
+        log("输入 1")
+        type_text("1")
+        if self._sleep(0.3):
+            log("已停止：中止当前任务")
+            return False
+        log("删除")
+        ctrl_key("A")
+        if self._sleep(0.15):
+            log("已停止：中止当前任务")
+            return False
+        key_press(VK_DELETE)
+        if self._sleep(0.3):
+            log("已停止：中止当前任务")
+            return False
+        log(f"点击点位2({p2[2]},{p2[3]}) {p2[1]}")
+        mouse_click(p2[2], p2[3])
+        if self._sleep(2.0):
+            log("已停止：中止当前任务")
+            return False          # 等待新窗口出现
+        # 5) 新窗口：调整到左半屏并聚焦（已就位则仅聚焦）
+        new_win = get_foreground_window_info()
+        if new_win:
+            moved = snap_wechat_left(new_win[0])
+            log(f"新窗口: 调整左半屏并聚焦{'（已就位，仅聚焦）' if not moved else ''} [{new_win[1]}]")
+        else:
+            log("警告: 未获取到新窗口")
+        # 6) 点击点位3 -> 全选删除 -> 输入任务链接（模仿旧项目输入）
+        p3 = pts.get(3)
+        if not p3:
+            log("错误: 缺少点位3，无法输入链接")
+            return False
+        log(f"点击点位3({p3[2]},{p3[3]}) {p3[1]}")
+        mouse_click(p3[2], p3[3])
+        if self._sleep(0.3):
+            log("已停止：中止当前任务")
+            return False
+        ctrl_key("A")          # 全选
+        if self._sleep(0.15):
+            log("已停止：中止当前任务")
+            return False
+        key_press(VK_DELETE)    # 清空
+        if self._sleep(0.15):
+            log("已停止：中止当前任务")
+            return False
+        log(f"输入任务链接(剪贴板粘贴): {url}")
+        if not set_clipboard_text(url):
+            log("错误: 剪贴板写入失败，改用逐字输入")
+            type_text(url)
+        else:
+            ctrl_key("V")       # 粘贴
+        if self._sleep(0.3):
+            log("已停止：中止当前任务")
+            return False
+        log("按回车")
+        key_press(VK_RETURN)
+        log("等待 5 秒加载...")
+        if self._sleep(5):
+            log("已停止：中止当前任务")
+            return False
+        # 7) 点击点位4
+        p4 = pts.get(4)
+        if not p4:
+            log("错误: 缺少点位4，任务失败")
+            return False
+        log(f"点击点位4({p4[2]},{p4[3]}) {p4[1]}")
+        mouse_click(p4[2], p4[3])
+        if self._sleep(0.5):
+            log("已停止：中止当前任务")
+            return False
+        return True
 
     def _finish_collection(self, stopped, total, done_n):
         """采集结束：恢复按钮/进度状态（main 保持右半屏，不恢复居中）"""

@@ -7,3 +7,6 @@ config/ui_state.json
 
 # 测试截图
 _ui.png
+
+# pi 工具本地数据
+.pi/
