@@ -30,7 +30,7 @@ from datetime import date, datetime, timedelta
 from tkinter import messagebox, scrolledtext, ttk
 
 APP_NAME = "微信公众号OCR采集器"
-VERSION = ""                     # 程序版本待定
+VERSION = "V1.0.0"
 WECHAT_VERSION = "4.1.11.24"    # 依赖: 微信 PC 版版本
 
 UI_LOG_HOOK = None          # GUI 日志回调
@@ -2241,6 +2241,23 @@ class App:
                 log("错误: OCR 未识别到时间卡片（列表页异常），任务失败")
                 self.last_error = "未识别到文章卡片"
                 return False
+            # 同一卡片去重：y 差值 < 文章卡片高度视为同一张，保留最上面（顺序优先）的
+            try:
+                card_h = int(float(getattr(self, "card_height_var").get()))
+            except (AttributeError, ValueError):
+                card_h = 130
+            if card_h > 0:
+                sorted_cards = sorted(cards, key=lambda c: c[1])
+                dedup = []
+                last_y = None
+                for c in sorted_cards:
+                    if last_y is not None and (c[1] - last_y) < card_h:
+                        continue
+                    dedup.append(c)
+                    last_y = c[1]
+                if len(dedup) < len(cards):
+                    log(f"同一卡片去重: {len(cards)} -> {len(dedup)}（卡片高度 {card_h}px）")
+                cards = dedup
             log(f"识别到 {len(cards)} 个文章卡片（含时间）")
             for i, (cx, cy, text) in enumerate(cards):
                 if self.stop_event.is_set():
