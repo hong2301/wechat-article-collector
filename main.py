@@ -30,7 +30,7 @@ from datetime import date, datetime, timedelta
 from tkinter import messagebox, scrolledtext, ttk
 
 APP_NAME = "微信公众号OCR采集器"
-VERSION = "V1.0.1"
+VERSION = "V1.0.3"
 WECHAT_VERSION = "4.1.11.24"    # 依赖: 微信 PC 版版本
 
 UI_LOG_HOOK = None          # GUI 日志回调
