@@ -16,3 +16,8 @@ log.txt
 
 # 采集结果
 下载/
+
+# PyInstaller 产物
+build/
+dist/
+*.zip

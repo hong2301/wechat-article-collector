@@ -30,7 +30,7 @@ from datetime import date, datetime, timedelta
 from tkinter import messagebox, scrolledtext, ttk
 
 APP_NAME = "微信公众号OCR采集器"
-VERSION = "V1.0.0"
+VERSION = "V1.0.1"
 WECHAT_VERSION = "4.1.11.24"    # 依赖: 微信 PC 版版本
 
 UI_LOG_HOOK = None          # GUI 日志回调
@@ -1825,6 +1825,8 @@ class App:
                     self._snap_main_right()
                 elif kind == "height":
                     self.card_height_var.set(str(item[1]))
+                elif kind == "refresh_input":
+                    self.reload_input("")      # 静默刷新任务区（状态已更新）
                 elif kind == "finish":
                     self._finish_collection(item[1], item[2], item[3])
         except queue.Empty:
@@ -1963,9 +1965,8 @@ class App:
 
         # 解析时间范围为日期区间（None = 不限）
         time_range_dates = self._resolve_time_range(tr, cstart, cend)
-        # 本次采集会话目录：下载/开始时间戳
-        self.session_dir = os.path.join(_script_dir(), "下载",
-                                        time.strftime("%Y%m%d_%H%M%S"))
+        # 固定下载目录（不按开始时间分目录，一批任务可多次进行）
+        self.session_dir = os.path.join(_script_dir(), "下载")
         self.max_count_setting = max_count
         self.time_range_dates = time_range_dates
         log(f"文章保存目录: {self.session_dir}")
@@ -2037,6 +2038,8 @@ class App:
                 else:
                     update_input_status(idx, f"error:{self.last_error or '流程失败'}")
                     log(f"任务 {idx} 失败，状态=error: {self.last_error}")
+                # 通知主线程刷新任务区（状态已写入 input.csv）
+                self.ui_queue.put(("refresh_input",))
                 self._set_progress(f"进度: {n + 1}/{total}（{name}）",
                                    (n + 1) / total * 100)
         except Exception as e:
@@ -2198,6 +2201,7 @@ class App:
         停止条件: 无卡片 / 达到最大数量 / 文章时间超出范围"""
         # 本任务成功下载计数
         self.collected_count = 0
+        self._time_out_count = 0   # 时间范围外容错计数（置顶旧文章最多2篇）
         self._exit_loop = False
         log("等待 5 秒加载文章列表页...")
         if self._sleep(5):
@@ -2241,6 +2245,22 @@ class App:
                 log("错误: OCR 未识别到时间卡片（列表页异常），任务失败")
                 self.last_error = "未识别到文章卡片"
                 return False
+            # 第一次 OCR：找"私信"点位，只保留 y 值大于私信点位的卡片（过滤顶部误匹配）
+            if loop_n == 1:
+                sixin_y = None
+                for it in items:
+                    if "私信" in it[2]:
+                        sixin_y = it[1]
+                        log(f"找到'私信'点位 y={sixin_y}")
+                        break
+                if sixin_y is not None:
+                    before = len(cards)
+                    cards = [c for c in cards if c[1] > sixin_y]
+                    log(f"过滤私信上方点位: {before} -> {len(cards)}")
+                    if not cards:
+                        log("错误: 过滤后无合法卡片（列表页异常），任务失败")
+                        self.last_error = "未识别到文章卡片"
+                        return False
             # 同一卡片去重：y 差值 < 文章卡片高度视为同一张，保留最上面（顺序优先）的
             try:
                 card_h = int(float(getattr(self, "card_height_var").get()))
@@ -2404,8 +2424,12 @@ class App:
                 d = date.fromisoformat(pub_time[:10])
                 start_d, end_d = self.time_range_dates
                 if d < start_d or d > end_d:
-                    log(f"文章时间 {pub_time} 不在范围内({start_d}~{end_d})，退出循环")
-                    return "stop"
+                    # 置顶旧文章容错：最多容忍 2 篇时间范围外
+                    self._time_out_count = getattr(self, "_time_out_count", 0) + 1
+                    if self._time_out_count > 2:
+                        log(f"文章时间 {pub_time} 不在范围内({start_d}~{end_d})，已超2篇容错，退出循环")
+                        return "stop"
+                    log(f"文章时间 {pub_time} 不在范围内（置顶旧文章，容忍 {self._time_out_count}/2，继续）")
             except Exception:
                 pass
         # 最大下载数量检测：达到则退出循环
