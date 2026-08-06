@@ -39,6 +39,7 @@ CONSOLE_PRINT = True        # 是否同时打印控制台
 CONFIG_DIR = "config"
 INPUT_CSV = "input.csv"
 UI_STATE_FILE = "ui_state.json"
+COLLECTED_CSV = "collected.csv"   # 采集记录（公众号/日期/标题/链接）
 
 # ---------------- 时间范围选项 ----------------
 TIME_OPTIONS = (
@@ -973,6 +974,25 @@ def update_input_status(idx, status):
 # ================= 数据层（points.csv） =================
 def _points_path():
     return os.path.join(_config_dir(), "points.csv")
+
+
+def _collected_path():
+    return os.path.join(_config_dir(), COLLECTED_CSV)
+
+
+def append_collected(gzh, pub_time, title, link):
+    """追加一条采集记录到 config/collected.csv（线程安全）"""
+    path = _collected_path()
+    try:
+        with _log_lock:
+            new_file = not os.path.isfile(path)
+            with open(path, "a", encoding="utf-8-sig", newline="") as f:
+                w = csv.writer(f)
+                if new_file:
+                    w.writerow(["公众号名称", "日期", "标题", "链接"])
+                w.writerow([gzh, pub_time or "", title or "", link or ""])
+    except Exception as e:
+        log(f"写入采集记录失败: {e}")
 
 
 def load_points():
@@ -2402,7 +2422,11 @@ class App:
                 self.last_error = "抓取文章失败"
                 return False
             title, pub_time = fetched
-            save_path = os.path.join(save_dir, clean_filename(title or "untitled") + ".html")
+            # 文件名：日期_标题.html（日期开头）
+            _stem = clean_filename(title or "untitled")
+            _date = (pub_time or "")[:10]
+            _fname = f"{_date}_{_stem}.html" if _date else f"{_stem}.html"
+            save_path = os.path.join(save_dir, _fname)
             fetched2 = fetch_article(link, save_path)
             if fetched2 is None:
                 log("错误: 抓取文章失败（HTML 保存失败），任务失败")
@@ -2415,7 +2439,9 @@ class App:
                 self.last_error = "抓取文章失败"
                 return False
             title, pub_time = fetched
-        log(f"文章抓取成功: 标题[{title}] 时间[{pub_time}] 保存[{save_path or '未保存'}]") if title else None
+        log(f"文章抓取成功: 标题[{title}] 时间[{pub_time}] 保存[{save_path or '未保存'}]")
+        # 写入采集记录 CSV（公众号/日期/标题/链接）
+        append_collected(name, pub_time or "", title or "", link)
         # 记录一次文章获取成功
         self.collected_count = getattr(self, "collected_count", 0) + 1
         # 时间范围检测：不在范围内则退出循环
