@@ -30,7 +30,7 @@ from datetime import date, datetime, timedelta
 from tkinter import messagebox, scrolledtext, ttk
 
 APP_NAME = "微信公众号OCR采集器"
-VERSION = "V1.0.3"
+VERSION = "V1.1.0"
 WECHAT_VERSION = "4.1.11.24"    # 依赖: 微信 PC 版版本
 
 UI_LOG_HOOK = None          # GUI 日志回调
@@ -622,6 +622,17 @@ def scroll_down_at(x, y, pixels, px_per_tick=120):
         time.sleep(0.05)
 
 
+def scroll_up_at(x, y, pixels, px_per_tick=120):
+    """鼠标移动到 (x,y) 后向上滚动 pixels 像素（往回翻页用）"""
+    u32 = _u32()
+    u32.SetCursorPos(int(x), int(y))
+    time.sleep(0.1)
+    ticks = max(1, int(pixels / px_per_tick))
+    for _ in range(ticks):
+        u32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, WHEEL_DELTA, None)  # 正值=向上
+        time.sleep(0.05)
+
+
 def type_text(text, char_delay=0.012):
     """用 SendInput 逐字符输入文本（UNICODE 方式，支持任意字符）"""
     text = str(text)
@@ -724,6 +735,62 @@ TIME_PATTERNS = (
     r"\d{1,2}[-/]\d{1,2}",                  # 08-05 / 8/5（今年月日）
 )
 TIME_RE = re.compile("|".join(f"({p})" for p in TIME_PATTERNS))
+
+
+# 星期汉字 -> 0-6（周一=0）
+_WEEKDAY_CN = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6}
+
+
+def resolve_article_date(text, today=None):
+    """把 OCR 识别到的时间文本解析为绝对日期(date)，按当前时间推断；失败返回 None
+    支持: 今天/昨天/前天、x天前、星期X/周X/礼拜X、YYYY-MM-DD、X月X日、MM-DD"""
+    today = today or date.today()
+    text = str(text).strip()
+    # 绝对日期 YYYY[-/.]M[-/.]D
+    m = re.search(r"(\d{4})[-/. ](\d{1,2})[-/. ](\d{1,2})", text)
+    if m:
+        try:
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            pass
+    # 今天 / 昨天 / 前天
+    if "今天" in text:
+        return today
+    if "昨天" in text:
+        return today - timedelta(days=1)
+    if "前天" in text:
+        return today - timedelta(days=2)
+    # x天前
+    m = re.search(r"(\d+)\s*天前", text)
+    if m:
+        return today - timedelta(days=int(m.group(1)))
+    # 星期X / 周X / 礼拜X：最近的那个星期几（今天或之前）
+    m = re.search(r"(?:星期|周|礼拜)([一二三四五六日天])", text)
+    if m:
+        wd = _WEEKDAY_CN[m.group(1)]
+        delta = (today.weekday() - wd) % 7
+        return today - timedelta(days=delta)
+    # X月X日（默认今年；若晚于今天则视为去年）
+    m = re.search(r"(\d{1,2})月(\d{1,2})日?", text)
+    if m:
+        try:
+            d = date(today.year, int(m.group(1)), int(m.group(2)))
+        except ValueError:
+            return None
+        if d > today:
+            d = date(today.year - 1, int(m.group(1)), int(m.group(2)))
+        return d
+    # MM-DD / M/D（默认今年；若晚于今天则视为去年）
+    m = re.search(r"(\d{1,2})[-/](\d{1,2})", text)
+    if m:
+        try:
+            d = date(today.year, int(m.group(1)), int(m.group(2)))
+        except ValueError:
+            return None
+        if d > today:
+            d = date(today.year - 1, int(m.group(1)), int(m.group(2)))
+        return d
+    return None
 
 
 def get_ocr_engine():
@@ -981,18 +1048,31 @@ def _collected_path():
 
 
 def append_collected(gzh, pub_time, title, link):
-    """追加一条采集记录到 config/collected.csv（线程安全）"""
+    """追加一条采集记录到 config/collected.csv（线程安全，按链接去重）
+    返回: "add"=已新增 / "skip"=已存在跳过 / "error"=写入失败"""
     path = _collected_path()
+    link = (link or "").strip()
+    if not link:
+        return "skip"
     try:
         with _log_lock:
+            existing = set()
+            if os.path.isfile(path):
+                with open(path, encoding="utf-8-sig", newline="") as f:
+                    for r in csv.DictReader(f):
+                        existing.add((r.get("链接") or "").strip())
+            if link in existing:
+                return "skip"
             new_file = not os.path.isfile(path)
             with open(path, "a", encoding="utf-8-sig", newline="") as f:
                 w = csv.writer(f)
                 if new_file:
                     w.writerow(["公众号名称", "日期", "标题", "链接"])
-                w.writerow([gzh, pub_time or "", title or "", link or ""])
+                w.writerow([gzh, pub_time or "", title or "", link])
+            return "add"
     except Exception as e:
         log(f"写入采集记录失败: {e}")
+        return "error"
 
 
 def load_points():
@@ -1989,6 +2069,7 @@ class App:
         self.session_dir = os.path.join(_script_dir(), "下载")
         self.max_count_setting = max_count
         self.time_range_dates = time_range_dates
+        self.is_custom_mode = (tr == CUSTOM)   # 自定义时间范围模式标志
         log(f"文章保存目录: {self.session_dir}")
         rows = self.input_rows[s:e + 1]
         todo = [r for r in rows if r[3] in ("pending", "null") or "error" in r[3]]
@@ -2223,6 +2304,7 @@ class App:
         self.collected_count = 0
         self._time_out_count = 0   # 时间范围外容错计数（置顶旧文章最多2篇）
         self._exit_loop = False
+        self._found_start = False  # 自定义模式：是否已找到范围开始点
         log("等待 5 秒加载文章列表页...")
         if self._sleep(5):
             log("已停止：中止当前任务")
@@ -2299,30 +2381,88 @@ class App:
                     log(f"同一卡片去重: {len(cards)} -> {len(dedup)}（卡片高度 {card_h}px）")
                 cards = dedup
             log(f"识别到 {len(cards)} 个文章卡片（含时间）")
-            for i, (cx, cy, text) in enumerate(cards):
-                if self.stop_event.is_set():
-                    log("已停止：中止文章采集")
+            # ---- 遍历卡片：自定义模式按时间范围判断点击/跳过 ----
+            is_custom = getattr(self, "is_custom_mode", False)
+            tr_dates = getattr(self, "time_range_dates", None)
+            if is_custom and tr_dates:
+                # 自定义模式：解析日期，范围内点击/范围外跳过；置顶文章单独处理
+                start_d, end_d = tr_dates
+                _today = date.today()
+                sorted_cards = sorted(cards, key=lambda c: c[1])
+                dated = [(c, resolve_article_date(c[2], _today)) for c in sorted_cards]
+                # 置顶识别：仅第一页前3个点位，出现旧->新回升说明有置顶（最多2篇）
+                pinned_count = 0
+                if loop_n == 1:
+                    for i in range(1, min(3, len(dated))):
+                        dp, dc = dated[i - 1][1], dated[i][1]
+                        if dp and dc and dc > dp:
+                            pinned_count = i
+                            break
+                if pinned_count:
+                    log(f"识别到 {pinned_count} 个置顶文章（时间跳变），置顶不计入范围定位")
+                page_has_in_range = False
+                for n, (card, d) in enumerate(dated):
+                    if self.stop_event.is_set():
+                        log("已停止：中止文章采集")
+                        break
+                    cx, cy, text = card
+                    is_pinned = n < pinned_count
+                    in_range = d is not None and start_d <= d <= end_d
+                    if in_range:
+                        if not is_pinned:
+                            self._found_start = True
+                            page_has_in_range = True
+                        log(f"点击文章卡片 {n + 1}/{len(dated)} ({cx},{cy}) 时间[{text}] 日期[{d}]")
+                        mouse_click(cx, cy)
+                        log("等待 5 秒加载文章...")
+                        if self._sleep(5):
+                            log("已停止：中止当前任务")
+                            break
+                        r = self._collect_article_link(pts, name)
+                        if r is False:
+                            log("文章操作失败，任务标记 error")
+                            return False
+                        if r == "stop":
+                            log("达到停止条件，退出文章采集循环")
+                            self._exit_loop = True
+                            break
+                        log("Ctrl+W 关闭文章")
+                        ctrl_key("W")
+                        if self._sleep(1):
+                            log("已停止：中止当前任务")
+                            break
+                    else:
+                        tag = "置顶" if is_pinned else ""
+                        log(f"跳过卡片 ({cx},{cy}) 时间[{text}] 日期[{d or '无法解析'}] 不在范围 {start_d}~{end_d}{('（' + tag + '）') if tag else ''}")
+                # 停止判定：已找到开始点，但本页无任何正常范围内点位 -> 范围结束
+                if self._found_start and not page_has_in_range:
+                    log("已找到范围结束点（本页无范围内点位），结束文章采集")
                     break
-                log(f"点击文章卡片 {i + 1}/{len(cards)} ({cx},{cy}) 时间[{text}]")
-                mouse_click(cx, cy)
-                log("等待 5 秒加载文章...")
-                if self._sleep(5):
-                    log("已停止：中止当前任务")
-                    break
-                # ---- 正式文章操作：点位8 -> OCR找复制链接 -> 点击 -> 抓取保存 ----
-                r = self._collect_article_link(pts, name)
-                if r is False:
-                    log("文章操作失败，任务标记 error")
-                    return False
-                if r == "stop":
-                    log("达到停止条件，退出文章采集循环")
-                    self._exit_loop = True
-                    break
-                log("Ctrl+W 关闭文章")
-                ctrl_key("W")
-                if self._sleep(1):
-                    log("已停止：中止当前任务")
-                    break
+            else:
+                # 非自定义模式：原逻辑（全部点击，时间检测在点击后）
+                for i, (cx, cy, text) in enumerate(cards):
+                    if self.stop_event.is_set():
+                        log("已停止：中止文章采集")
+                        break
+                    log(f"点击文章卡片 {i + 1}/{len(cards)} ({cx},{cy}) 时间[{text}]")
+                    mouse_click(cx, cy)
+                    log("等待 5 秒加载文章...")
+                    if self._sleep(5):
+                        log("已停止：中止当前任务")
+                        break
+                    r = self._collect_article_link(pts, name)
+                    if r is False:
+                        log("文章操作失败，任务标记 error")
+                        return False
+                    if r == "stop":
+                        log("达到停止条件，退出文章采集循环")
+                        self._exit_loop = True
+                        break
+                    log("Ctrl+W 关闭文章")
+                    ctrl_key("W")
+                    if self._sleep(1):
+                        log("已停止：中止当前任务")
+                        break
             # 全部点击完毕：鼠标移到点位7，向下滚动 70% 屏高，刷新列表
             log(f"全部点击完毕，移动鼠标到点位7({p7[2]},{p7[3]}) 向下滚动 {scroll_px}px")
             scroll_down_at(int(p7[2]), int(p7[3]), scroll_px)
@@ -2440,8 +2580,12 @@ class App:
                 return False
             title, pub_time = fetched
         log(f"文章抓取成功: 标题[{title}] 时间[{pub_time}] 保存[{save_path or '未保存'}]")
-        # 写入采集记录 CSV（公众号/日期/标题/链接）
-        append_collected(name, pub_time or "", title or "", link)
+        # 写入采集记录 CSV（公众号/日期/标题/链接，按链接去重）
+        rec = append_collected(name, pub_time or "", title or "", link)
+        if rec == "skip":
+            log(f"采集记录已存在，跳过写入: {link}")
+        elif rec == "error":
+            log("采集记录写入失败")
         # 记录一次文章获取成功
         self.collected_count = getattr(self, "collected_count", 0) + 1
         # 时间范围检测：不在范围内则退出循环
