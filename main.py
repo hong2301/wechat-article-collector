@@ -29,11 +29,12 @@ import sys
 import threading
 import time
 import tkinter as tk
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 from tkinter import messagebox, scrolledtext, ttk
 
 APP_NAME = "微信公众号OCR采集器"
-VERSION = "V1.1.0"
+VERSION = "V1.1.1"
 WECHAT_VERSION = "4.1.11.24"    # 依赖: 微信 PC 版版本
 
 UI_LOG_HOOK = None          # GUI 日志回调
@@ -2201,7 +2202,7 @@ class App:
         # 3) Ctrl+Shift+W
         log("触发 Ctrl+Shift+W")
         ctrl_shift_key("W")
-        if self._sleep(0.8):
+        if self._sleep(0.3):
             log("已停止：中止当前任务")
             return False
         # 4) 再次：点位1 -> 输入1 -> 删除 -> 点位2（触发新窗口）
@@ -2223,9 +2224,6 @@ class App:
             return False
         log(f"点击点位2({p2[2]},{p2[3]}) {p2[1]}")
         mouse_click(p2[2], p2[3])
-        if self._sleep(2.0):
-            log("已停止：中止当前任务")
-            return False          # 等待新窗口出现
         # 5) 新窗口：调整到左半屏并聚焦（已就位则仅聚焦）
         new_win = get_foreground_window_info()
         if new_win:
@@ -2275,6 +2273,71 @@ class App:
         # 8) 文章列表页：OCR 采集循环
         return self._collect_articles(pts, name)
 
+    def _check_fetch_results(self):
+        """检查后台抓取线程结果，处理写入记录和时间范围检测
+        返回 True 表示需要停止（达到停止条件）"""
+        if not hasattr(self, "_pending_futures") or not self._pending_futures:
+            return False
+        stop_needed = False
+        finished = []
+        for future, link, name in self._pending_futures:
+            if not future.done():
+                continue
+            finished.append((future, link, name))
+            try:
+                title, pub_time, save_path, error = future.result()
+                if error:
+                    log(f"后台抓取失败: {link} - {error}")
+                    continue
+                log(f"后台抓取完成: 标题[{title}] 时间[{pub_time}] 保存[{save_path or '未保存'}]")
+                # 写入采集记录
+                rec = append_collected(name, pub_time or "", title or "", link)
+                if rec == "skip":
+                    log(f"采集记录已存在，跳过写入: {link}")
+                elif rec == "error":
+                    log("采集记录写入失败")
+                # 记录一次文章获取成功
+                self.collected_count = getattr(self, "collected_count", 0) + 1
+                # 时间范围检测（延后判定）
+                if pub_time and getattr(self, "time_range_dates", None):
+                    try:
+                        d = date.fromisoformat(pub_time[:10])
+                        start_d, end_d = self.time_range_dates
+                        if d < start_d or d > end_d:
+                            self._time_out_count = getattr(self, "_time_out_count", 0) + 1
+                            if self._time_out_count > 2:
+                                log(f"文章时间 {pub_time} 不在范围内({start_d}~{end_d})，已超2篇容错")
+                                stop_needed = True
+                            else:
+                                log(f"文章时间 {pub_time} 不在范围内（置顶旧文章，容忍 {self._time_out_count}/2）")
+                    except Exception:
+                        pass
+                # 最大下载数量检测
+                mc = getattr(self, "max_count_setting", None)
+                if mc and self.collected_count >= mc:
+                    log(f"已达到最大下载数量 {mc}")
+                    stop_needed = True
+            except Exception as e:
+                log(f"处理后台结果异常: {e}")
+        # 移除已完成的任务
+        for item in finished:
+            self._pending_futures.remove(item)
+        return stop_needed
+
+    def _wait_all_fetches(self):
+        """等待所有后台抓取线程完成"""
+        if not hasattr(self, "_pending_futures"):
+            return
+        log(f"等待 {len(self._pending_futures)} 个后台抓取任务完成...")
+        for future, link, name in self._pending_futures:
+            try:
+                future.result(timeout=30)  # 最多等30秒
+            except Exception:
+                pass
+        self._pending_futures.clear()
+        # 最后检查一次结果
+        self._check_fetch_results()
+
     # ---------- 文章采集循环（OCR） ----------
     def _collect_articles(self, pts, name):
         """文章列表循环采集：
@@ -2285,10 +2348,7 @@ class App:
         self._time_out_count = 0   # 时间范围外容错计数（置顶旧文章最多2篇）
         self._exit_loop = False
         self._found_start = False  # 自定义模式：是否已找到范围开始点
-        log("等待 5 秒加载文章列表页...")
-        if self._sleep(5):
-            log("已停止：中止当前任务")
-            return False
+        # 等待文章列表加载（由 OCR 识别过程自然加载，无需额外等待）
         p5 = pts.get(5)
         p7 = pts.get(7)
         if not p5 or not p7:
@@ -2314,6 +2374,11 @@ class App:
                 break
             if self._exit_loop:
                 break
+            # 检查后台抓取线程结果（延后判定停止条件）
+            if self._check_fetch_results():
+                log("后台任务触发停止条件，走完当前任务后停止")
+                self._exit_loop = True
+                break
             loop_n += 1
             log(f"--- 列表循环 {loop_n}：OCR 识别中 ---")
             try:
@@ -2323,6 +2388,16 @@ class App:
                 self.last_error = f"OCR 失败: {e}"
                 return False
             cards = find_time_items(items)
+            # 如果没有识别到时间卡片，重试一次（列表可能还在加载）
+            if not cards:
+                log("OCR 未识别到时间卡片，重试一次...")
+                try:
+                    items = ocr_region(box)
+                except Exception as e:
+                    log(f"OCR 重试失败: {e}")
+                    self.last_error = f"OCR 失败: {e}"
+                    return False
+                cards = find_time_items(items)
             if not cards:
                 log("错误: OCR 未识别到时间卡片（列表页异常），任务失败")
                 self.last_error = "未识别到文章卡片"
@@ -2393,10 +2468,6 @@ class App:
                             page_has_in_range = True
                         log(f"点击文章卡片 {n + 1}/{len(dated)} ({cx},{cy}) 时间[{text}] 日期[{d}]")
                         mouse_click(cx, cy)
-                        log("等待 5 秒加载文章...")
-                        if self._sleep(5):
-                            log("已停止：中止当前任务")
-                            break
                         r = self._collect_article_link(pts, name)
                         if r is False:
                             log("文章操作失败，任务标记 error")
@@ -2407,9 +2478,6 @@ class App:
                             break
                         log("Ctrl+W 关闭文章")
                         ctrl_key("W")
-                        if self._sleep(1):
-                            log("已停止：中止当前任务")
-                            break
                     else:
                         tag = "置顶" if is_pinned else ""
                         log(f"跳过卡片 ({cx},{cy}) 时间[{text}] 日期[{d or '无法解析'}] 不在范围 {start_d}~{end_d}{('（' + tag + '）') if tag else ''}")
@@ -2425,10 +2493,6 @@ class App:
                         break
                     log(f"点击文章卡片 {i + 1}/{len(cards)} ({cx},{cy}) 时间[{text}]")
                     mouse_click(cx, cy)
-                    log("等待 5 秒加载文章...")
-                    if self._sleep(5):
-                        log("已停止：中止当前任务")
-                        break
                     r = self._collect_article_link(pts, name)
                     if r is False:
                         log("文章操作失败，任务标记 error")
@@ -2439,7 +2503,13 @@ class App:
                         break
                     log("Ctrl+W 关闭文章")
                     ctrl_key("W")
-            # 全部点击完毕：鼠标移到点位7，向下滚动 70% 屏高，刷新列表
+            # 全部点击完毕：滚动前先检查后台结果（可能已触发停止条件）
+            if self._check_fetch_results():
+                log("后台任务触发停止条件，不再滚动，结束文章采集")
+                self._exit_loop = True
+                break
+            if self._exit_loop:  # 达到停止条件则不滚动
+                break
             log(f"全部点击完毕，移动鼠标到点位7({p7[2]},{p7[3]}) 向下滚动 {scroll_px}px")
             scroll_down_at(int(p7[2]), int(p7[3]), scroll_px)
             log("等待 1 秒列表刷新...")
@@ -2451,6 +2521,8 @@ class App:
             log(f"本任务共收集 {len(self.collected_links)} 个文章链接:")
             for n, link in enumerate(self.collected_links, 1):
                 log(f"  [{n}] {link}")
+        # 等待所有后台抓取任务完成
+        self._wait_all_fetches()
         return True
 
     def _collect_article_link(self, pts, name):
@@ -2475,19 +2547,23 @@ class App:
             log(f"--- 复制链接尝试 {attempt}/3 ---")
             log(f"点击点位8({p8[2]},{p8[3]}) {p8[1]}")
             mouse_click(int(p8[2]), int(p8[3]))
-            log("等待 2 秒菜单弹出...")
-            if self._sleep(2):
-                log("已停止：中止当前任务")
-                return False
-            # OCR 找"复制链接"
-            log(f"OCR 识别复制链接区域: {box}")
-            try:
-                items = ocr_region(box)
-            except Exception as e:
-                log(f"OCR 失败: {e}")
-                self.last_error = f"OCR 失败: {e}"
-                return False
-            target = next((it for it in items if "复制链接" in it[2] or "复制" in it[2]), None)
+            # OCR 找"复制链接"（识别到说明文章已加载）
+            target = None
+            for ocr_try in range(3):  # 最多重试3次OCR
+                if self.stop_event.is_set():
+                    log("已停止：中止当前任务")
+                    return False
+                log(f"OCR 识别复制链接区域: {box}")
+                try:
+                    items = ocr_region(box)
+                except Exception as e:
+                    log(f"OCR 失败: {e}")
+                    self.last_error = f"OCR 失败: {e}"
+                    return False
+                target = next((it for it in items if "复制链接" in it[2] or "复制" in it[2]), None)
+                if target:
+                    break
+                log(f"未识别到'复制链接'，重试OCR...({ocr_try + 1}/3)")
             if not target:
                 log(f"尝试{attempt}: 未识别到'复制链接'")
                 continue
@@ -2521,68 +2597,41 @@ class App:
             self.collected_links = []
         self.collected_links.append(link)
         log(f"已复制文章链接: {link}")
-        # ---- 抓取文章：标题/时间 + 保存 HTML ----
-        title, pub_time = None, None
-        # 保存路径：会话目录/公众号名称/标题.html
-        try:
-            save_dir = os.path.join(self.session_dir, clean_filename(name))
-            os.makedirs(save_dir, exist_ok=True)
-        except Exception:
-            save_dir = None
-        save_path = None
-        if save_dir:
-            # 先抓取到标题才能定文件名
-            fetched = fetch_article(link, save_path=None)
-            if fetched is None:
-                log("错误: 抓取文章失败（标题/时间获取失败），任务失败")
-                self.last_error = "抓取文章失败"
-                return False
-            title, pub_time = fetched
-            # 文件名：日期_标题.html（日期开头）
-            _stem = clean_filename(title or "untitled")
-            _date = (pub_time or "")[:10]
-            _fname = f"{_date}_{_stem}.html" if _date else f"{_stem}.html"
-            save_path = os.path.join(save_dir, _fname)
-            fetched2 = fetch_article(link, save_path)
-            if fetched2 is None:
-                log("错误: 抓取文章失败（HTML 保存失败），任务失败")
-                self.last_error = "抓取文章失败"
-                return False
-        else:
-            fetched = fetch_article(link)
-            if fetched is None:
-                log("错误: 抓取文章失败，任务失败")
-                self.last_error = "抓取文章失败"
-                return False
-            title, pub_time = fetched
-        log(f"文章抓取成功: 标题[{title}] 时间[{pub_time}] 保存[{save_path or '未保存'}]")
-        # 写入采集记录 CSV（公众号/日期/标题/链接，按链接去重）
-        rec = append_collected(name, pub_time or "", title or "", link)
-        if rec == "skip":
-            log(f"采集记录已存在，跳过写入: {link}")
-        elif rec == "error":
-            log("采集记录写入失败")
-        # 记录一次文章获取成功
-        self.collected_count = getattr(self, "collected_count", 0) + 1
-        # 时间范围检测：不在范围内则退出循环
-        if pub_time and getattr(self, "time_range_dates", None):
+        # ---- 异步抓取文章：标题/时间 + 保存 HTML（后台执行，不阻塞主流程） ----
+        def _fetch_task():
+            """后台抓取任务"""
             try:
-                d = date.fromisoformat(pub_time[:10])
-                start_d, end_d = self.time_range_dates
-                if d < start_d or d > end_d:
-                    # 置顶旧文章容错：最多容忍 2 篇时间范围外
-                    self._time_out_count = getattr(self, "_time_out_count", 0) + 1
-                    if self._time_out_count > 2:
-                        log(f"文章时间 {pub_time} 不在范围内({start_d}~{end_d})，已超2篇容错，退出循环")
-                        return "stop"
-                    log(f"文章时间 {pub_time} 不在范围内（置顶旧文章，容忍 {self._time_out_count}/2，继续）")
+                save_dir = os.path.join(self.session_dir, clean_filename(name))
+                os.makedirs(save_dir, exist_ok=True)
             except Exception:
-                pass
-        # 最大下载数量检测：达到则退出循环
-        mc = getattr(self, "max_count_setting", None)
-        if mc and self.collected_count >= mc:
-            log(f"已达到最大下载数量 {mc}，退出循环")
-            return "stop"
+                save_dir = None
+            save_path = None
+            if save_dir:
+                fetched = fetch_article(link, save_path=None)
+                if fetched is None:
+                    return None, None, None, "标题/时间获取失败"
+                title, pub_time = fetched
+                _stem = clean_filename(title or "untitled")
+                _date = (pub_time or "")[:10]
+                _fname = f"{_date}_{_stem}.html" if _date else f"{_stem}.html"
+                save_path = os.path.join(save_dir, _fname)
+                fetched2 = fetch_article(link, save_path)
+                if fetched2 is None:
+                    return None, None, None, "HTML 保存失败"
+            else:
+                fetched = fetch_article(link)
+                if fetched is None:
+                    return None, None, None, "抓取失败"
+                title, pub_time = fetched
+            return title, pub_time, save_path, None
+        # 提交到线程池异步执行
+        if not hasattr(self, "_fetch_executor"):
+            self._fetch_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="fetch")
+        if not hasattr(self, "_pending_futures"):
+            self._pending_futures = []
+        future = self._fetch_executor.submit(_fetch_task)
+        self._pending_futures.append((future, link, name))
+        # 不等待结果，直接返回继续处理下一个卡片
         return True
 
     def _finish_collection(self, stopped, total, done_n):
