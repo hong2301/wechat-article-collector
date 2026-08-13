@@ -551,16 +551,27 @@ class HeightCollector:
                 continue
             if paused:
                 continue
-            # 双击：确认最新一对
-            if (last_x is not None
-                    and (evt_t - last_t) * 1000 <= dbl_ms
-                    and abs(x - last_x) <= dbl_cx
-                    and abs(y - last_y) <= dbl_cy):
+            # 双击检测：连续两次快速点击
+            is_dbl = (last_x is not None
+                      and (evt_t - last_t) * 1000 <= dbl_ms
+                      and abs(x - last_x) <= dbl_cx
+                      and abs(y - last_y) <= dbl_cy)
+            # 双击：确认最新一对（不添加新点，直接返回之前的点）
+            if is_dbl:
                 if len(points) >= 2:
                     y1, y2 = points[-2][1], points[-1][1]
                     h = abs(y1 - y2)
                     log(f"已确认: 文章卡片高度 = |{y1} - {y2}| = {h}px")
                     return y1, y2, h
+                continue
+            # 如果 points 已有偶数个点（完整一对），且这次点击可能是双击确认的第一下
+            # 则只更新 last，不添加到 points，等第二次点击来确认
+            if (len(points) >= 2 and len(points) % 2 == 0
+                    and last_x is not None
+                    and (evt_t - last_t) * 1000 <= dbl_ms * 1.2  # 稍宽松
+                    and abs(x - last_x) <= dbl_cx * 1.2
+                    and abs(y - last_y) <= dbl_cy * 1.2):
+                last_x, last_y, last_t = x, y, evt_t
                 continue
             points.append((x, y))
             n = len(points)
