@@ -524,7 +524,8 @@ class HeightCollector:
         _u32().UnhookWindowsHookEx(h)
 
     def run(self):
-        """阻塞采集：返回 (y1, y2, 高度) 或 None(钩子失败)"""
+        """阻塞采集：返回 (y1, y2, 高度) 或 None(钩子失败)
+        流程：单击第一个点 -> 单击第二个点 -> 再单击一下确认（返回高度）"""
         threading.Thread(target=self._hook_thread, daemon=True).start()
         if not self.hook_ready.wait(3):
             log("高度采集: 鼠标钩子安装超时")
@@ -532,13 +533,9 @@ class HeightCollector:
         if not self.hook:
             log("高度采集: 安装鼠标钩子失败")
             return None
-        dbl_ms = _u32().GetDoubleClickTime()
-        dbl_cx = _u32().GetSystemMetrics(SM_CXDOUBLECLK)
-        dbl_cy = _u32().GetSystemMetrics(SM_CYDOUBLECLK)
         points = []
-        last_x = last_y = last_t = None
         paused = False
-        log("卡片高度采集: 单击第一个点 -> 单击第二个点（y差值=高度）；双击确认；右键暂停/恢复；不满意继续点下一对")
+        log("卡片高度采集: 单击第一个点 -> 单击第二个点（y差值=高度） -> 再单击一下确认")
         while True:
             try:
                 kind, x, y, evt_t = self.q.get(timeout=0.2)
@@ -551,36 +548,20 @@ class HeightCollector:
                 continue
             if paused:
                 continue
-            # 双击检测：连续两次快速点击
-            is_dbl = (last_x is not None
-                      and (evt_t - last_t) * 1000 <= dbl_ms
-                      and abs(x - last_x) <= dbl_cx
-                      and abs(y - last_y) <= dbl_cy)
-            # 双击：确认最新一对（不添加新点，直接返回之前的点）
-            if is_dbl:
-                if len(points) >= 2:
-                    y1, y2 = points[-2][1], points[-1][1]
-                    h = abs(y1 - y2)
-                    log(f"已确认: 文章卡片高度 = |{y1} - {y2}| = {h}px")
-                    return y1, y2, h
-                continue
-            # 如果 points 已有偶数个点（完整一对），且这次点击可能是双击确认的第一下
-            # 则只更新 last，不添加到 points，等第二次点击来确认
-            if (len(points) >= 2 and len(points) % 2 == 0
-                    and last_x is not None
-                    and (evt_t - last_t) * 1000 <= dbl_ms * 1.2  # 稍宽松
-                    and abs(x - last_x) <= dbl_cx * 1.2
-                    and abs(y - last_y) <= dbl_cy * 1.2):
-                last_x, last_y, last_t = x, y, evt_t
-                continue
+            # 已有完整一对（2个点），再点一下就确认返回
+            if len(points) == 2:
+                y1, y2 = points[0][1], points[1][1]
+                h = abs(y1 - y2)
+                log(f"已确认: 文章卡片高度 = |{y1} - {y2}| = {h}px")
+                return y1, y2, h
+            # 记录点
             points.append((x, y))
             n = len(points)
-            if n % 2 == 0:
-                h = abs(points[-1][1] - points[-2][1])
-                log(f"第{n // 2}对: y1={points[-2][1]} y2={points[-1][1]} 高度={h}px（双击确认，不满意继续点下一对）")
-            else:
-                log(f"已点第{n}个点 ({x},{y})，请点第二个点")
-            last_x, last_y, last_t = x, y, evt_t
+            if n == 1:
+                log(f"已点第1个点 ({x},{y})，请点第二个点")
+            else:  # n == 2
+                h = abs(points[1][1] - points[0][1])
+                log(f"已点第2个点 ({x},{y})，高度={h}px，再点一下确认")
 
 
 def snap_wechat_left(hwnd):
