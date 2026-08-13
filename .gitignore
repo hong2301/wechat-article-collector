@@ -13,6 +13,7 @@ _ui.png
 
 # 运行时日志
 log.txt
+config/log.txt
 
 # 采集结果
 下载/

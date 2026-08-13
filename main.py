@@ -34,7 +34,7 @@ from datetime import date, datetime, timedelta
 from tkinter import messagebox, scrolledtext, ttk
 
 APP_NAME = "微信公众号OCR采集器"
-VERSION = "V1.1.1"
+VERSION = "V1.1.2"
 WECHAT_VERSION = "4.1.11.24"    # 依赖: 微信 PC 版版本
 
 UI_LOG_HOOK = None          # GUI 日志回调
@@ -57,18 +57,18 @@ TIME_OPTIONS = (
 CUSTOM = "custom"
 
 
-LOG_FILE = "log.txt"
+LOG_FILE = os.path.join(CONFIG_DIR, "log.txt")
 _log_lock = threading.Lock()
 
 
 def log(msg):
-    """记录日志：控制台打印 + 写入根目录 log.txt（每行带时间戳），GUI 控制台不带时间"""
+    """记录日志：控制台打印 + 写入 config/log.txt（每行带时间戳），GUI 控制台不带时间"""
     if CONSOLE_PRINT:
         try:
             print(msg, flush=True)
         except Exception:
             pass
-    # 写入 log.txt（线程安全，带时间戳）
+    # 写入 config/log.txt（线程安全，带时间戳）
     try:
         with _log_lock:
             with open(os.path.join(_script_dir(), LOG_FILE), "a", encoding="utf-8") as f:
