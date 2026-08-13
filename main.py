@@ -10,6 +10,9 @@
     python main.py                  -> 正常模式（GUI）
     python main.py --ui-shot 图.png  -> 截图自检（1.5秒后截全屏并退出）
 
+依赖:
+    pip install rapidocr_onnxruntime requests Pillow
+
 输入: input.csv  ->  索引,url,公众号名称,状态
 记忆: ui_state.json（索引范围/时间范围/自定义日期/最大采集数量 自动保存）
 """
@@ -2640,7 +2643,33 @@ class App:
 
 
 # ================= 入口 =================
+# ================= 依赖自检 =================
+REQUIRED_PACKAGES = [
+    ("rapidocr_onnxruntime", "rapidocr_onnxruntime"),
+    ("requests", "requests"),
+    ("PIL", "Pillow"),
+]
+
+
+def check_dependencies():
+    """启动时检查必需依赖是否安装，缺少则给出安装命令并退出"""
+    missing = []
+    for module_name, pip_name in REQUIRED_PACKAGES:
+        try:
+            __import__(module_name)
+        except ImportError:
+            missing.append(pip_name)
+    if missing:
+        print("=" * 50)
+        print("[错误] 缺少以下依赖，请先安装：")
+        print("=" * 50)
+        print(f"\npip install {" ".join(missing)}\n")
+        print("=" * 50)
+        sys.exit(1)
+
+
 def main():
+    check_dependencies()
     try:
         ctypes.WinDLL("kernel32").SetConsoleOutputCP(65001)
     except Exception:
