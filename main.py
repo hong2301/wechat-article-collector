@@ -597,13 +597,13 @@ def snap_wechat_left(hwnd):
 
 # ================= 模拟输入（SendInput / mouse_event，参考旧项目） =================
 def mouse_click(x, y):
-    """移动鼠标到 (x,y) 并左键单击"""
+    """移动鼠标到 (x,y) 并左键单击，点击后统一等待 0.3 秒"""
     u32 = _u32()
     u32.SetCursorPos(int(x), int(y))
     time.sleep(0.08)
     u32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, None)
     u32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, None)
-    time.sleep(0.15)
+    time.sleep(0.3)
 
 
 def scroll_down_at(x, y, pixels, px_per_tick=120):
@@ -2165,8 +2165,8 @@ class App:
         if wx:
             moved = snap_wechat_left(wx[0])
             if moved:
-                log(f"微信窗口: 已移动到左半屏 [{wx[1]}]，等待0.5秒")
-                if self._sleep(0.5):
+                log(f"微信窗口: 已移动到左半屏 [{wx[1]}]，等待0.3秒")
+                if self._sleep(0.3):
                     log("已停止：中止当前任务")
                     return False
             else:
@@ -2182,9 +2182,6 @@ class App:
         # 2) 点击点位1（搜索框）-> 输入1 -> 删除 -> 点击点位2
         log(f"点击点位1({p1[2]},{p1[3]}) {p1[1]}")
         mouse_click(p1[2], p1[3])
-        if self._sleep(0.5):
-            log("已停止：中止当前任务")
-            return False
         log("输入 1")
         type_text("1")
         if self._sleep(0.3):
@@ -2201,9 +2198,6 @@ class App:
             return False
         log(f"点击点位2({p2[2]},{p2[3]}) {p2[1]}")
         mouse_click(p2[2], p2[3])
-        if self._sleep(0.5):
-            log("已停止：中止当前任务")
-            return False
         # 3) Ctrl+Shift+W
         log("触发 Ctrl+Shift+W")
         ctrl_shift_key("W")
@@ -2213,9 +2207,6 @@ class App:
         # 4) 再次：点位1 -> 输入1 -> 删除 -> 点位2（触发新窗口）
         log(f"点击点位1({p1[2]},{p1[3]}) {p1[1]}")
         mouse_click(p1[2], p1[3])
-        if self._sleep(0.5):
-            log("已停止：中止当前任务")
-            return False
         log("输入 1")
         type_text("1")
         if self._sleep(0.3):
@@ -2250,9 +2241,6 @@ class App:
             return False
         log(f"点击点位3({p3[2]},{p3[3]}) {p3[1]}")
         mouse_click(p3[2], p3[3])
-        if self._sleep(0.3):
-            log("已停止：中止当前任务")
-            return False
         ctrl_key("A")          # 全选
         if self._sleep(0.15):
             log("已停止：中止当前任务")
@@ -2284,9 +2272,6 @@ class App:
             return False
         log(f"点击点位4({p4[2]},{p4[3]}) {p4[1]}")
         mouse_click(p4[2], p4[3])
-        if self._sleep(0.5):
-            log("已停止：中止当前任务")
-            return False
         # 8) 文章列表页：OCR 采集循环
         return self._collect_articles(pts, name)
 
@@ -2454,9 +2439,6 @@ class App:
                         break
                     log("Ctrl+W 关闭文章")
                     ctrl_key("W")
-                    if self._sleep(1):
-                        log("已停止：中止当前任务")
-                        break
             # 全部点击完毕：鼠标移到点位7，向下滚动 70% 屏高，刷新列表
             log(f"全部点击完毕，移动鼠标到点位7({p7[2]},{p7[3]}) 向下滚动 {scroll_px}px")
             scroll_down_at(int(p7[2]), int(p7[3]), scroll_px)
