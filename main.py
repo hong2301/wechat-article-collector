@@ -34,7 +34,7 @@ from datetime import date, datetime, timedelta
 from tkinter import messagebox, scrolledtext, ttk
 
 APP_NAME = "微信公众号OCR采集器"
-VERSION = "V1.1.2"
+VERSION = "V1.1.3"
 WECHAT_VERSION = "4.1.11.24"    # 依赖: 微信 PC 版版本
 
 UI_LOG_HOOK = None          # GUI 日志回调
@@ -119,7 +119,11 @@ WECHAT_MAIN_EXES = ("wechat.exe", "weixin.exe")
 WH_KEYBOARD_LL = 13
 WM_KEYDOWN = 0x0100
 VK_ESCAPE = 0x1B
+WM_MOUSEMOVE = 0x0200
+WM_QUIT = 0x0012
 WH_MOUSE_LL = 14
+LLMHF_INJECTED = 0x00000001   # 鼠标消息注入标志（SendInput/mouse_event 产生）
+LLKHF_INJECTED = 0x00000010   # 键盘消息注入标志（SendInput 产生）
 WM_LBUTTONDOWN = 0x0201
 WM_RBUTTONDOWN = 0x0204
 SM_CXDOUBLECLK = 36
@@ -358,14 +362,28 @@ class EscListener:
         self.hook_ready = threading.Event()
         self._started = False
         self._ok = False
+        self._block_keys = False   # 采集中是否拦截所有用户键盘输入（True 时仅放行 ESC 和注入输入）
+        self.on_block = None       # 拦截用户键盘输入时的回调（子线程调用）
         self._proc = HOOKPROC(self._callback)
 
     def _callback(self, code, wparam, lparam):
-        if code == 0 and wparam == WM_KEYDOWN:
+        if code == 0:
             kb = ctypes.cast(lparam, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
+            if kb.flags & LLKHF_INJECTED:
+                # 程序自己的输入（SendInput）放行
+                return _u32().CallNextHookEx(self.hook, code, wparam, lparam)
             if kb.vkCode == VK_ESCAPE:
                 self.stop_event.set()
                 # 拦截 ESC，不传给前台窗口（避免微信收到 ESC 后关闭）
+                return 1
+            if self._block_keys:
+                # 采集中：拦截用户其他键盘输入
+                cb = self.on_block
+                if cb is not None:
+                    try:
+                        cb()
+                    except Exception:
+                        pass
                 return 1
         return _u32().CallNextHookEx(self.hook, code, wparam, lparam)
 
@@ -392,6 +410,68 @@ class EscListener:
         threading.Thread(target=self._hook_thread, daemon=True).start()
         self._ok = self.hook_ready.wait(3)
         return self._ok
+
+
+# ================= 鼠标锁定（采集中防误操作） =================
+class MouseLock:
+    """全局鼠标钩子：采集中锁定鼠标。
+    拦截所有用户鼠标输入（移动/左键/右键/滚轮）；
+    程序自己的输入（SetCursorPos 不产生消息、mouse_event 带注入标志）不受影响。"""
+
+    def __init__(self):
+        self.hook = None
+        self.hook_ready = threading.Event()
+        self._started = False
+        self._ok = False
+        self._tid = None
+        self.on_block = None       # 拦截用户鼠标输入时的回调（子线程调用）
+        self._proc = HOOKPROC(self._callback)
+
+    def _callback(self, code, wparam, lparam):
+        if code == 0:
+            ms = ctypes.cast(lparam, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
+            if not (ms.flags & LLMHF_INJECTED):
+                # 用户鼠标输入（移动/点击/滚轮）全部拦截
+                cb = self.on_block
+                if cb is not None:
+                    try:
+                        cb()
+                    except Exception:
+                        pass
+                return 1
+        return _u32().CallNextHookEx(self.hook, code, wparam, lparam)
+
+    def _hook_thread(self):
+        # 低层钩子必须在带消息循环的线程上安装
+        self._tid = threading.get_ident()
+        h = _u32().SetWindowsHookExW(WH_MOUSE_LL, self._proc,
+                                     _k32().GetModuleHandleW(None), 0)
+        if not h:
+            self.hook_ready.set()
+            return
+        self.hook = h
+        self.hook_ready.set()
+        msg = wt.MSG()
+        while _u32().GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
+            _u32().TranslateMessage(ctypes.byref(msg))
+            _u32().DispatchMessageW(ctypes.byref(msg))
+        _u32().UnhookWindowsHookEx(h)
+        self.hook = None
+
+    def start(self):
+        """启动鼠标锁定（幂等），返回是否成功"""
+        if self._started:
+            return self._ok
+        self._started = True
+        threading.Thread(target=self._hook_thread, daemon=True).start()
+        self._ok = self.hook_ready.wait(3)
+        return self._ok
+
+    def stop(self):
+        """停止鼠标锁定：向钩子线程投递 WM_QUIT 结束消息循环"""
+        if self.hook and self._tid:
+            _u32().PostThreadMessageW(self._tid, WM_QUIT, 0, 0)
+        self._started = False
 
 
 # ================= 鼠标坐标采集（点位修改用） =================
@@ -1472,7 +1552,13 @@ class App:
         self.busy = False
         self.last_error = ""
         self.esc = EscListener()
+        self.mouse_lock = MouseLock()
         self.stop_event = self.esc.stop_event
+        # 拦截用户输入时触发右上角提示
+        self._hint_win = None
+        self._hint_after_id = None
+        self.esc.on_block = self._queue_lock_hint
+        self.mouse_lock.on_block = self._queue_lock_hint
         self.ui_queue = queue.Queue()   # 子线程 -> 主线程 UI 消息队列
 
         self._build_ui()
@@ -1923,6 +2009,8 @@ class App:
                     self.card_height_var.set(str(item[1]))
                 elif kind == "refresh_input":
                     self.reload_input("")      # 静默刷新任务区（状态已更新）
+                elif kind == "lock_hint":
+                    self._show_lock_hint()
                 elif kind == "finish":
                     self._finish_collection(item[1], item[2], item[3])
         except queue.Empty:
@@ -1931,6 +2019,58 @@ class App:
             pass
         try:
             self.root.after(50, self._poll_ui_queue)
+        except Exception:
+            pass
+
+    def _queue_lock_hint(self):
+        """钩子子线程调用：往 UI 队列放提示消息（主线程显示弹窗）"""
+        try:
+            self.ui_queue.put(("lock_hint",))
+        except Exception:
+            pass
+
+    def _show_lock_hint(self):
+        """右上角提示弹窗：显示当前正在采集、输入已禁用，1 秒后自动消失"""
+        try:
+            # 已有弹窗：直接重置消失计时，不重建（避免鼠标移动高频重建）
+            if self._hint_win is not None:
+                try:
+                    self._hint_win.after_cancel(self._hint_after_id)
+                except Exception:
+                    pass
+                try:
+                    self._hint_win.after(1000, lambda: self._close_lock_hint(self._hint_win))
+                except Exception:
+                    pass
+                return
+            win = tk.Toplevel(self.root)
+            win.overrideredirect(True)          # 无边框
+            win.attributes("-topmost", True)    # 置顶
+            win.attributes("-alpha", 0.95)      # 略透明
+            sw = win.winfo_screenwidth()
+            w, h = 420, 120
+            x, y = sw - w - 16, 16              # 右上角
+            win.geometry(f"{w}x{h}+{x}+{y}")
+            frame = tk.Frame(win, bg="#fff3cd", highlightthickness=1,
+                             highlightbackground="#e0a800")
+            frame.pack(fill="both", expand=True)
+            tk.Label(frame, text="⚠ 当前正常进行采集任务",
+                     font=("微软雅黑", 13, "bold"),
+                     bg="#fff3cd", fg="#856404").pack(pady=(12, 4))
+            tk.Label(frame, text="鼠标和键盘操作已禁用\n可按 ESC 结束采集进程",
+                     font=("微软雅黑", 11),
+                     bg="#fff3cd", fg="#856404").pack(pady=(0, 12))
+            self._hint_win = win
+            self._hint_after_id = win.after(1000, lambda: self._close_lock_hint(win))
+        except Exception:
+            pass
+
+    def _close_lock_hint(self, win):
+        """关闭提示弹窗"""
+        try:
+            if self._hint_win is win:
+                self._hint_win = None
+            win.destroy()
         except Exception:
             pass
 
@@ -2095,6 +2235,14 @@ class App:
             log("ESC 键监听已启用（采集中按 ESC 可立即停止）")
         else:
             log("警告: ESC 键监听启动失败")
+        # 锁定鼠标移动（防止误操作干扰采集；程序 SetCursorPos 不受影响）
+        if self.mouse_lock.start():
+            log("鼠标已锁定（移动/点击/滚轮禁用）")
+        else:
+            log("警告: 鼠标锁定启动失败")
+        # 锁定键盘输入（仅放行 ESC 和程序自己的输入）
+        self.esc._block_keys = True
+        log("键盘已锁定（仅 ESC 可用）")
         # 立即前置微信并靠左半边屏幕（已就位则跳过）
         moved = snap_wechat_left(wx[0])
         log(f"微信窗口: 前置并靠左半屏{'（已就位，跳过）' if not moved else ''}")
@@ -2142,6 +2290,10 @@ class App:
         except Exception as e:
             log(f"采集线程异常: {e}")
         finally:
+            # 解锁鼠标和键盘（防止采集结束后仍被锁定）
+            self.mouse_lock.stop()
+            self.esc._block_keys = False
+            log("鼠标/键盘已解锁")
             self.ui_queue.put(("finish", self.stop_event.is_set(), total, done_n))
 
     def _sleep(self, seconds):
