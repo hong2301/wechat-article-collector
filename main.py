@@ -43,7 +43,8 @@ CONSOLE_PRINT = True        # 是否同时打印控制台
 CONFIG_DIR = "config"
 INPUT_CSV = "input.csv"
 UI_STATE_FILE = "ui_state.json"
-COLLECTED_CSV = "collected.csv"   # 采集记录（公众号/日期/标题/链接）
+COLLECTED_CSV = "collected.csv"   # 采集记录（公众号/日期/标题/链接/阅读/点赞/转发/喜欢/评论/写入时间）
+COLLECTED_HEADER = ["公众号名称", "日期", "标题", "链接", "阅读", "点赞", "转发", "喜欢", "评论", "写入时间"]
 
 # ---------------- 时间范围选项 ----------------
 TIME_OPTIONS = (
@@ -1126,28 +1127,53 @@ def _collected_path():
     return os.path.join(_config_dir(), COLLECTED_CSV)
 
 
-def append_collected(gzh, pub_time, title, link):
-    """追加一条采集记录到 config/collected.csv（线程安全，按链接去重）
-    返回: "add"=已新增 / "skip"=已存在跳过 / "error"=写入失败"""
+def append_collected(gzh, pub_time, title, link,
+                   reads=0, likes=0, forwards=0, favorites=0, comments=0,
+                   write_time=None):
+    """追加一条采集记录到 config/collected.csv（线程安全，不做重复检查）
+    互动数据列（阅读/点赞/转发/喜欢/评论）默认 0，后续采集逻辑可传入；
+    write_time = 点击时间点位的时间（精确到秒），不传则用当前时间
+    返回: "add"=已写入 / "error"=写入失败"""
     path = _collected_path()
     link = (link or "").strip()
     if not link:
         return "skip"
     try:
         with _log_lock:
-            existing = set()
+            # 检查表头是否最新（兼容旧版），非最新则整体重写（旧行缺列补默认值）
+            header = None
             if os.path.isfile(path):
                 with open(path, encoding="utf-8-sig", newline="") as f:
-                    for r in csv.DictReader(f):
-                        existing.add((r.get("链接") or "").strip())
-            if link in existing:
-                return "skip"
-            new_file = not os.path.isfile(path)
-            with open(path, "a", encoding="utf-8-sig", newline="") as f:
-                w = csv.writer(f)
-                if new_file:
-                    w.writerow(["公众号名称", "日期", "标题", "链接"])
-                w.writerow([gzh, pub_time or "", title or "", link])
+                    reader = csv.DictReader(f)
+                    header = list(reader.fieldnames or [])
+            now = write_time or time.strftime("%Y-%m-%d %H:%M:%S")
+            new_row = {
+                "公众号名称": gzh, "日期": pub_time or "", "标题": title or "",
+                "链接": link, "阅读": reads, "点赞": likes, "转发": forwards,
+                "喜欢": favorites, "评论": comments, "写入时间": now,
+            }
+            if header != COLLECTED_HEADER or not os.path.isfile(path):
+                rows = []
+                if os.path.isfile(path):
+                    with open(path, encoding="utf-8-sig", newline="") as f:
+                        reader = csv.DictReader(f)
+                        rows = [dict(r) for r in reader]
+                rows.append(new_row)
+                with open(path, "w", encoding="utf-8-sig", newline="") as f:
+                    w = csv.DictWriter(f, fieldnames=COLLECTED_HEADER)
+                    w.writeheader()
+                    for r in rows:
+                        row = {}
+                        for k in COLLECTED_HEADER:
+                            v = r.get(k)
+                            if v is None:
+                                v = 0 if k in ("阅读", "点赞", "转发", "喜欢", "评论") else ""
+                            row[k] = v
+                        w.writerow(row)
+            else:
+                with open(path, "a", encoding="utf-8-sig", newline="") as f:
+                    w = csv.DictWriter(f, fieldnames=COLLECTED_HEADER)
+                    w.writerow(new_row)
             return "add"
     except Exception as e:
         log(f"写入采集记录失败: {e}")
@@ -2507,13 +2533,21 @@ class App:
                 continue
             finished.append((future, link, name))
             try:
-                title, pub_time, save_path, error = future.result()
-                if error:
-                    log(f"后台抓取失败: {link} - {error}")
+                r = future.result()
+                if r.get("error"):
+                    log(f"后台抓取失败: {link} - {r.get('error')}")
                     continue
+                title = r.get("title") or ""
+                pub_time = r.get("pub_time") or ""
+                save_path = r.get("save_path")
                 log(f"后台抓取完成: 标题[{title}] 时间[{pub_time}] 保存[{save_path or '未保存'}]")
-                # 写入采集记录
-                rec = append_collected(name, pub_time or "", title or "", link)
+                # 写入采集记录（单点一次性写入，互动数据一起带入）
+                rec = append_collected(name, pub_time, title, link,
+                                       reads=r.get("reads", 0), likes=r.get("likes", 0),
+                                       forwards=r.get("forwards", 0),
+                                       favorites=r.get("favorites", 0),
+                                       comments=r.get("comments", 0),
+                                       write_time=r.get("write_time"))
                 if rec == "skip":
                     log(f"采集记录已存在，跳过写入: {link}")
                 elif rec == "error":
@@ -2697,12 +2731,13 @@ class App:
                         tag = "置顶" if is_pinned else ""
                         log(f"跳过卡片 ({cx},{cy}) 时间[{text}] 日期[{d or '无法解析'}] 不在范围 {start_d}~{end_d}{('（' + tag + '）') if tag else ''}")
                         continue
+                click_time = time.strftime("%Y-%m-%d %H:%M:%S")  # 点击时间点位的时间
                 if is_custom and tr_dates:
                     log(f"点击文章卡片 {n + 1}/{len(cards)} (x=点位12:{p12_x}, y={cy}) 时间[{text}] 日期[{d}]")
                 else:
                     log(f"点击文章卡片 {n + 1}/{len(cards)} (x=点位12:{p12_x}, y={cy}) 时间[{text}]")
                 mouse_click(p12_x, cy)
-                r = self._collect_article_link(pts, name)
+                r = self._collect_article_link(pts, name, click_time)
                 if r is False:
                     log("文章操作失败，任务标记 error")
                     return False
@@ -2741,9 +2776,10 @@ class App:
         self._wait_all_fetches()
         return True
 
-    def _collect_article_link(self, pts, name):
+    def _collect_article_link(self, pts, name, click_time=None):
         """正式文章操作：3次尝试复制链接（点位8 -> OCR找复制链接 -> 点击 -> 检查剪贴板）
         -> fetch_article 抓取标题/时间并保存 HTML
+        click_time: 点击时间点位的时间（写入 CSV 用）
         返回: True=成功继续 / "stop"=达到停止条件退出循环 / False=失败(error)"""
         p8 = pts.get(8)
         p9 = pts.get(9)
@@ -2815,7 +2851,21 @@ class App:
         log(f"已复制文章链接: {link}")
         # ---- 异步抓取文章：标题/时间 + 保存 HTML（后台执行，不阻塞主流程） ----
         def _fetch_task():
-            """后台抓取任务"""
+            """后台抓取任务：抓取标题/时间 + 保存 HTML + 互动数据
+            返回统一 dict：title/pub_time/save_path/error + 互动数据(默认0)"""
+
+            def _ok(**kw):
+                base = {"title": "", "pub_time": "", "save_path": None, "error": None,
+                        "reads": 0, "likes": 0, "forwards": 0,
+                        "favorites": 0, "comments": 0}
+                base.update(kw)
+                return base
+
+            def _err(msg):
+                return {"title": "", "pub_time": "", "save_path": None, "error": msg,
+                        "reads": 0, "likes": 0, "forwards": 0,
+                        "favorites": 0, "comments": 0}
+
             try:
                 save_dir = os.path.join(self.session_dir, clean_filename(name))
                 os.makedirs(save_dir, exist_ok=True)
@@ -2825,7 +2875,7 @@ class App:
             if save_dir:
                 fetched = fetch_article(link, save_path=None)
                 if fetched is None:
-                    return None, None, None, "标题/时间获取失败"
+                    return _err("标题/时间获取失败")
                 title, pub_time = fetched
                 _stem = clean_filename(title or "untitled")
                 _date = (pub_time or "")[:10]
@@ -2833,13 +2883,15 @@ class App:
                 save_path = os.path.join(save_dir, _fname)
                 fetched2 = fetch_article(link, save_path)
                 if fetched2 is None:
-                    return None, None, None, "HTML 保存失败"
+                    return _err("HTML 保存失败")
             else:
                 fetched = fetch_article(link)
                 if fetched is None:
-                    return None, None, None, "抓取失败"
+                    return _err("抓取失败")
                 title, pub_time = fetched
-            return title, pub_time, save_path, None
+            # TODO(采集逻辑): 在 _ok 中填入互动数据 reads/likes/forwards/favorites/comments
+            return _ok(title=title, pub_time=pub_time, save_path=save_path,
+                       write_time=click_time)
         # 提交到线程池异步执行
         if not hasattr(self, "_fetch_executor"):
             self._fetch_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="fetch")
