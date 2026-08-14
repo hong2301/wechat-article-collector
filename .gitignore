@@ -17,6 +17,7 @@ config/log.txt
 
 # 采集结果
 下载/
+data/
 
 # PyInstaller 产物
 build/

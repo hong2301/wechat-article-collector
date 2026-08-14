@@ -43,6 +43,7 @@ CONSOLE_PRINT = True        # 是否同时打印控制台
 CONFIG_DIR = "config"
 INPUT_CSV = "input.csv"
 UI_STATE_FILE = "ui_state.json"
+DATA_DIR = "data"   # 数据根目录（文章HTML + collected.csv）
 COLLECTED_CSV = "collected.csv"   # 采集记录（公众号/日期/标题/链接/阅读/点赞/转发/喜欢/评论/写入时间）
 COLLECTED_HEADER = ["公众号名称", "日期", "标题", "链接", "阅读", "点赞", "转发", "喜欢", "评论", "写入时间"]
 
@@ -1137,14 +1138,19 @@ def _points_path():
     return os.path.join(_config_dir(), "points.csv")
 
 
+def _data_dir():
+    """数据目录（文章HTML + collected.csv）"""
+    return os.path.join(_script_dir(), DATA_DIR)
+
+
 def _collected_path():
-    return os.path.join(_config_dir(), COLLECTED_CSV)
+    return os.path.join(_data_dir(), COLLECTED_CSV)
 
 
 def append_collected(gzh, pub_time, title, link,
                    reads=-1, likes=-1, forwards=-1, favorites=-1, comments=-1,
                    write_time=None):
-    """追加一条采集记录到 config/collected.csv（线程安全，不做重复检查）
+    """追加一条采集记录到 data/collected.csv（线程安全，不做重复检查）
     互动数据列（阅读/点赞/转发/喜欢/评论）默认 -1（未采集到），后续采集逻辑可传入；
     write_time = 点击时间点位的时间（精确到秒），不传则用当前时间
     返回: "add"=已写入 / "error"=写入失败"""
@@ -2262,7 +2268,7 @@ class App:
         # 解析时间范围为日期区间（None = 不限）
         time_range_dates = self._resolve_time_range(tr, cstart, cend)
         # 固定下载目录（不按开始时间分目录，一批任务可多次进行）
-        self.session_dir = os.path.join(_script_dir(), "下载")
+        self.session_dir = os.path.join(_data_dir(), "下载")
         self.max_count_setting = max_count
         self.time_range_dates = time_range_dates
         self.is_custom_mode = (tr == CUSTOM)   # 自定义时间范围模式标志
