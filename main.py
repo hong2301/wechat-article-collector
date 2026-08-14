@@ -34,7 +34,7 @@ from datetime import date, datetime, timedelta
 from tkinter import messagebox, scrolledtext, ttk
 
 APP_NAME = "微信公众号OCR采集器"
-VERSION = "V1.1.5"
+VERSION = "V1.1.6"
 WECHAT_VERSION = "4.1.11.24"    # 依赖: 微信 PC 版版本
 
 UI_LOG_HOOK = None          # GUI 日志回调
@@ -910,15 +910,18 @@ def ocr_region(box):
             ys = [p[1] for p in box_pts]
             cx = int(sum(xs) / len(xs)) + ox   # 中心 x + 偏移
             cy = int(sum(ys) / len(ys)) + oy
-            items.append((cx, cy, text, score))
+            # 保留整个文本框（4 个点，已换算为屏幕绝对坐标）
+            sbox = [(int(p[0]) + ox, int(p[1]) + oy) for p in box_pts]
+            items.append((cx, cy, text, score, sbox))
     return items
 
 
 def find_time_items(items):
     """从 OCR 结果中筛选包含时间的条目，返回 [(中心x, 中心y, 文本), ...]
-    命中时间格式即认为该卡片可点击加载（文本中混有其他字符没关系）"""
+    命中时间格式即认为该卡片可点击加载（文本中混有其他字符没关系）；
+    点击时的 x 由点位12（文章x轴线）决定，y 用本结果中心 y"""
     found = []
-    for cx, cy, text, score in items:
+    for cx, cy, text, score, sbox in items:
         if TIME_RE.search(text):
             found.append((cx, cy, text))
     return found
@@ -1800,6 +1803,16 @@ class App:
         root.geometry(f"+{x}+{y}")
 
     # ---------- 任务区数据 ----------
+    def _update_title(self):
+        """大标题同步 input 情况：有效链接数 / 待处理数"""
+        try:
+            total = len(self.input_rows)
+            todo = sum(1 for _, _, _, st in self.input_rows
+                       if st in ("pending", "null") or "error" in st)
+            self.status_var.set(f"有效链接 {total} 个（待处理 {todo} 个）")
+        except Exception:
+            pass
+
     def reload_input(self, msg=None):
         """从 input.csv 重新加载：刷新表格 + 同步有效行 + 更新索引上限"""
         self.rows_all = load_raw_input_rows()
@@ -1807,6 +1820,7 @@ class App:
         self._refresh_tree()
         total = len(self.input_rows)
         self.total_label.config(text=f"有效链接 {total} 个")
+        self._update_title()   # 大标题同步 input 情况
         try:
             cur_end = int(self.idx_end_var.get())
         except ValueError:
@@ -1815,7 +1829,6 @@ class App:
             self.idx_end_var.set(str(max(total - 1, 0)))
         if msg:
             log(msg)
-            self.status_var.set(f"任务区已更新: 有效链接 {total} 个")
 
     def _refresh_tree(self):
         """按 rows_all 刷新表格内容"""
@@ -2360,21 +2373,32 @@ class App:
             return False
         log(f"点击点位2({p2[2]},{p2[3]}) {p2[1]}")
         mouse_click(p2[2], p2[3])
+        if self._sleep(0.5):  # 点击点位2后等待 0.5 秒
+            log("已停止：中止当前任务")
+            return False
         # 窗口分离开启：点击点位2后额外点击点位11
         if window_split:
-            if not p11 or (p11[2] <= 0 and p11[3] <= 0):
+            if not p11:
                 log("错误: 缺少点位11（窗口分离已开启），任务失败")
                 self.last_error = "缺少点位11"
                 return False
-            log(f"点击点位11({p11[2]},{p11[3]}) {p11[1]}")
-            mouse_click(p11[2], p11[3])
+            try:
+                px11, py11 = int(p11[2]), int(p11[3])
+            except (TypeError, ValueError):
+                px11 = py11 = 0
+            if px11 <= 0 and py11 <= 0:
+                log("错误: 点位11坐标未采集（窗口分离已开启），任务失败")
+                self.last_error = "缺少点位11"
+                return False
+            log(f"点击点位11({px11},{py11}) {p11[1]}")
+            mouse_click(px11, py11)
             if self._sleep(0.3):
                 log("已停止：中止当前任务")
                 return False
         # 3) Ctrl+Shift+W
         log("触发 Ctrl+Shift+W")
         ctrl_shift_key("W")
-        if self._sleep(0.3):
+        if self._sleep(0.8):
             log("已停止：中止当前任务")
             return False
         # 4) 再次：点位1 -> 输入1 -> 删除 -> 点位2（触发新窗口）
@@ -2396,14 +2420,25 @@ class App:
             return False
         log(f"点击点位2({p2[2]},{p2[3]}) {p2[1]}")
         mouse_click(p2[2], p2[3])
+        if self._sleep(0.5):  # 点击点位2后等待 0.5 秒
+            log("已停止：中止当前任务")
+            return False
         # 窗口分离开启：点击点位2后额外点击点位11
         if window_split:
-            if not p11 or (p11[2] <= 0 and p11[3] <= 0):
+            if not p11:
                 log("错误: 缺少点位11（窗口分离已开启），任务失败")
                 self.last_error = "缺少点位11"
                 return False
-            log(f"点击点位11({p11[2]},{p11[3]}) {p11[1]}")
-            mouse_click(p11[2], p11[3])
+            try:
+                px11, py11 = int(p11[2]), int(p11[3])
+            except (TypeError, ValueError):
+                px11 = py11 = 0
+            if px11 <= 0 and py11 <= 0:
+                log("错误: 点位11坐标未采集（窗口分离已开启），任务失败")
+                self.last_error = "缺少点位11"
+                return False
+            log(f"点击点位11({px11},{py11}) {p11[1]}")
+            mouse_click(px11, py11)
             if self._sleep(0.3):
                 log("已停止：中止当前任务")
                 return False
@@ -2453,6 +2488,10 @@ class App:
             return False
         log(f"点击点位4({p4[2]},{p4[3]}) {p4[1]}")
         mouse_click(p4[2], p4[3])
+        # 点击作者名称后等待 0.5 秒
+        if self._sleep(0.5):
+            log("已停止：中止当前任务")
+            return False
         # 8) 文章列表页：OCR 采集循环
         return self._collect_articles(pts, name)
 
@@ -2534,10 +2573,16 @@ class App:
         # 等待文章列表加载（由 OCR 识别过程自然加载，无需额外等待）
         p5 = pts.get(5)
         p7 = pts.get(7)
+        p12 = pts.get(12)
         if not p5 or not p7:
             log("错误: 缺少点位5/7（截图区域），任务失败")
             self.last_error = "缺少点位5/7"
             return False
+        if not p12:
+            log("错误: 缺少点位12（文章x轴线），任务失败")
+            self.last_error = "缺少点位12"
+            return False
+        p12_x = int(p12[2])
         # 由两个对角点确定截图区域（自动归一化顺序）
         x1, y1 = int(p5[2]), int(p5[3])
         x2, y2 = int(p7[2]), int(p7[3])
@@ -2564,43 +2609,38 @@ class App:
                 break
             loop_n += 1
             log(f"--- 列表循环 {loop_n}：OCR 识别中 ---")
-            try:
-                items = ocr_region(box)
-            except Exception as e:
-                log(f"OCR 失败: {e}")
-                self.last_error = f"OCR 失败: {e}"
-                return False
-            cards = find_time_items(items)
-            # 如果没有识别到时间卡片，重试一次（列表可能还在加载）
-            if not cards:
-                log("OCR 未识别到时间卡片，重试一次...")
+            # 识别文章卡片：最多 5 次机会（列表可能还在加载），每次识别后做私信过滤
+            cards = []
+            sixin_y = None
+            for attempt in range(1, 6):
+                if self.stop_event.is_set():
+                    log("已停止：中止文章采集")
+                    break
                 try:
                     items = ocr_region(box)
                 except Exception as e:
-                    log(f"OCR 重试失败: {e}")
+                    log(f"OCR 失败: {e}")
                     self.last_error = f"OCR 失败: {e}"
                     return False
                 cards = find_time_items(items)
+                # 第一次列表循环：找"私信"点位，只保留 y 值大于私信点位的卡片（过滤顶部误匹配）
+                if loop_n == 1:
+                    for it in items:
+                        if "私信" in it[2]:
+                            sixin_y = it[1]
+                            log(f"找到'私信'点位 y={sixin_y}")
+                            break
+                    if sixin_y is not None:
+                        before = len(cards)
+                        cards = [c for c in cards if c[1] > sixin_y]
+                        log(f"过滤私信上方点位: {before} -> {len(cards)}")
+                if cards:
+                    break
+                log(f"OCR 未识别到文章卡片，重试 {attempt}/5...")
             if not cards:
-                log("错误: OCR 未识别到时间卡片（列表页异常），任务失败")
+                log("错误: OCR 未识别到文章卡片（列表页异常），任务失败")
                 self.last_error = "未识别到文章卡片"
                 return False
-            # 第一次 OCR：找"私信"点位，只保留 y 值大于私信点位的卡片（过滤顶部误匹配）
-            if loop_n == 1:
-                sixin_y = None
-                for it in items:
-                    if "私信" in it[2]:
-                        sixin_y = it[1]
-                        log(f"找到'私信'点位 y={sixin_y}")
-                        break
-                if sixin_y is not None:
-                    before = len(cards)
-                    cards = [c for c in cards if c[1] > sixin_y]
-                    log(f"过滤私信上方点位: {before} -> {len(cards)}")
-                    if not cards:
-                        log("错误: 过滤后无合法卡片（列表页异常），任务失败")
-                        self.last_error = "未识别到文章卡片"
-                        return False
             # 同一卡片去重：y 差值 < 文章卡片高度视为同一张，保留最下面（y 值大）的
             try:
                 card_h = int(float(getattr(self, "card_height_var").get()))
@@ -2618,80 +2658,67 @@ class App:
                     log(f"同一卡片去重: {len(cards)} -> {len(dedup)}（卡片高度 {card_h}px）")
                 cards = dedup
             log(f"识别到 {len(cards)} 个文章卡片（含时间）")
-            # ---- 遍历卡片：自定义模式按时间范围判断点击/跳过 ----
+            # ---- 遍历卡片：统一逻辑，自定义模式额外做时间范围判断/跳过 ----
             is_custom = getattr(self, "is_custom_mode", False)
             tr_dates = getattr(self, "time_range_dates", None)
+            start_d = end_d = None
+            pinned_count = 0
+            page_has_in_range = False
+            _today = date.today()
             if is_custom and tr_dates:
-                # 自定义模式：解析日期，范围内点击/范围外跳过；置顶文章单独处理
                 start_d, end_d = tr_dates
-                _today = date.today()
-                sorted_cards = sorted(cards, key=lambda c: c[1])
-                dated = [(c, resolve_article_date(c[2], _today)) for c in sorted_cards]
                 # 置顶识别：仅第一页前3个点位，出现旧->新回升说明有置顶（最多2篇）
-                pinned_count = 0
                 if loop_n == 1:
-                    for i in range(1, min(3, len(dated))):
-                        dp, dc = dated[i - 1][1], dated[i][1]
+                    for i in range(1, min(3, len(cards))):
+                        dp = resolve_article_date(cards[i - 1][2], _today)
+                        dc = resolve_article_date(cards[i][2], _today)
                         if dp and dc and dc > dp:
                             pinned_count = i
                             break
                 if pinned_count:
                     log(f"识别到 {pinned_count} 个置顶文章（时间跳变），置顶不计入范围定位")
-                page_has_in_range = False
-                for n, (card, d) in enumerate(dated):
-                    if self.stop_event.is_set():
-                        log("已停止：中止文章采集")
-                        break
-                    cx, cy, text = card
+            # 统一按 y 从上到下遍历
+            for n, card in enumerate(sorted(cards, key=lambda c: c[1])):
+                if self.stop_event.is_set():
+                    log("已停止：中止文章采集")
+                    break
+                cx, cy, text = card
+                # 自定义模式：解析日期并判断范围，范围外跳过
+                d = None
+                if is_custom and tr_dates:
+                    d = resolve_article_date(text, _today)
                     is_pinned = n < pinned_count
                     in_range = d is not None and start_d <= d <= end_d
                     if in_range:
                         if not is_pinned:
                             self._found_start = True
                             page_has_in_range = True
-                        log(f"点击文章卡片 {n + 1}/{len(dated)} ({cx},{cy}) 时间[{text}] 日期[{d}]")
-                        mouse_click(cx, cy)
-                        r = self._collect_article_link(pts, name)
-                        if r is False:
-                            log("文章操作失败，任务标记 error")
-                            return False
-                        if r == "stop":
-                            log("达到停止条件，退出文章采集循环")
-                            self._exit_loop = True
-                            break
-                        log("Ctrl+W 关闭文章")
-                        ctrl_key("W")
-                        if self._sleep(0.5):  # 关闭标签页后等待 0.5 秒
-                            log("已停止：中止文章采集")
-                            break
                     else:
                         tag = "置顶" if is_pinned else ""
                         log(f"跳过卡片 ({cx},{cy}) 时间[{text}] 日期[{d or '无法解析'}] 不在范围 {start_d}~{end_d}{('（' + tag + '）') if tag else ''}")
-                # 停止判定：已找到开始点，但本页无任何正常范围内点位 -> 范围结束
-                if self._found_start and not page_has_in_range:
-                    log("已找到范围结束点（本页无范围内点位），结束文章采集")
+                        continue
+                if is_custom and tr_dates:
+                    log(f"点击文章卡片 {n + 1}/{len(cards)} (x=点位12:{p12_x}, y={cy}) 时间[{text}] 日期[{d}]")
+                else:
+                    log(f"点击文章卡片 {n + 1}/{len(cards)} (x=点位12:{p12_x}, y={cy}) 时间[{text}]")
+                mouse_click(p12_x, cy)
+                r = self._collect_article_link(pts, name)
+                if r is False:
+                    log("文章操作失败，任务标记 error")
+                    return False
+                if r == "stop":
+                    log("达到停止条件，退出文章采集循环")
+                    self._exit_loop = True
                     break
-            else:
-                # 非自定义模式：原逻辑（全部点击，时间检测在点击后）
-                for i, (cx, cy, text) in enumerate(cards):
-                    if self.stop_event.is_set():
-                        log("已停止：中止文章采集")
-                        break
-                    log(f"点击文章卡片 {i + 1}/{len(cards)} ({cx},{cy}) 时间[{text}]")
-                    mouse_click(cx, cy)
-                    r = self._collect_article_link(pts, name)
-                    if r is False:
-                        log("文章操作失败，任务标记 error")
-                        return False
-                    if r == "stop":
-                        log("达到停止条件，退出文章采集循环")
-                        self._exit_loop = True
-                        break
-                    log("Ctrl+W 关闭文章")
-                    ctrl_key("W")
-                    if self._sleep(0.5):  # 关闭标签页后等待 0.5 秒
-                        log("已停止：中止文章采集")
-                        break
+                log("Ctrl+W 关闭文章")
+                ctrl_key("W")
+                if self._sleep(0.5):  # 关闭标签页后等待 0.5 秒
+                    log("已停止：中止文章采集")
+                    break
+            # 自定义模式停止判定：已找到开始点，但本页无任何正常范围内点位 -> 范围结束
+            if is_custom and tr_dates and self._found_start and not page_has_in_range:
+                log("已找到范围结束点（本页无范围内点位），结束文章采集")
+                break
             # 全部点击完毕：滚动前先检查后台结果（可能已触发停止条件）
             if self._check_fetch_results():
                 log("后台任务触发停止条件，不再滚动，结束文章采集")
