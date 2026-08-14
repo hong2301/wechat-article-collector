@@ -21,4 +21,5 @@ config/log.txt
 # PyInstaller 产物
 build/
 dist/
+release/
 *.zip

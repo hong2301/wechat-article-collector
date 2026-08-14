@@ -34,7 +34,7 @@ from datetime import date, datetime, timedelta
 from tkinter import messagebox, scrolledtext, ttk
 
 APP_NAME = "微信公众号OCR采集器"
-VERSION = "V1.1.3"
+VERSION = "V1.1.4"
 WECHAT_VERSION = "4.1.11.24"    # 依赖: 微信 PC 版版本
 
 UI_LOG_HOOK = None          # GUI 日志回调
@@ -2630,6 +2630,9 @@ class App:
                             break
                         log("Ctrl+W 关闭文章")
                         ctrl_key("W")
+                        if self._sleep(0.5):  # 关闭标签页后等待 0.5 秒
+                            log("已停止：中止文章采集")
+                            break
                     else:
                         tag = "置顶" if is_pinned else ""
                         log(f"跳过卡片 ({cx},{cy}) 时间[{text}] 日期[{d or '无法解析'}] 不在范围 {start_d}~{end_d}{('（' + tag + '）') if tag else ''}")
@@ -2655,6 +2658,9 @@ class App:
                         break
                     log("Ctrl+W 关闭文章")
                     ctrl_key("W")
+                    if self._sleep(0.5):  # 关闭标签页后等待 0.5 秒
+                        log("已停止：中止文章采集")
+                        break
             # 全部点击完毕：滚动前先检查后台结果（可能已触发停止条件）
             if self._check_fetch_results():
                 log("后台任务触发停止条件，不再滚动，结束文章采集")
