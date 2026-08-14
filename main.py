@@ -928,6 +928,20 @@ def find_time_items(items):
     return found
 
 
+def extract_reads(text):
+    """从时间点位文本中提取阅读数，提取不到返回 -1
+    如: '星期四阅读821赞4' -> 821，'昨天 阅读 117' -> 117，'昨天' -> -1"""
+    m = re.search(r"阅读\s*(\d+)", text or "")
+    return int(m.group(1)) if m else -1
+
+
+def extract_likes(text):
+    """从时间点位文本中提取点赞数，提取不到返回 -1
+    如: '星期四阅读821赞4' -> 4，'昨天 阅读 117 赞 6' -> 6，'昨天' -> -1"""
+    m = re.search(r"赞\s*(\d+)", text or "")
+    return int(m.group(1)) if m else -1
+
+
 def set_clipboard_text(text):
     """把文本写入剪贴板（Win32，线程安全）；成功返回 True"""
     u32 = _u32()
@@ -1128,10 +1142,10 @@ def _collected_path():
 
 
 def append_collected(gzh, pub_time, title, link,
-                   reads=0, likes=0, forwards=0, favorites=0, comments=0,
+                   reads=-1, likes=-1, forwards=-1, favorites=-1, comments=-1,
                    write_time=None):
     """追加一条采集记录到 config/collected.csv（线程安全，不做重复检查）
-    互动数据列（阅读/点赞/转发/喜欢/评论）默认 0，后续采集逻辑可传入；
+    互动数据列（阅读/点赞/转发/喜欢/评论）默认 -1（未采集到），后续采集逻辑可传入；
     write_time = 点击时间点位的时间（精确到秒），不传则用当前时间
     返回: "add"=已写入 / "error"=写入失败"""
     path = _collected_path()
@@ -2543,10 +2557,10 @@ class App:
                 log(f"后台抓取完成: 标题[{title}] 时间[{pub_time}] 保存[{save_path or '未保存'}]")
                 # 写入采集记录（单点一次性写入，互动数据一起带入）
                 rec = append_collected(name, pub_time, title, link,
-                                       reads=r.get("reads", 0), likes=r.get("likes", 0),
-                                       forwards=r.get("forwards", 0),
-                                       favorites=r.get("favorites", 0),
-                                       comments=r.get("comments", 0),
+                                       reads=r.get("reads", -1), likes=r.get("likes", -1),
+                                       forwards=r.get("forwards", -1),
+                                       favorites=r.get("favorites", -1),
+                                       comments=r.get("comments", -1),
                                        write_time=r.get("write_time"))
                 if rec == "skip":
                     log(f"采集记录已存在，跳过写入: {link}")
@@ -2732,12 +2746,14 @@ class App:
                         log(f"跳过卡片 ({cx},{cy}) 时间[{text}] 日期[{d or '无法解析'}] 不在范围 {start_d}~{end_d}{('（' + tag + '）') if tag else ''}")
                         continue
                 click_time = time.strftime("%Y-%m-%d %H:%M:%S")  # 点击时间点位的时间
+                reads = extract_reads(text)   # 列表页识别到的阅读数(-1=未识别到)
+                likes = extract_likes(text)   # 列表页识别到的点赞数(-1=未识别到)
                 if is_custom and tr_dates:
-                    log(f"点击文章卡片 {n + 1}/{len(cards)} (x=点位12:{p12_x}, y={cy}) 时间[{text}] 日期[{d}]")
+                    log(f"点击文章卡片 {n + 1}/{len(cards)} (x=点位12:{p12_x}, y={cy}) 时间[{text}] 阅读[{reads}] 赞[{likes}] 日期[{d}]")
                 else:
-                    log(f"点击文章卡片 {n + 1}/{len(cards)} (x=点位12:{p12_x}, y={cy}) 时间[{text}]")
+                    log(f"点击文章卡片 {n + 1}/{len(cards)} (x=点位12:{p12_x}, y={cy}) 时间[{text}] 阅读[{reads}] 赞[{likes}]")
                 mouse_click(p12_x, cy)
-                r = self._collect_article_link(pts, name, click_time)
+                r = self._collect_article_link(pts, name, click_time, reads, likes)
                 if r is False:
                     log("文章操作失败，任务标记 error")
                     return False
@@ -2776,10 +2792,11 @@ class App:
         self._wait_all_fetches()
         return True
 
-    def _collect_article_link(self, pts, name, click_time=None):
+    def _collect_article_link(self, pts, name, click_time=None, reads=-1, likes=-1):
         """正式文章操作：3次尝试复制链接（点位8 -> OCR找复制链接 -> 点击 -> 检查剪贴板）
         -> fetch_article 抓取标题/时间并保存 HTML
         click_time: 点击时间点位的时间（写入 CSV 用）
+        reads/likes: 列表页 OCR 提取的阅读/点赞数（-1=未识别到，写入 CSV 用）
         返回: True=成功继续 / "stop"=达到停止条件退出循环 / False=失败(error)"""
         p8 = pts.get(8)
         p9 = pts.get(9)
@@ -2856,15 +2873,15 @@ class App:
 
             def _ok(**kw):
                 base = {"title": "", "pub_time": "", "save_path": None, "error": None,
-                        "reads": 0, "likes": 0, "forwards": 0,
-                        "favorites": 0, "comments": 0}
+                        "reads": -1, "likes": -1, "forwards": -1,
+                        "favorites": -1, "comments": -1}
                 base.update(kw)
                 return base
 
             def _err(msg):
                 return {"title": "", "pub_time": "", "save_path": None, "error": msg,
-                        "reads": 0, "likes": 0, "forwards": 0,
-                        "favorites": 0, "comments": 0}
+                        "reads": -1, "likes": -1, "forwards": -1,
+                        "favorites": -1, "comments": -1}
 
             try:
                 save_dir = os.path.join(self.session_dir, clean_filename(name))
@@ -2889,9 +2906,9 @@ class App:
                 if fetched is None:
                     return _err("抓取失败")
                 title, pub_time = fetched
-            # TODO(采集逻辑): 在 _ok 中填入互动数据 reads/likes/forwards/favorites/comments
+            # TODO(采集逻辑): 后续如需转发/喜欢/评论, 在 _ok 中填入对应字段
             return _ok(title=title, pub_time=pub_time, save_path=save_path,
-                       write_time=click_time)
+                       write_time=click_time, reads=reads, likes=likes)
         # 提交到线程池异步执行
         if not hasattr(self, "_fetch_executor"):
             self._fetch_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="fetch")
