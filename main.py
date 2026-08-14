@@ -34,7 +34,7 @@ from datetime import date, datetime, timedelta
 from tkinter import messagebox, scrolledtext, ttk
 
 APP_NAME = "微信公众号OCR采集器"
-VERSION = "V1.1.4"
+VERSION = "V1.1.5"
 WECHAT_VERSION = "4.1.11.24"    # 依赖: 微信 PC 版版本
 
 UI_LOG_HOOK = None          # GUI 日志回调
@@ -1658,6 +1658,11 @@ class App:
         self.max_count_var.set(str(self.ui.get("max_count", "") or ""))
         tk.Label(row4, text="(空 = 无限)", font=("Microsoft YaHei UI", 9),
                  fg="#888888").pack(side=tk.LEFT)
+        # 窗口分离开关：开启时点击点位2后额外点击点位11
+        self.window_split_var = tk.BooleanVar(
+            value=bool(self.ui.get("window_split", False)))
+        tk.Checkbutton(row4, text="窗口分离", variable=self.window_split_var,
+                       font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(12, 0))
 
         # 开始按钮 + 点位设置（同一栏，点位设置靠右小按钮）
         # 滚动距离 + 文章卡片高度 配置（紧凑排左）+ 设置/测试按钮
@@ -2084,6 +2089,7 @@ class App:
             "max_count": self.max_count_var.get(),
             "scroll_px": self.scroll_px_var.get(),
             "card_height": self.card_height_var.get(),
+            "window_split": self.window_split_var.get(),
         })
 
     # ---------- 窗口布局（采集时微信左半屏 / main 右半屏） ----------
@@ -2124,7 +2130,8 @@ class App:
         log(f"已加载 {CONFIG_DIR}/{INPUT_CSV}: {total} 个有效公众号（pending/null/error 共 {todo} 个）")
         log(f"微信 PC 版: {WECHAT_VERSION}（程序版本待定）")
         log(f"记忆设置已读取: 时间范围[{dict(TIME_OPTIONS).get(self.time_var.get(), '?')}] "
-            f"最大数量[{self.max_count_var.get() or '无限'}]")
+            f"最大数量[{self.max_count_var.get() or '无限'}] "
+            f"窗口分离[{('开' if self.window_split_var.get() else '关')}]")
         log("右侧任务区可编辑 input 数据（双击单元格修改，操作列删除，底部重置/新增）")
         log("请在左侧采集控制设置索引范围、时间范围、最大数量后点击【开始】（或按回车）")
         if not self.input_rows:
@@ -2328,6 +2335,8 @@ class App:
         pts = {p[0]: p for p in load_points()}
         p1 = pts.get(1)
         p2 = pts.get(2)
+        p11 = pts.get(11)
+        window_split = self.window_split_var.get()
         if not p1 or not p2:
             log("错误: 缺少点位1或点位2，任务失败")
             self.last_error = "缺少点位1/2"
@@ -2351,6 +2360,17 @@ class App:
             return False
         log(f"点击点位2({p2[2]},{p2[3]}) {p2[1]}")
         mouse_click(p2[2], p2[3])
+        # 窗口分离开启：点击点位2后额外点击点位11
+        if window_split:
+            if not p11 or (p11[2] <= 0 and p11[3] <= 0):
+                log("错误: 缺少点位11（窗口分离已开启），任务失败")
+                self.last_error = "缺少点位11"
+                return False
+            log(f"点击点位11({p11[2]},{p11[3]}) {p11[1]}")
+            mouse_click(p11[2], p11[3])
+            if self._sleep(0.3):
+                log("已停止：中止当前任务")
+                return False
         # 3) Ctrl+Shift+W
         log("触发 Ctrl+Shift+W")
         ctrl_shift_key("W")
@@ -2376,6 +2396,17 @@ class App:
             return False
         log(f"点击点位2({p2[2]},{p2[3]}) {p2[1]}")
         mouse_click(p2[2], p2[3])
+        # 窗口分离开启：点击点位2后额外点击点位11
+        if window_split:
+            if not p11 or (p11[2] <= 0 and p11[3] <= 0):
+                log("错误: 缺少点位11（窗口分离已开启），任务失败")
+                self.last_error = "缺少点位11"
+                return False
+            log(f"点击点位11({p11[2]},{p11[3]}) {p11[1]}")
+            mouse_click(p11[2], p11[3])
+            if self._sleep(0.3):
+                log("已停止：中止当前任务")
+                return False
         # 5) 新窗口：调整到左半屏并聚焦（已就位则仅聚焦）
         new_win = get_foreground_window_info()
         if new_win:
