@@ -570,83 +570,6 @@ def show_taskbar():
         _u32().ShowWindow(hwnd, SW_SHOW)
 
 
-# ================= 文章卡片高度采集（连续点两点取 y 差值） =================
-class HeightCollector:
-    """采集两点 y 差值（文章卡片高度）：
-    单击记录点（每两个点算一次差值），双击确认最新一对，右键暂停/恢复"""
-
-    def __init__(self):
-        self.q = queue.Queue()
-        self.hook = None
-        self.hook_ready = threading.Event()
-        self._proc = HOOKPROC(self._callback)
-
-    def _callback(self, code, wparam, lparam):
-        if code == 0:
-            ms = ctypes.cast(lparam, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
-            now = time.monotonic()
-            if wparam == WM_LBUTTONDOWN:
-                self.q.put(("left", ms.pt.x, ms.pt.y, now))
-            elif wparam == WM_RBUTTONDOWN:
-                self.q.put(("right", ms.pt.x, ms.pt.y, now))
-        return _u32().CallNextHookEx(self.hook, code, wparam, lparam)
-
-    def _hook_thread(self):
-        # 低层钩子必须在带消息循环的线程上安装
-        h = _u32().SetWindowsHookExW(WH_MOUSE_LL, self._proc,
-                                     _k32().GetModuleHandleW(None), 0)
-        if not h:
-            self.hook_ready.set()
-            return
-        self.hook = h
-        self.hook_ready.set()
-        msg = wt.MSG()
-        while _u32().GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
-            _u32().TranslateMessage(ctypes.byref(msg))
-            _u32().DispatchMessageW(ctypes.byref(msg))
-        _u32().UnhookWindowsHookEx(h)
-
-    def run(self):
-        """阻塞采集：返回 (y1, y2, 高度) 或 None(钩子失败)
-        流程：单击第一个点 -> 单击第二个点 -> 再单击一下确认（返回高度）"""
-        threading.Thread(target=self._hook_thread, daemon=True).start()
-        if not self.hook_ready.wait(3):
-            log("高度采集: 鼠标钩子安装超时")
-            return None
-        if not self.hook:
-            log("高度采集: 安装鼠标钩子失败")
-            return None
-        points = []
-        paused = False
-        log("卡片高度采集: 单击第一个点 -> 单击第二个点（y差值=高度） -> 再单击一下确认")
-        while True:
-            try:
-                kind, x, y, evt_t = self.q.get(timeout=0.2)
-            except queue.Empty:
-                continue
-            if kind == "right":
-                paused = not paused
-                log("高度采集: 已暂停（可移动窗口），右键恢复" if paused
-                    else "高度采集: 已恢复")
-                continue
-            if paused:
-                continue
-            # 已有完整一对（2个点），再点一下就确认返回
-            if len(points) == 2:
-                y1, y2 = points[0][1], points[1][1]
-                h = abs(y1 - y2)
-                log(f"已确认: 文章卡片高度 = |{y1} - {y2}| = {h}px")
-                return y1, y2, h
-            # 记录点
-            points.append((x, y))
-            n = len(points)
-            if n == 1:
-                log(f"已点第1个点 ({x},{y})，请点第二个点")
-            else:  # n == 2
-                h = abs(points[1][1] - points[0][1])
-                log(f"已点第2个点 ({x},{y})，高度={h}px，再点一下确认")
-
-
 def snap_wechat_left(hwnd):
     """前置微信窗口并靠左半边屏幕；已就位则仅前置（返回 False）
     容差判断 + 设置后复查，防止窗口拒绝第一次移动"""
@@ -891,9 +814,23 @@ def screenshot_region(box, path):
     return img
 
 
+def _text_brightness(crop):
+    """计算裁剪区域内文字像素的平均亮度(0-255, 排除白色背景)；无文字返回 255"""
+    try:
+        crop = crop.convert("L")
+        px = list(crop.getdata())
+        text_px = [p for p in px if p < 235]   # 排除接近背景的白色
+        if not text_px:
+            return 255.0
+        return sum(text_px) / len(text_px)
+    except Exception:
+        return 255.0
+
+
 def ocr_region(box):
-    """对屏幕区域 box=(x1,y1,x2,y2) 做 OCR，返回 [(中心x, 中心y, 文本, score), ...]
-    坐标已换算为屏幕坐标（OCR 结果 + 截图区域偏移）"""
+    """对屏幕区域 box=(x1,y1,x2,y2) 做 OCR，返回 [(中心x, 中心y, 文本, score, sbox, brightness), ...]
+    坐标已换算为屏幕坐标（OCR 结果 + 截图区域偏移）
+    brightness: 文字区域平均亮度(深色标题≈25, 灰色时间文本≈160)"""
     from PIL import Image
     engine = get_ocr_engine()
     # 截图到内存
@@ -914,7 +851,13 @@ def ocr_region(box):
             cy = int(sum(ys) / len(ys)) + oy
             # 保留整个文本框（4 个点，已换算为屏幕绝对坐标）
             sbox = [(int(p[0]) + ox, int(p[1]) + oy) for p in box_pts]
-            items.append((cx, cy, text, score, sbox))
+            # 按文字框从截图裁剪, 计算文字亮度
+            try:
+                crop = img.crop((min(xs), min(ys), max(xs), max(ys)))
+                brightness = _text_brightness(crop)
+            except Exception:
+                brightness = 255.0
+            items.append((cx, cy, text, score, sbox, brightness))
     return items
 
 
@@ -942,12 +885,15 @@ def capture_region_base64(box, scale=None, quality=70):
 
 def find_time_items(items):
     """从 OCR 结果中筛选包含时间的条目，返回 [(中心x, 中心y, 文本), ...]
-    命中时间格式即认为该卡片可点击加载（文本中混有其他字符没关系）；
+    按文字颜色过滤：只保留灰色文字(时间文本, 亮度>=100), 深色标题(亮度<100)排除；
     点击时的 x 由点位12（文章x轴线）决定，y 用本结果中心 y"""
     found = []
-    for cx, cy, text, score, sbox in items:
+    for cx, cy, text, score, sbox, brightness in items:
         if TIME_RE.search(text):
-            found.append((cx, cy, text))
+            if brightness >= 100:
+                found.append((cx, cy, text))
+            else:
+                log(f"颜色过滤: 排除深色[{text}] 亮度={brightness:.0f}")
     return found
 
 
@@ -1750,7 +1696,7 @@ class App:
                        font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(12, 0))
 
         # 开始按钮 + 点位设置（同一栏，点位设置靠右小按钮）
-        # 滚动距离 + 文章卡片高度 配置（紧凑排左）+ 设置/测试按钮
+        # 滚动距离 + 测试滚动 配置（紧凑排左）
         scroll_bar = tk.Frame(ctrl)
         scroll_bar.pack(fill=tk.X, padx=10, pady=(6, 2))
         tk.Label(scroll_bar, text="滚动距离:",
@@ -1769,22 +1715,6 @@ class App:
                                          font=("Microsoft YaHei UI", 9),
                                          command=self.on_scroll_test)
         self.btn_scroll_test.pack(side=tk.LEFT, padx=4)
-        # 文章卡片高度
-        tk.Label(scroll_bar, text="卡片高度:",
-                 font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(8, 0))
-        self.card_height_var = tk.StringVar(
-            value=str(self.ui.get("card_height", 130)))
-        tk.Spinbox(scroll_bar, from_=10, to=1000, increment=10,
-                   textvariable=self.card_height_var, width=5,
-                   font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(3, 0))
-        tk.Label(scroll_bar, text="px",
-                 font=("Microsoft YaHei UI", 8), fg="#888888").pack(side=tk.LEFT, padx=1)
-        # 设置按钮（进入卡片高度采集模式，跟卡片高度一组）
-        self.btn_height_set = tk.Button(scroll_bar, text="设置", width=5,
-                                        font=("Microsoft YaHei UI", 9),
-                                        command=self.on_height_set)
-        self.btn_height_set.pack(side=tk.LEFT, padx=(4, 0))
-
         btn_bar = tk.Frame(ctrl)
         btn_bar.pack(fill=tk.X, padx=10, pady=(4, 6))
         self.btn_points = tk.Button(btn_bar, text="点位设置", width=10,
@@ -1868,7 +1798,7 @@ class App:
         # 设置记忆：任何变更自动保存
         for v in (self.idx_start_var, self.idx_end_var, self.time_var,
                   self.custom_start_var, self.custom_end_var, self.max_count_var,
-                  self.scroll_px_var, self.card_height_var):
+                  self.scroll_px_var):
             v.trace_add("write", lambda *a: self._save_state())
 
         # 时间范围变更时启用/禁用自定义日期行
@@ -2050,20 +1980,6 @@ class App:
         """打开点位设置弹窗"""
         PointsDialog(self.root)
 
-    def on_height_set(self):
-        """进入文章卡片高度设置模式：连续点两个点，y差值=卡片高度"""
-        log("开始文章卡片高度设置：请连续单击两个点（y差值=高度）")
-        threading.Thread(target=self._height_worker, daemon=True).start()
-
-    def _height_worker(self):
-        """后台采集卡片高度，完成后回主线程写入"""
-        c = HeightCollector()
-        result = c.run()
-        if result:
-            self.ui_queue.put(("height", result[2]))
-        else:
-            log("卡片高度采集失败/取消")
-
     def on_scroll_test(self):
         """测试滚动：鼠标移到点位7，按配置的滚动距离向下滚动（人工已打开文章列表时用）"""
         pts = {p[0]: p for p in load_points()}
@@ -2105,8 +2021,6 @@ class App:
                     self.pbar.config(value=item[2])
                 elif kind == "snap":
                     self._snap_main_right()
-                elif kind == "height":
-                    self.card_height_var.set(str(item[1]))
                 elif kind == "refresh_input":
                     self.reload_input("")      # 静默刷新任务区（状态已更新）
                 elif kind == "lock_hint":
@@ -2183,7 +2097,6 @@ class App:
             "custom_end": self.custom_end_var.get(),
             "max_count": self.max_count_var.get(),
             "scroll_px": self.scroll_px_var.get(),
-            "card_height": self.card_height_var.get(),
             "window_split": self.window_split_var.get(),
             "capture_read": self.capture_read_var.get(),
             "capture_4metrics": self.capture_4metrics_var.get(),
@@ -2705,9 +2618,8 @@ class App:
                 break
             loop_n += 1
             log(f"--- 列表循环 {loop_n}：OCR 识别中 ---")
-            # 识别文章卡片：最多 5 次机会（列表可能还在加载），每次识别后做私信过滤
+            # 识别文章卡片：最多 5 次机会（列表可能还在加载）
             cards = []
-            sixin_y = None
             for attempt in range(1, 6):
                 if self.stop_event.is_set():
                     log("已停止：中止文章采集")
@@ -2719,17 +2631,6 @@ class App:
                     self.last_error = f"OCR 失败: {e}"
                     return False
                 cards = find_time_items(items)
-                # 第一次列表循环：找"私信"点位，只保留 y 值大于私信点位的卡片（过滤顶部误匹配）
-                if loop_n == 1:
-                    for it in items:
-                        if "私信" in it[2]:
-                            sixin_y = it[1]
-                            log(f"找到'私信'点位 y={sixin_y}")
-                            break
-                    if sixin_y is not None:
-                        before = len(cards)
-                        cards = [c for c in cards if c[1] > sixin_y]
-                        log(f"过滤私信上方点位: {before} -> {len(cards)}")
                 if cards:
                     break
                 log(f"OCR 未识别到文章卡片，重试 {attempt}/5...")
@@ -2737,22 +2638,6 @@ class App:
                 log("错误: OCR 未识别到文章卡片（列表页异常），任务失败")
                 self.last_error = "未识别到文章卡片"
                 return False
-            # 同一卡片去重：y 差值 < 文章卡片高度视为同一张，保留最下面（y 值大）的
-            try:
-                card_h = int(float(getattr(self, "card_height_var").get()))
-            except (AttributeError, ValueError):
-                card_h = 130
-            if card_h > 0:
-                sorted_cards = sorted(cards, key=lambda c: c[1])
-                dedup = []
-                for c in sorted_cards:
-                    if dedup and (c[1] - dedup[-1][1]) < card_h:
-                        dedup[-1] = c  # 保留 y 值更大的（下面的）
-                    else:
-                        dedup.append(c)
-                if len(dedup) < len(cards):
-                    log(f"同一卡片去重: {len(cards)} -> {len(dedup)}（卡片高度 {card_h}px）")
-                cards = dedup
             log(f"识别到 {len(cards)} 个文章卡片（含时间）")
             # ---- 遍历卡片：统一逻辑，自定义模式额外做时间范围判断/跳过 ----
             is_custom = getattr(self, "is_custom_mode", False)
