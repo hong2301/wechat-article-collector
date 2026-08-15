@@ -2602,10 +2602,34 @@ class App:
             return False
         log("按回车")
         key_press(VK_RETURN)
-        log("等待 5 秒加载...")
-        if self._sleep(5):
-            log("已停止：中止当前任务")
-            return False
+        # 等待作者名称加载：等0.5秒后截点位19/20区域, OCR判断是否有文字(全白=加载中), 最多5次
+        p19 = pts.get(19)
+        p20 = pts.get(20)
+        if p19 and p20:
+            try:
+                ax1, ay1 = int(p19[2]), int(p19[3])
+                ax2, ay2 = int(p20[2]), int(p20[3])
+                if self._sleep(0.5):
+                    log("已停止：中止当前任务")
+                    return False
+                for _i in range(5):
+                    if self.stop_event.is_set():
+                        log("已停止：中止当前任务")
+                        return False
+                    from PIL import ImageGrab as _G
+                    _a_img = _G.grab(bbox=(min(ax1, ax2), min(ay1, ay2), max(ax1, ax2), max(ay1, ay2)))
+                    _has = bool(ocr_img(_a_img))
+                    log(f"作者名称加载检测: {'有文字' if _has else '无文字(加载中/全白)'}, 第{_i+1}/5次")
+                    if _has:
+                        break
+                    # 失败立即接下一次, 不额外等待
+            except Exception as _e:
+                log(f"作者名称加载检测异常: {_e}")
+        else:
+            log("等待 5 秒加载...")
+            if self._sleep(5):
+                log("已停止：中止当前任务")
+                return False
         # 7) 点击点位4
         p4 = pts.get(4)
         if not p4:
@@ -2614,8 +2638,8 @@ class App:
             return False
         log(f"点击点位4({p4[2]},{p4[3]}) {p4[1]}")
         mouse_click(p4[2], p4[3])
-        # 点击作者名称后等待 5 秒
-        if self._sleep(5):
+        # 点击作者名称后等待 0.5 秒（进入采集循环后有5次识别重试兜底）
+        if self._sleep(0.5):
             log("已停止：中止当前任务")
             return False
         # 8) 文章列表页：OCR 采集循环
