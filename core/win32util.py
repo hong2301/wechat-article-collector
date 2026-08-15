@@ -6,8 +6,7 @@ import ctypes
 import queue
 import threading
 import time
-
-wt = ctypes.wintypes
+from ctypes import wintypes as wt
 
 from .utils import log
 
