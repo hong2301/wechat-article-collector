@@ -15,6 +15,7 @@ COLLECTED_CSV = "collected.csv"
 COLLECTED_HEADER = ["公众号名称", "日期", "标题", "链接", "阅读", "点赞",
                     "转发", "喜欢", "评论", "写入时间", "互动截图", "阅读截图"]
 POINTS_CSV = "points.csv"
+CUSTOM = "custom"
 
 LOG_FILE = os.path.join(CONFIG_DIR, "log.txt")
 
@@ -50,5 +51,5 @@ def _collected_path():
 
 __all__ = ["APP_NAME", "VERSION", "WECHAT_VERSION", "CONFIG_DIR", "INPUT_CSV",
            "UI_STATE_FILE", "DATA_DIR", "COLLECTED_CSV", "COLLECTED_HEADER",
-           "POINTS_CSV", "LOG_FILE", "_script_root", "_config_dir",
+           "POINTS_CSV", "CUSTOM", "LOG_FILE", "_script_root", "_config_dir",
            "_input_path", "_points_path", "_data_dir", "_collected_path"]
