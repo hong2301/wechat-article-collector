@@ -32,20 +32,9 @@ import tkinter as tk
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 from tkinter import messagebox, scrolledtext, ttk
-
-APP_NAME = "微信公众号OCR采集器"
-VERSION = "V1.1.7"
-WECHAT_VERSION = "4.1.11.24"    # 依赖: 微信 PC 版版本
-
-UI_LOG_HOOK = None          # GUI 日志回调
-CONSOLE_PRINT = True        # 是否同时打印控制台
-
-CONFIG_DIR = "config"
-INPUT_CSV = "input.csv"
-UI_STATE_FILE = "ui_state.json"
-DATA_DIR = "data"   # 数据根目录（文章HTML + collected.csv）
-COLLECTED_CSV = "collected.csv"   # 采集记录（公众号/日期/标题/链接/阅读/点赞/转发/喜欢/评论/写入时间）
-COLLECTED_HEADER = ["公众号名称", "日期", "标题", "链接", "阅读", "点赞", "转发", "喜欢", "评论", "写入时间", "互动截图", "阅读截图"]
+import core.utils as _utils
+from core.paths import *
+from core.utils import *
 
 # ---------------- 时间范围选项 ----------------
 TIME_OPTIONS = (
@@ -59,30 +48,8 @@ TIME_OPTIONS = (
 CUSTOM = "custom"
 
 
-LOG_FILE = os.path.join(CONFIG_DIR, "log.txt")
 _log_lock = threading.Lock()
 
-
-def log(msg):
-    """记录日志：控制台打印 + 写入 config/log.txt（每行带时间戳），GUI 控制台不带时间"""
-    if CONSOLE_PRINT:
-        try:
-            print(msg, flush=True)
-        except Exception:
-            pass
-    # 写入 config/log.txt（线程安全，带时间戳）
-    try:
-        with _log_lock:
-            with open(os.path.join(_script_dir(), LOG_FILE), "a", encoding="utf-8") as f:
-                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
-    except Exception:
-        pass
-    hook = UI_LOG_HOOK
-    if hook is not None:
-        try:
-            hook(msg)
-        except Exception:
-            pass
 
 
 def enable_dpi_awareness():
@@ -739,59 +706,7 @@ TIME_RE = re.compile("|".join(f"({p})" for p in TIME_PATTERNS))
 
 
 # 星期汉字 -> 0-6（周一=0）
-_WEEKDAY_CN = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6}
 
-
-def resolve_article_date(text, today=None):
-    """把 OCR 识别到的时间文本解析为绝对日期(date)，按当前时间推断；失败返回 None
-    支持: 今天/昨天/前天、x天前、星期X/周X/礼拜X、YYYY-MM-DD、X月X日、MM-DD"""
-    today = today or date.today()
-    text = str(text).strip()
-    # 绝对日期 YYYY[-/.]M[-/.]D
-    m = re.search(r"(\d{4})[-/. ](\d{1,2})[-/. ](\d{1,2})", text)
-    if m:
-        try:
-            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
-        except ValueError:
-            pass
-    # 今天 / 昨天 / 前天
-    if "今天" in text:
-        return today
-    if "昨天" in text:
-        return today - timedelta(days=1)
-    if "前天" in text:
-        return today - timedelta(days=2)
-    # x天前
-    m = re.search(r"(\d+)\s*天前", text)
-    if m:
-        return today - timedelta(days=int(m.group(1)))
-    # 星期X / 周X / 礼拜X：最近的那个星期几（今天或之前）
-    m = re.search(r"(?:星期|周|礼拜)([一二三四五六日天])", text)
-    if m:
-        wd = _WEEKDAY_CN[m.group(1)]
-        delta = (today.weekday() - wd) % 7
-        return today - timedelta(days=delta)
-    # X月X日（默认今年；若晚于今天则视为去年）
-    m = re.search(r"(\d{1,2})月(\d{1,2})日?", text)
-    if m:
-        try:
-            d = date(today.year, int(m.group(1)), int(m.group(2)))
-        except ValueError:
-            return None
-        if d > today:
-            d = date(today.year - 1, int(m.group(1)), int(m.group(2)))
-        return d
-    # MM-DD / M/D（默认今年；若晚于今天则视为去年）
-    m = re.search(r"(\d{1,2})[-/](\d{1,2})", text)
-    if m:
-        try:
-            d = date(today.year, int(m.group(1)), int(m.group(2)))
-        except ValueError:
-            return None
-        if d > today:
-            d = date(today.year - 1, int(m.group(1)), int(m.group(2)))
-        return d
-    return None
 
 
 def get_ocr_engine():
@@ -1077,57 +992,8 @@ def read_clipboard_text():
 
 # ================= 抓取文章（标题/时间/保存 HTML） =================
 import re as _re
-_CT_RE = re.compile(r"var\s+ct\s*=\s*['\"]?(\d+)")
-_PUBLISH_TIME_RE = re.compile(r"(?:var\s+publish_time\s*=\s*['\"]?)(\d+)")
 
 
-def clean_filename(name):
-    """文件名清洗：斜杠/点等特殊字符转为 _"""
-    return re.sub(r'[\\/:*?"<>|.]', "_", str(name)).strip()
-
-
-def fetch_article(url, save_path=None):
-    """抓取微信文章：返回 (标题, 发布时间 str 或 None)；save_path 给定时保存完整 HTML（含图片）
-    失败返回 None"""
-    try:
-        import requests
-        headers = {
-            "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                           "AppleWebKit/537.36 (KHTML, like Gecko) "
-                           "Chrome/120.0 Safari/537.36"),
-            "Referer": "https://mp.weixin.qq.com/",
-        }
-        resp = requests.get(url, headers=headers, timeout=15)
-        resp.raise_for_status()
-        html = resp.text
-        # 标题：og:title 优先，其次 <title>
-        title = None
-        m = re.search(r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)', html)
-        if m:
-            title = m.group(1)
-        if not title:
-            m = re.search(r"<title>([^<]+)</title>", html, re.S)
-            if m:
-                title = m.group(1).strip()
-        if title:
-            title = re.sub(r"\s+", " ", title).strip()
-        # 时间：ct 时间戳（秒）优先，其次 publish_time
-        pub_time = None
-        m = _CT_RE.search(html) or _PUBLISH_TIME_RE.search(html)
-        if m:
-            try:
-                ts = int(m.group(1))
-                pub_time = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
-            except Exception:
-                pass
-        # 保存完整 HTML（图片为外链，HTML 内 img 引用原图）
-        if save_path:
-            with open(save_path, "w", encoding="utf-8") as f:
-                f.write(html)
-        return title, pub_time
-    except Exception as e:
-        log(f"抓取文章失败: {e}")
-        return None
 
 
 def _script_dir():
@@ -1690,8 +1556,7 @@ class App:
 
         self._build_ui()
         self.reload_input()
-        global UI_LOG_HOOK
-        UI_LOG_HOOK = self.append_log
+        _utils.UI_LOG_HOOK = self.append_log
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_exit)
 
