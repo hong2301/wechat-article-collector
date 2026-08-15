@@ -1656,6 +1656,11 @@ class PointsDialog(tk.Toplevel):
 
 
 # ================= 主界面 =================
+class StopSignal(BaseException):
+    """采集停止信号：按 ESC 时抛出, 由最外层统一捕获结束采集
+    继承 BaseException 而非 Exception, 避免被各处 except Exception 误捕获"""
+
+
 class App:
     def __init__(self, root):
         self.root = root
@@ -2412,16 +2417,12 @@ class App:
         done_n = 0
         try:
             for n, (idx, url, name, st) in enumerate(todo):
-                if self.stop_event.is_set():
-                    log("已停止：中止后续链接")
-                    break
+                self._check_stop()
                 log(f"【{n + 1}/{total}】[{idx}] {name}  {url[:45]}{'...' if len(url) > 45 else ''}")
                 # main 界面靠右半边屏幕（通过队列交给主线程处理）
                 self.ui_queue.put(("snap",))
                 ok = self._process_task(idx, url, name, wx)
-                if self.stop_event.is_set():
-                    log("已停止：中止后续链接")
-                    break
+                self._check_stop()
                 if ok:
                     update_input_status(idx, "done")
                     log(f"任务 {idx} 完成，状态=done")
@@ -2433,6 +2434,8 @@ class App:
                 self.ui_queue.put(("refresh_input",))
                 self._set_progress(f"进度: {n + 1}/{total}（{name}）",
                                    (n + 1) / total * 100)
+        except StopSignal:
+            log("已停止：ESC 中止采集")
         except Exception as e:
             log(f"采集线程异常: {e}")
         finally:
@@ -2443,13 +2446,17 @@ class App:
             self.ui_queue.put(("finish", self.stop_event.is_set(), total, done_n))
 
     def _sleep(self, seconds):
-        """可中断 sleep：分段检查停止信号。被停止返回 True，正常结束返回 False"""
+        """可中断 sleep：分段检查停止信号。被停止时抛 StopSignal 结束采集"""
         end = time.time() + seconds
         while time.time() < end:
             if self.stop_event.is_set():
-                return True
+                raise StopSignal()
             time.sleep(min(0.2, max(0.01, end - time.time())))
-        return False
+
+    def _check_stop(self):
+        """统一停止检查点：已停止则抛 StopSignal(由最外层捕获)"""
+        if self.stop_event.is_set():
+            raise StopSignal()
 
     def _process_task(self, idx, url, name, wx):
         """单个任务流程：
@@ -2465,9 +2472,7 @@ class App:
             moved = snap_wechat_left(wx[0])
             if moved:
                 log(f"微信窗口: 已移动到左半屏 [{wx[1]}]，等待0.3秒")
-                if self._sleep(0.3):
-                    log("已停止：中止当前任务")
-                    return False
+                self._sleep(0.3)
             else:
                 log(f"微信窗口: 已在左半屏 [{wx[1]}]，不动")
         # 加载点位
@@ -2485,23 +2490,15 @@ class App:
         mouse_click(p1[2], p1[3])
         log("输入 1")
         type_text("1")
-        if self._sleep(0.3):
-            log("已停止：中止当前任务")
-            return False
+        self._sleep(0.3)
         log("删除")
         ctrl_key("A")          # 全选（光标在末尾时 Delete 删不掉，先全选）
-        if self._sleep(0.15):
-            log("已停止：中止当前任务")
-            return False
+        self._sleep(0.15)
         key_press(VK_DELETE)
-        if self._sleep(0.3):
-            log("已停止：中止当前任务")
-            return False
+        self._sleep(0.3)
         log(f"点击点位2({p2[2]},{p2[3]}) {p2[1]}")
         mouse_click(p2[2], p2[3])
-        if self._sleep(0.5):  # 点击点位2后等待 0.5 秒
-            log("已停止：中止当前任务")
-            return False
+        self._sleep(0.5)
         # 窗口分离开启：点击点位2后额外点击点位11
         if window_split:
             if not p11:
@@ -2518,37 +2515,25 @@ class App:
                 return False
             log(f"点击点位11({px11},{py11}) {p11[1]}")
             mouse_click(px11, py11)
-            if self._sleep(0.3):
-                log("已停止：中止当前任务")
-                return False
+            self._sleep(0.3)
         # 3) Ctrl+Shift+W
         log("触发 Ctrl+Shift+W")
         ctrl_shift_key("W")
-        if self._sleep(0.8):
-            log("已停止：中止当前任务")
-            return False
+        self._sleep(0.8)
         # 4) 再次：点位1 -> 输入1 -> 删除 -> 点位2（触发新窗口）
         log(f"点击点位1({p1[2]},{p1[3]}) {p1[1]}")
         mouse_click(p1[2], p1[3])
         log("输入 1")
         type_text("1")
-        if self._sleep(0.3):
-            log("已停止：中止当前任务")
-            return False
+        self._sleep(0.3)
         log("删除")
         ctrl_key("A")
-        if self._sleep(0.15):
-            log("已停止：中止当前任务")
-            return False
+        self._sleep(0.15)
         key_press(VK_DELETE)
-        if self._sleep(0.3):
-            log("已停止：中止当前任务")
-            return False
+        self._sleep(0.3)
         log(f"点击点位2({p2[2]},{p2[3]}) {p2[1]}")
         mouse_click(p2[2], p2[3])
-        if self._sleep(0.5):  # 点击点位2后等待 0.5 秒
-            log("已停止：中止当前任务")
-            return False
+        self._sleep(0.5)
         # 窗口分离开启：点击点位2后额外点击点位11
         if window_split:
             if not p11:
@@ -2565,9 +2550,7 @@ class App:
                 return False
             log(f"点击点位11({px11},{py11}) {p11[1]}")
             mouse_click(px11, py11)
-            if self._sleep(0.3):
-                log("已停止：中止当前任务")
-                return False
+            self._sleep(0.3)
         # 5) 新窗口：调整到左半屏并聚焦（已就位则仅聚焦）
         new_win = get_foreground_window_info()
         if new_win:
@@ -2584,22 +2567,16 @@ class App:
         log(f"点击点位3({p3[2]},{p3[3]}) {p3[1]}")
         mouse_click(p3[2], p3[3])
         ctrl_key("A")          # 全选
-        if self._sleep(0.15):
-            log("已停止：中止当前任务")
-            return False
+        self._sleep(0.15)
         key_press(VK_DELETE)    # 清空
-        if self._sleep(0.15):
-            log("已停止：中止当前任务")
-            return False
+        self._sleep(0.15)
         log(f"输入任务链接(剪贴板粘贴): {url}")
         if not set_clipboard_text(url):
             log("错误: 剪贴板写入失败，改用逐字输入")
             type_text(url)
         else:
             ctrl_key("V")       # 粘贴
-        if self._sleep(0.3):
-            log("已停止：中止当前任务")
-            return False
+        self._sleep(0.3)
         log("按回车")
         key_press(VK_RETURN)
         # 等待作者名称加载：等0.5秒后截点位19/20区域, OCR判断是否有文字(全白=加载中), 最多5次
@@ -2609,13 +2586,9 @@ class App:
             try:
                 ax1, ay1 = int(p19[2]), int(p19[3])
                 ax2, ay2 = int(p20[2]), int(p20[3])
-                if self._sleep(0.5):
-                    log("已停止：中止当前任务")
-                    return False
+                self._sleep(0.5)
                 for _i in range(5):
-                    if self.stop_event.is_set():
-                        log("已停止：中止当前任务")
-                        return False
+                    self._check_stop()
                     from PIL import ImageGrab as _G
                     _a_img = _G.grab(bbox=(min(ax1, ax2), min(ay1, ay2), max(ax1, ax2), max(ay1, ay2)))
                     _has = bool(ocr_img(_a_img))
@@ -2627,9 +2600,7 @@ class App:
                 log(f"作者名称加载检测异常: {_e}")
         else:
             log("等待 5 秒加载...")
-            if self._sleep(5):
-                log("已停止：中止当前任务")
-                return False
+            self._sleep(5)
         # 7) 点击点位4
         p4 = pts.get(4)
         if not p4:
@@ -2639,9 +2610,7 @@ class App:
         log(f"点击点位4({p4[2]},{p4[3]}) {p4[1]}")
         mouse_click(p4[2], p4[3])
         # 点击作者名称后等待 0.5 秒（进入采集循环后有5次识别重试兜底）
-        if self._sleep(0.5):
-            log("已停止：中止当前任务")
-            return False
+        self._sleep(0.5)
         # 8) 文章列表页：OCR 采集循环
         return self._collect_articles(pts, name)
 
@@ -2757,9 +2726,7 @@ class App:
         log(f"文章列表 OCR 区域: {box}，滚动距离 {scroll_px}px")
         loop_n = 0
         while True:
-            if self.stop_event.is_set():
-                log("已停止：中止文章采集")
-                break
+            self._check_stop()
             if self._exit_loop:
                 break
             # 检查后台抓取线程结果（延后判定停止条件）
@@ -2772,9 +2739,7 @@ class App:
             # 识别文章卡片：最多 5 次机会（列表可能还在加载）
             cards = []
             for attempt in range(1, 6):
-                if self.stop_event.is_set():
-                    log("已停止：中止文章采集")
-                    break
+                self._check_stop()
                 try:
                     items = ocr_region(box)
                 except Exception as e:
@@ -2811,9 +2776,7 @@ class App:
                     log(f"识别到 {pinned_count} 个置顶文章（时间跳变），置顶不计入范围定位")
             # 统一按 y 从上到下遍历
             for n, card in enumerate(sorted(cards, key=lambda c: c[1])):
-                if self.stop_event.is_set():
-                    log("已停止：中止文章采集")
-                    break
+                self._check_stop()
                 cx, cy, text = card
                 # 自定义模式：解析日期并判断范围，范围外跳过
                 d = None
@@ -2847,9 +2810,7 @@ class App:
                     break
                 log("Ctrl+W 关闭文章")
                 ctrl_key("W")
-                if self._sleep(0.5):  # 关闭标签页后等待 0.5 秒
-                    log("已停止：中止文章采集")
-                    break
+                self._sleep(0.5)
                 # 每处理完一张卡片检查后台结果（及时写入CSV）
                 if self._check_fetch_results():
                     log("后台任务触发停止条件，退出文章采集循环")
@@ -2869,9 +2830,7 @@ class App:
             log(f"全部点击完毕，移动鼠标到点位7({p7[2]},{p7[3]}) 向下滚动 {scroll_px}px")
             scroll_down_at(int(p7[2]), int(p7[3]), scroll_px)
             log("等待 1 秒列表刷新...")
-            if self._sleep(1):
-                log("已停止：中止当前任务")
-                break
+            self._sleep(1)
         # 汇总本次任务收集的文章链接
         if getattr(self, "collected_links", None):
             log(f"本任务共收集 {len(self.collected_links)} 个文章链接:")
@@ -2898,23 +2857,17 @@ class App:
         # 复制链接：最多尝试 3 次
         link = None
         for attempt in range(1, 4):
-            if self.stop_event.is_set():
-                log("已停止：中止当前任务")
-                return False
+            self._check_stop()
             log(f"--- 复制链接尝试 {attempt}/3 ---")
             log(f"点击点位8({p8[2]},{p8[3]}) {p8[1]}")
             mouse_click(int(p8[2]), int(p8[3]))
-            if self._sleep(0.5):  # 三点菜单弹出后等待0.5秒
-                log("已停止：中止当前任务")
-                return False
+            self._sleep(0.5)
             # 复制链接按钮位置固定(点位18), 不再OCR识别
             tx, ty = int(p18[2]), int(p18[3])
             log(f"点击点位18({tx},{ty}) {p18[1]}")
             # 点击前清空剪贴板，确保检测到的一定是新复制的链接
             clear_clipboard()
-            if self._sleep(0.5):
-                log("已停止：中止当前任务")
-                return False
+            self._sleep(0.5)
             before = read_clipboard_text()
             mouse_click(tx, ty)
             # 初始化截图&互动数据变量
@@ -2938,9 +2891,7 @@ class App:
             # 轮询等待剪贴板更新（最多 10 秒，每 0.5 秒查一次 = 20 次）
             deadline = time.time() + 10
             while time.time() < deadline:
-                if self._sleep(0.5):
-                    log("已停止：中止当前任务")
-                    return False
+                self._sleep(0.5)
                 cur = read_clipboard_text()
                 if cur and cur != before and "mp.weixin.qq.com" in cur:
                     link = cur
@@ -3039,43 +2990,29 @@ class App:
             if p15:
                 p16 = pts.get(16)
                 # 等0.5秒 → Ctrl+W关闭标签 → 等0.5秒
-                if self._sleep(0.5):
-                    log("已停止：中止当前任务")
-                    return False
+                self._sleep(0.5)
                 log("采集阅读数：Ctrl+W 关闭标签页")
                 ctrl_key("W")
-                if self._sleep(0.5):
-                    log("已停止：中止当前任务")
-                    return False
+                self._sleep(0.5)
                 if p17:
                     px17, py17 = int(p17[2]), int(p17[3])
                     log(f"采集阅读数：点击点位17({px17},{py17}) 搜索按钮")
                     mouse_click(px17, py17)
                     ctrl_key("A")          # 全选
-                    if self._sleep(0.15):
-                        log("已停止：中止当前任务")
-                        return False
+                    self._sleep(0.15)
                     key_press(VK_DELETE)    # 清空
-                    if self._sleep(0.15):
-                        log("已停止：中止当前任务")
-                        return False
+                    self._sleep(0.15)
                     log("采集阅读数：输入链接")
                     if not set_clipboard_text(link):
                         type_text(link)
                     else:
                         ctrl_key("V")       # 粘贴
-                    if self._sleep(0.15):
-                        log("已停止：中止当前任务")
-                        return False
+                    self._sleep(0.15)
                     log("采集阅读数：按回车")
                     key_press(VK_RETURN)
-                    if self._sleep(5):
-                        log("已停止：中止当前任务")
-                        return False
+                    self._sleep(5)
                     # 等2秒加载 → 截图点位15/16区域(阅读数) → base64
-                    if self._sleep(2):
-                        log("已停止：中止当前任务")
-                        return False
+                    self._sleep(2)
                     p16 = pts.get(16)
                     try:
                         bx1, by1 = int(p15[2]), int(p15[3])
