@@ -2864,16 +2864,13 @@ class App:
         reads/likes: 列表页 OCR 提取的阅读/点赞数（-1=未识别到，写入 CSV 用）
         返回: True=成功继续 / "stop"=达到停止条件退出循环 / False=失败(error)"""
         p8 = pts.get(8)
-        p9 = pts.get(9)
-        p10 = pts.get(10)
+        p18 = pts.get(18)
         p13 = pts.get(13)
         p14 = pts.get(14)
-        if not p8 or not p9 or not p10:
-            log("错误: 缺少点位8/9/10，任务失败")
-            self.last_error = "缺少点位8/9/10"
+        if not p8 or not p18:
+            log("错误: 缺少点位8/18，任务失败")
+            self.last_error = "缺少点位8/18"
             return False
-        box = (min(int(p9[2]), int(p10[2])), min(int(p9[3]), int(p10[3])),
-               max(int(p9[2]), int(p10[2])), max(int(p9[3]), int(p10[3])))
         # 复制链接：最多尝试 3 次
         link = None
         for attempt in range(1, 4):
@@ -2883,28 +2880,12 @@ class App:
             log(f"--- 复制链接尝试 {attempt}/3 ---")
             log(f"点击点位8({p8[2]},{p8[3]}) {p8[1]}")
             mouse_click(int(p8[2]), int(p8[3]))
-            # OCR 找"复制链接"（识别到说明文章已加载）
-            target = None
-            for ocr_try in range(3):  # 最多重试3次OCR
-                if self.stop_event.is_set():
-                    log("已停止：中止当前任务")
-                    return False
-                log(f"OCR 识别复制链接区域: {box}")
-                try:
-                    items = ocr_region(box)
-                except Exception as e:
-                    log(f"OCR 失败: {e}")
-                    self.last_error = f"OCR 失败: {e}"
-                    return False
-                target = next((it for it in items if "复制链接" in it[2] or "复制" in it[2]), None)
-                if target:
-                    break
-                log(f"未识别到'复制链接'，重试OCR...({ocr_try + 1}/3)")
-            if not target:
-                log(f"尝试{attempt}: 未识别到'复制链接'")
-                continue
-            tx, ty = target[0], target[1]
-            log(f"找到'复制链接' ({tx},{ty}) [{target[2]}]，点击")
+            if self._sleep(0.5):  # 三点菜单弹出后等待0.5秒
+                log("已停止：中止当前任务")
+                return False
+            # 复制链接按钮位置固定(点位18), 不再OCR识别
+            tx, ty = int(p18[2]), int(p18[3])
+            log(f"点击点位18({tx},{ty}) {p18[1]}")
             # 点击前清空剪贴板，确保检测到的一定是新复制的链接
             clear_clipboard()
             if self._sleep(0.5):
