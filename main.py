@@ -861,6 +861,65 @@ def ocr_region(box):
     return items
 
 
+DOUBAO_URL = "https://ark.cn-beijing.volces.com/api/v3/responses"
+DOUBAO_MODEL = "doubao-seed-2-0-mini-260428"
+
+DOUBAO_PROMPT = "这是一张微信公众号文章底部的互动栏截图，从左到右可能依次有：点赞(大拇指图标)、转发(箭头图标)、喜欢(爱心图标)、留言(气泡图标+文字)。每个图标右侧是它的数量，有的指标可能不出现(比如没有转发、没有留言)。请先通过图标判断存在哪些指标，再读取每项的数值。严格按以下格式逐行输出，数字用阿拉伯数字，即使该项为0也输出该行：点赞: <数字>；转发: <数字>；喜欢: <数字>；留言: <数字,无留言填0>"
+
+
+def _parse_interact_text(text):
+    """解析豆包输出的互动数据文本，返回 (点赞, 转发, 喜欢, 留言)；解析不到某项填 0"""
+    likes = forwards = favorites = comments = 0
+    if text:
+        m = re.search(r"点赞[：:\s]*?(-?\d+)", text)
+        if m:
+            likes = int(m.group(1))
+        m = re.search(r"转发[：:\s]*?(-?\d+)", text)
+        if m:
+            forwards = int(m.group(1))
+        m = re.search(r"喜欢[：:\s]*?(-?\d+)", text)
+        if m:
+            favorites = int(m.group(1))
+        m = re.search(r"留言[：:\s]*?(-?\d+)", text)
+        if m:
+            comments = int(m.group(1))
+    return likes, forwards, favorites, comments
+
+
+def doubao_recognize_interact(shot_b64, api_key, timeout=30):
+    """调用豆包识图，识别互动栏截图的 点赞/转发/喜欢/留言
+    入参: shot_b64(base64, 可带 data:image 前缀), api_key(火山方舟 Key)
+    返回: (点赞, 转发, 喜欢, 留言) 均为 int; API 调用失败返回 None"""
+    try:
+        import requests
+        b64 = shot_b64
+        if "," in b64:
+            b64 = b64.split(",", 1)[1]
+        payload = {
+            "model": DOUBAO_MODEL,
+            "input": [{"role": "user", "content": [
+                {"type": "input_image", "image_url": "data:image/png;base64," + b64},
+                {"type": "input_text", "text": DOUBAO_PROMPT},
+            ]}],
+        }
+        headers = {"Authorization": "Bearer " + api_key,
+                   "Content-Type": "application/json"}
+        resp = requests.post(DOUBAO_URL, headers=headers, json=payload, timeout=timeout)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        text = ""
+        for out in data.get("output", []):
+            for c in out.get("content", []):
+                if c.get("type") == "output_text":
+                    text += (c.get("text") or "")
+        if not text.strip():
+            return None
+        return _parse_interact_text(text)
+    except Exception:
+        return None
+
+
 def _pil_to_b64(img, scale=None, quality=70):
     """PIL 图片转 base64 JPEG；失败返回 None"""
     try:
@@ -1739,6 +1798,20 @@ class App:
         tk.Checkbutton(row5, text="采集4指标", variable=self.capture_4metrics_var,
                        font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(12, 0))
 
+        # 豆包 API Key（密码式输入）
+        row6 = tk.Frame(ctrl)
+        row6.pack(fill=tk.X, padx=10, pady=(6, 2))
+        tk.Label(row6, text="豆包API Key:", font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+        self.doubao_key_var = tk.StringVar(
+            value=str(self.ui.get("doubao_api_key", "") or ""))
+        self.doubao_key_entry = tk.Entry(row6, textvariable=self.doubao_key_var, width=34,
+                                         show="*", font=("Microsoft YaHei UI", 9))
+        self.doubao_key_entry.pack(side=tk.LEFT, padx=(4, 0))
+        self.show_key_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(row6, text="显示", variable=self.show_key_var,
+                       font=("Microsoft YaHei UI", 9),
+                       command=self.toggle_key_show).pack(side=tk.LEFT, padx=(4, 0))
+
         # 开始按钮 + 点位设置（同一栏，点位设置靠右小按钮）
         # 滚动距离 + 测试滚动 配置（紧凑排左）
         scroll_bar = tk.Frame(ctrl)
@@ -2024,6 +2097,13 @@ class App:
         """打开点位设置弹窗"""
         PointsDialog(self.root)
 
+    def toggle_key_show(self):
+        """豆包 API Key 显示/隐藏切换"""
+        try:
+            self.doubao_key_entry.config(show="" if self.show_key_var.get() else "*")
+        except Exception:
+            pass
+
     def on_scroll_test(self):
         """测试滚动：鼠标移到点位7，按配置的滚动距离向下滚动（人工已打开文章列表时用）"""
         pts = {p[0]: p for p in load_points()}
@@ -2144,6 +2224,7 @@ class App:
             "window_split": self.window_split_var.get(),
             "capture_read": self.capture_read_var.get(),
             "capture_4metrics": self.capture_4metrics_var.get(),
+            "doubao_api_key": self.doubao_key_var.get(),
         })
 
     # ---------- 窗口布局（采集时微信左半屏 / main 右半屏） ----------
@@ -2270,6 +2351,8 @@ class App:
         self.time_range_dates = time_range_dates
         self.is_custom_mode = (tr == CUSTOM)   # 自定义时间范围模式标志
         log(f"文章保存目录: {self.session_dir}")
+        # 预加载 OCR 引擎：点击开始时加载一次，采集中复用（避免首个任务首次使用时的卡顿）
+        get_ocr_engine()
         rows = self.input_rows[s:e + 1]
         todo = [r for r in rows if r[3] in ("pending", "null") or "error" in r[3]]
         desc = time_range_desc(tr, cstart, cend)
@@ -2829,9 +2912,10 @@ class App:
                 return False
             before = read_clipboard_text()
             mouse_click(tx, ty)
-            # 初始化截图变量(闭包捕获引用, 后续赋值会同步到闭包)
+            # 初始化截图&互动数据变量
             shot_b64 = None
             read_shot_b64 = None
+            forwards = favorites = comments = -1   # 转发/喜欢/留言 默认-1(未识别)
             # 点击"复制链接"后：截图底部互动栏区域(点位13/14) -> base64
             capture_4m = getattr(self, "capture_4metrics_var", None)
             if p13 and p14 and capture_4m and capture_4m.get():
@@ -2843,6 +2927,7 @@ class App:
                             (min(bx1, bx2), min(by1, by2), max(bx1, bx2), max(by1, by2)),
                             scale=1.0)
                         log(f"底部互动栏截图完成 (base64 {len(shot_b64) if shot_b64 else 0} B)")
+                        # 豆包识图在后台 _fetch_task 里异步执行，不阻塞采集流程
                 except Exception as e:
                     log(f"互动栏截图失败: {e}")
             # 轮询等待剪贴板更新（最多 10 秒，每 0.5 秒查一次 = 20 次）
@@ -2867,9 +2952,21 @@ class App:
         self.collected_links.append(link)
         log(f"已复制文章链接: {link}")
         # ---- 异步抓取文章：标题/时间 + 保存 HTML（后台执行，不阻塞主流程） ----
-        def _fetch_task(link, name, shot_b64, read_shot_b64):
+        def _fetch_task(link, name, shot_b64, read_shot_b64,
+                      likes, forwards, favorites, comments):
             """后台抓取任务：抓取标题/时间 + 保存 HTML + 互动数据
-            返回统一 dict：title/pub_time/save_path/error + 互动数据(默认0)"""
+            返回统一 dict：title/pub_time/save_path/error + 互动数据"""
+            # 后台：豆包识图识别互动栏（若截图成功，异步执行不阻塞采集）
+            if shot_b64:
+                _k = getattr(self, "doubao_key_var", None)
+                _key = _k.get() if _k else ""
+                if _key:
+                    _res = doubao_recognize_interact(shot_b64, _key)
+                    if _res:
+                        likes, forwards, favorites, comments = _res
+                        log(f"豆包识图: 点赞[{likes}] 转发[{forwards}] 喜欢[{favorites}] 留言[{comments}]")
+                    else:
+                        log("豆包识图失败，互动数据保持默认")
 
             def _ok(**kw):
                 base = {"title": "", "pub_time": "", "save_path": None, "error": None,
@@ -2909,6 +3006,7 @@ class App:
             # TODO(采集逻辑): 后续如需转发/喜欢/评论, 在 _ok 中填入对应字段
             return _ok(title=title, pub_time=pub_time, save_path=save_path,
                        write_time=click_time, reads=reads, likes=likes,
+                       forwards=forwards, favorites=favorites, comments=comments,
                        shot=shot_b64, read_shot=read_shot_b64)
         # 提交到线程池异步执行
         # ---- 采集阅读数：滚动到底 → Ctrl+W关闭 → 搜索链接 → 输入回车 ----
@@ -3001,7 +3099,9 @@ class App:
             self._fetch_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="fetch")
         if not hasattr(self, "_pending_futures"):
             self._pending_futures = []
-        future = self._fetch_executor.submit(_fetch_task, link, name, shot_b64, read_shot_b64)
+        future = self._fetch_executor.submit(
+            _fetch_task, link, name, shot_b64, read_shot_b64,
+            likes, forwards, favorites, comments)
         self._pending_futures.append((future, link, name))
         # 不等待结果，直接返回继续处理下一个卡片
         return True
