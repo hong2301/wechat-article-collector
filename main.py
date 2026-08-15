@@ -34,7 +34,7 @@ from datetime import date, datetime, timedelta
 from tkinter import messagebox, scrolledtext, ttk
 
 APP_NAME = "微信公众号OCR采集器"
-VERSION = "V1.1.6"
+VERSION = "V1.1.7"
 WECHAT_VERSION = "4.1.11.24"    # 依赖: 微信 PC 版版本
 
 UI_LOG_HOOK = None          # GUI 日志回调
@@ -2187,7 +2187,7 @@ class App:
         self.status_var.set(f"已加载 {total} 个公众号（待处理 {todo} 个）")
         log(f"{APP_NAME} 已启动")
         log(f"已加载 {CONFIG_DIR}/{INPUT_CSV}: {total} 个有效公众号（pending/null/error 共 {todo} 个）")
-        log(f"微信 PC 版: {WECHAT_VERSION}（程序版本待定）")
+        log(f"微信 PC 版: {WECHAT_VERSION}（程序版本 {VERSION}）")
         log(f"记忆设置已读取: 时间范围[{dict(TIME_OPTIONS).get(self.time_var.get(), '?')}] "
             f"最大数量[{self.max_count_var.get() or '无限'}] "
             f"窗口分离[{('开' if self.window_split_var.get() else '关')}]")
