@@ -45,7 +45,7 @@ INPUT_CSV = "input.csv"
 UI_STATE_FILE = "ui_state.json"
 DATA_DIR = "data"   # 数据根目录（文章HTML + collected.csv）
 COLLECTED_CSV = "collected.csv"   # 采集记录（公众号/日期/标题/链接/阅读/点赞/转发/喜欢/评论/写入时间）
-COLLECTED_HEADER = ["公众号名称", "日期", "标题", "链接", "阅读", "点赞", "转发", "喜欢", "评论", "写入时间"]
+COLLECTED_HEADER = ["公众号名称", "日期", "标题", "链接", "阅读", "点赞", "转发", "喜欢", "评论", "写入时间", "互动截图"]
 
 # ---------------- 时间范围选项 ----------------
 TIME_OPTIONS = (
@@ -918,6 +918,20 @@ def ocr_region(box):
     return items
 
 
+def capture_region_base64(box):
+    """截取屏幕区域 box=(x1,y1,x2,y2) 并转为 base64 PNG 字符串；失败返回 None"""
+    try:
+        import io
+        import base64
+        from PIL import ImageGrab
+        img = ImageGrab.grab(bbox=(int(box[0]), int(box[1]), int(box[2]), int(box[3])))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:
+        return None
+
+
 def find_time_items(items):
     """从 OCR 结果中筛选包含时间的条目，返回 [(中心x, 中心y, 文本), ...]
     命中时间格式即认为该卡片可点击加载（文本中混有其他字符没关系）；
@@ -1149,7 +1163,7 @@ def _collected_path():
 
 def append_collected(gzh, pub_time, title, link,
                    reads=-1, likes=-1, forwards=-1, favorites=-1, comments=-1,
-                   write_time=None):
+                   write_time=None, shot=""):
     """追加一条采集记录到 data/collected.csv（线程安全，不做重复检查）
     互动数据列（阅读/点赞/转发/喜欢/评论）默认 -1（未采集到），后续采集逻辑可传入；
     write_time = 点击时间点位的时间（精确到秒），不传则用当前时间
@@ -1171,6 +1185,7 @@ def append_collected(gzh, pub_time, title, link,
                 "公众号名称": gzh, "日期": pub_time or "", "标题": title or "",
                 "链接": link, "阅读": reads, "点赞": likes, "转发": forwards,
                 "喜欢": favorites, "评论": comments, "写入时间": now,
+                "互动截图": shot or "",
             }
             if header != COLLECTED_HEADER or not os.path.isfile(path):
                 rows = []
@@ -1713,6 +1728,18 @@ class App:
         tk.Checkbutton(row4, text="窗口分离", variable=self.window_split_var,
                        font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(12, 0))
 
+        # 采集开关
+        row5 = tk.Frame(ctrl)
+        row5.pack(fill=tk.X, padx=10, pady=(6, 2))
+        self.capture_read_var = tk.BooleanVar(
+            value=bool(self.ui.get("capture_read", False)))
+        tk.Checkbutton(row5, text="采集阅读数", variable=self.capture_read_var,
+                       font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
+        self.capture_4metrics_var = tk.BooleanVar(
+            value=bool(self.ui.get("capture_4metrics", False)))
+        tk.Checkbutton(row5, text="采集4指标", variable=self.capture_4metrics_var,
+                       font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(12, 0))
+
         # 开始按钮 + 点位设置（同一栏，点位设置靠右小按钮）
         # 滚动距离 + 文章卡片高度 配置（紧凑排左）+ 设置/测试按钮
         scroll_bar = tk.Frame(ctrl)
@@ -2149,6 +2176,8 @@ class App:
             "scroll_px": self.scroll_px_var.get(),
             "card_height": self.card_height_var.get(),
             "window_split": self.window_split_var.get(),
+            "capture_read": self.capture_read_var.get(),
+            "capture_4metrics": self.capture_4metrics_var.get(),
         })
 
     # ---------- 窗口布局（采集时微信左半屏 / main 右半屏） ----------
@@ -2190,7 +2219,9 @@ class App:
         log(f"微信 PC 版: {WECHAT_VERSION}（程序版本 {VERSION}）")
         log(f"记忆设置已读取: 时间范围[{dict(TIME_OPTIONS).get(self.time_var.get(), '?')}] "
             f"最大数量[{self.max_count_var.get() or '无限'}] "
-            f"窗口分离[{('开' if self.window_split_var.get() else '关')}]")
+            f"窗口分离[{('开' if self.window_split_var.get() else '关')}] "
+            f"采集阅读[{('开' if self.capture_read_var.get() else '关')}] "
+            f"采集4指标[{('开' if self.capture_4metrics_var.get() else '关')}]")
         log("右侧任务区可编辑 input 数据（双击单元格修改，操作列删除，底部重置/新增）")
         log("请在左侧采集控制设置索引范围、时间范围、最大数量后点击【开始】（或按回车）")
         if not self.input_rows:
@@ -2534,8 +2565,8 @@ class App:
             return False
         log(f"点击点位4({p4[2]},{p4[3]}) {p4[1]}")
         mouse_click(p4[2], p4[3])
-        # 点击作者名称后等待 0.5 秒
-        if self._sleep(0.5):
+        # 点击作者名称后等待 5 秒
+        if self._sleep(5):
             log("已停止：中止当前任务")
             return False
         # 8) 文章列表页：OCR 采集循环
@@ -2567,7 +2598,8 @@ class App:
                                        forwards=r.get("forwards", -1),
                                        favorites=r.get("favorites", -1),
                                        comments=r.get("comments", -1),
-                                       write_time=r.get("write_time"))
+                                       write_time=r.get("write_time"),
+                                       shot=r.get("shot") or "")
                 if rec == "skip":
                     log(f"采集记录已存在，跳过写入: {link}")
                 elif rec == "error":
@@ -2807,6 +2839,8 @@ class App:
         p8 = pts.get(8)
         p9 = pts.get(9)
         p10 = pts.get(10)
+        p13 = pts.get(13)
+        p14 = pts.get(14)
         if not p8 or not p9 or not p10:
             log("错误: 缺少点位8/9/10，任务失败")
             self.last_error = "缺少点位8/9/10"
@@ -2851,6 +2885,19 @@ class App:
                 return False
             before = read_clipboard_text()
             mouse_click(tx, ty)
+            # 点击"复制链接"后：截图底部互动栏区域(点位13/14) -> base64
+            shot_b64 = None
+            capture_4m = getattr(self, "capture_4metrics_var", None)
+            if p13 and p14 and capture_4m and capture_4m.get():
+                try:
+                    bx1, by1 = int(p13[2]), int(p13[3])
+                    bx2, by2 = int(p14[2]), int(p14[3])
+                    if bx1 > 0 and by1 > 0 and bx2 > 0 and by2 > 0:
+                        shot_b64 = capture_region_base64(
+                            (min(bx1, bx2), min(by1, by2), max(bx1, bx2), max(by1, by2)))
+                        log(f"底部互动栏截图完成 (base64 {len(shot_b64) if shot_b64 else 0} B)")
+                except Exception as e:
+                    log(f"互动栏截图失败: {e}")
             # 轮询等待剪贴板更新（最多 10 秒，每 0.5 秒查一次 = 20 次）
             deadline = time.time() + 10
             while time.time() < deadline:
@@ -2880,14 +2927,14 @@ class App:
             def _ok(**kw):
                 base = {"title": "", "pub_time": "", "save_path": None, "error": None,
                         "reads": -1, "likes": -1, "forwards": -1,
-                        "favorites": -1, "comments": -1}
+                        "favorites": -1, "comments": -1, "shot": ""}
                 base.update(kw)
                 return base
 
             def _err(msg):
                 return {"title": "", "pub_time": "", "save_path": None, "error": msg,
                         "reads": -1, "likes": -1, "forwards": -1,
-                        "favorites": -1, "comments": -1}
+                        "favorites": -1, "comments": -1, "shot": ""}
 
             try:
                 save_dir = os.path.join(self.session_dir, clean_filename(name))
@@ -2914,7 +2961,8 @@ class App:
                 title, pub_time = fetched
             # TODO(采集逻辑): 后续如需转发/喜欢/评论, 在 _ok 中填入对应字段
             return _ok(title=title, pub_time=pub_time, save_path=save_path,
-                       write_time=click_time, reads=reads, likes=likes)
+                       write_time=click_time, reads=reads, likes=likes,
+                       shot=shot_b64)
         # 提交到线程池异步执行
         if not hasattr(self, "_fetch_executor"):
             self._fetch_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="fetch")
