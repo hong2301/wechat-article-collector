@@ -45,7 +45,7 @@ INPUT_CSV = "input.csv"
 UI_STATE_FILE = "ui_state.json"
 DATA_DIR = "data"   # 数据根目录（文章HTML + collected.csv）
 COLLECTED_CSV = "collected.csv"   # 采集记录（公众号/日期/标题/链接/阅读/点赞/转发/喜欢/评论/写入时间）
-COLLECTED_HEADER = ["公众号名称", "日期", "标题", "链接", "阅读", "点赞", "转发", "喜欢", "评论", "写入时间", "互动截图"]
+COLLECTED_HEADER = ["公众号名称", "日期", "标题", "链接", "阅读", "点赞", "转发", "喜欢", "评论", "写入时间", "互动截图", "阅读截图"]
 
 # ---------------- 时间范围选项 ----------------
 TIME_OPTIONS = (
@@ -918,17 +918,25 @@ def ocr_region(box):
     return items
 
 
-def capture_region_base64(box):
-    """截取屏幕区域 box=(x1,y1,x2,y2) 并转为 base64 PNG 字符串；失败返回 None"""
+def capture_region_base64(box, scale=None, quality=70):
+    """截取屏幕区域 box=(x1,y1,x2,y2) 并转为 base64 JPEG 字符串；失败返回 None
+    scale: 缩放比例(<1 缩小, 如 0.75), None=不缩放; quality: JPEG 质量(默认70)"""
     try:
         import io
         import base64
         from PIL import ImageGrab
+        from PIL import Image as _PILImage
         img = ImageGrab.grab(bbox=(int(box[0]), int(box[1]), int(box[2]), int(box[3])))
+        if scale and scale < 1.0:
+            w, h = img.size
+            img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), _PILImage.LANCZOS)
+        if img.mode != "RGB":
+            img = img.convert("RGB")
         buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        return base64.b64encode(buf.getvalue()).decode("ascii")
-    except Exception:
+        img.save(buf, format="JPEG", quality=quality, optimize=True)
+        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception as e:
+        log(f"截图失败(box={box}, scale={scale}): {e}")
         return None
 
 
@@ -1163,7 +1171,7 @@ def _collected_path():
 
 def append_collected(gzh, pub_time, title, link,
                    reads=-1, likes=-1, forwards=-1, favorites=-1, comments=-1,
-                   write_time=None, shot=""):
+                   write_time=None, shot="", read_shot=""):
     """追加一条采集记录到 data/collected.csv（线程安全，不做重复检查）
     互动数据列（阅读/点赞/转发/喜欢/评论）默认 -1（未采集到），后续采集逻辑可传入；
     write_time = 点击时间点位的时间（精确到秒），不传则用当前时间
@@ -1186,6 +1194,7 @@ def append_collected(gzh, pub_time, title, link,
                 "链接": link, "阅读": reads, "点赞": likes, "转发": forwards,
                 "喜欢": favorites, "评论": comments, "写入时间": now,
                 "互动截图": shot or "",
+                "阅读截图": read_shot or "",
             }
             if header != COLLECTED_HEADER or not os.path.isfile(path):
                 rows = []
@@ -2599,7 +2608,8 @@ class App:
                                        favorites=r.get("favorites", -1),
                                        comments=r.get("comments", -1),
                                        write_time=r.get("write_time"),
-                                       shot=r.get("shot") or "")
+                                       shot=r.get("shot") or "",
+                                       read_shot=r.get("read_shot") or "")
                 if rec == "skip":
                     log(f"采集记录已存在，跳过写入: {link}")
                 elif rec == "error":
@@ -2642,9 +2652,9 @@ class App:
                 future.result(timeout=30)  # 最多等30秒
             except Exception:
                 pass
-        self._pending_futures.clear()
-        # 最后检查一次结果
+        # 最后检查一次结果（先检查再清空，避免丢失最后一批结果）
         self._check_fetch_results()
+        self._pending_futures.clear()
 
     # ---------- 文章采集循环（OCR） ----------
     def _collect_articles(self, pts, name):
@@ -2804,6 +2814,11 @@ class App:
                 if self._sleep(0.5):  # 关闭标签页后等待 0.5 秒
                     log("已停止：中止文章采集")
                     break
+                # 每处理完一张卡片检查后台结果（及时写入CSV）
+                if self._check_fetch_results():
+                    log("后台任务触发停止条件，退出文章采集循环")
+                    self._exit_loop = True
+                    break
             # 自定义模式停止判定：已找到开始点，但本页无任何正常范围内点位 -> 范围结束
             if is_custom and tr_dates and self._found_start and not page_has_in_range:
                 log("已找到范围结束点（本页无范围内点位），结束文章采集")
@@ -2885,8 +2900,10 @@ class App:
                 return False
             before = read_clipboard_text()
             mouse_click(tx, ty)
-            # 点击"复制链接"后：截图底部互动栏区域(点位13/14) -> base64
+            # 初始化截图变量(闭包捕获引用, 后续赋值会同步到闭包)
             shot_b64 = None
+            read_shot_b64 = None
+            # 点击"复制链接"后：截图底部互动栏区域(点位13/14) -> base64
             capture_4m = getattr(self, "capture_4metrics_var", None)
             if p13 and p14 and capture_4m and capture_4m.get():
                 try:
@@ -2894,7 +2911,8 @@ class App:
                     bx2, by2 = int(p14[2]), int(p14[3])
                     if bx1 > 0 and by1 > 0 and bx2 > 0 and by2 > 0:
                         shot_b64 = capture_region_base64(
-                            (min(bx1, bx2), min(by1, by2), max(bx1, bx2), max(by1, by2)))
+                            (min(bx1, bx2), min(by1, by2), max(bx1, bx2), max(by1, by2)),
+                            scale=1.0)
                         log(f"底部互动栏截图完成 (base64 {len(shot_b64) if shot_b64 else 0} B)")
                 except Exception as e:
                     log(f"互动栏截图失败: {e}")
@@ -2920,21 +2938,21 @@ class App:
         self.collected_links.append(link)
         log(f"已复制文章链接: {link}")
         # ---- 异步抓取文章：标题/时间 + 保存 HTML（后台执行，不阻塞主流程） ----
-        def _fetch_task():
+        def _fetch_task(link, name, shot_b64, read_shot_b64):
             """后台抓取任务：抓取标题/时间 + 保存 HTML + 互动数据
             返回统一 dict：title/pub_time/save_path/error + 互动数据(默认0)"""
 
             def _ok(**kw):
                 base = {"title": "", "pub_time": "", "save_path": None, "error": None,
                         "reads": -1, "likes": -1, "forwards": -1,
-                        "favorites": -1, "comments": -1, "shot": ""}
+                        "favorites": -1, "comments": -1, "shot": "", "read_shot": ""}
                 base.update(kw)
                 return base
 
             def _err(msg):
                 return {"title": "", "pub_time": "", "save_path": None, "error": msg,
                         "reads": -1, "likes": -1, "forwards": -1,
-                        "favorites": -1, "comments": -1, "shot": ""}
+                        "favorites": -1, "comments": -1, "shot": "", "read_shot": ""}
 
             try:
                 save_dir = os.path.join(self.session_dir, clean_filename(name))
@@ -2962,13 +2980,88 @@ class App:
             # TODO(采集逻辑): 后续如需转发/喜欢/评论, 在 _ok 中填入对应字段
             return _ok(title=title, pub_time=pub_time, save_path=save_path,
                        write_time=click_time, reads=reads, likes=likes,
-                       shot=shot_b64)
+                       shot=shot_b64, read_shot=read_shot_b64)
         # 提交到线程池异步执行
+        # ---- 采集阅读数：滚动到底 → Ctrl+W关闭 → 搜索链接 → 输入回车 ----
+        capture_r = getattr(self, "capture_read_var", None)
+        if capture_r and capture_r.get():
+            p15 = pts.get(15)
+            p17 = pts.get(17)
+            if p15:
+                try:
+                    px15, py15 = int(p15[2]), int(p15[3])
+                    log(f"采集阅读数：移动鼠标到点位15({px15},{py15})")
+                    _u32().SetCursorPos(px15, py15)
+                    time.sleep(0.05)
+                    # 连续3次快速滚动，每次10000px，总耗时<0.5秒
+                    for _round in range(3):
+                        ticks = 10000 // 120
+                        for _ in range(ticks):
+                            _u32().mouse_event(MOUSEEVENTF_WHEEL, 0, 0, -WHEEL_DELTA, None)
+                        log(f"采集阅读数：第{_round+1}/3次快速滚动完成")
+                        time.sleep(0.05)
+                except Exception as e:
+                    log(f"采集阅读数滚动失败: {e}")
+            if p15:
+                p16 = pts.get(16)
+                # 等0.5秒 → Ctrl+W关闭标签 → 等0.5秒
+                if self._sleep(0.5):
+                    log("已停止：中止当前任务")
+                    return False
+                log("采集阅读数：Ctrl+W 关闭标签页")
+                ctrl_key("W")
+                if self._sleep(0.5):
+                    log("已停止：中止当前任务")
+                    return False
+                if p17:
+                    px17, py17 = int(p17[2]), int(p17[3])
+                    log(f"采集阅读数：点击点位17({px17},{py17}) 搜索按钮")
+                    mouse_click(px17, py17)
+                    ctrl_key("A")          # 全选
+                    if self._sleep(0.15):
+                        log("已停止：中止当前任务")
+                        return False
+                    key_press(VK_DELETE)    # 清空
+                    if self._sleep(0.15):
+                        log("已停止：中止当前任务")
+                        return False
+                    log("采集阅读数：输入链接")
+                    if not set_clipboard_text(link):
+                        type_text(link)
+                    else:
+                        ctrl_key("V")       # 粘贴
+                    if self._sleep(0.15):
+                        log("已停止：中止当前任务")
+                        return False
+                    log("采集阅读数：按回车")
+                    key_press(VK_RETURN)
+                    if self._sleep(5):
+                        log("已停止：中止当前任务")
+                        return False
+                    # 等2秒加载 → 截图点位15/16区域(阅读数) → base64
+                    if self._sleep(2):
+                        log("已停止：中止当前任务")
+                        return False
+                    p16 = pts.get(16)
+                    try:
+                        bx1, by1 = int(p15[2]), int(p15[3])
+                        bx2, by2 = int(p15[2]), int(p15[3])
+                        if p16:
+                            bx2, by2 = int(p16[2]), int(p16[3])
+                        if bx1 > 0 and by1 > 0 and bx2 > 0 and by2 > 0:
+                            read_shot_b64 = capture_region_base64(
+                                (min(bx1, bx2), min(by1, by2), max(bx1, bx2), max(by1, by2)),
+                                scale=0.75)
+                            log(f"阅读数截图完成 (base64 {len(read_shot_b64) if read_shot_b64 else 0} B)")
+                    except Exception as e:
+                        log(f"阅读数截图失败: {e}")
+
+        # 提交到线程池异步执行(截图数据已就绪, 参数传递避免闭包时序问题)
         if not hasattr(self, "_fetch_executor"):
             self._fetch_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="fetch")
         if not hasattr(self, "_pending_futures"):
             self._pending_futures = []
-        future = self._fetch_executor.submit(_fetch_task)
+        future = self._fetch_executor.submit(_fetch_task, link, name, shot_b64, read_shot_b64)
         self._pending_futures.append((future, link, name))
         # 不等待结果，直接返回继续处理下一个卡片
         return True
