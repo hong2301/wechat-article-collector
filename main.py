@@ -53,6 +53,14 @@ TIME_OPTIONS = (
 
 _log_lock = threading.Lock()
 
+# ---------- 采集流程参数(可调) ----------
+SCROLL_READ_PX = 10000      # 采集阅读数时每次快速滚动像素
+SCROLL_READ_ROUNDS = 3      # 快速滚动次数
+WHEEL_TICK_PX = 120         # 滚轮每格带动像素
+FAST_SCROLL_SLEEP = 0.05    # 快速滚动 tick 间间隔(秒)
+READ_LOAD_WAIT = 2          # 按回车后等加载再截图(秒)
+
+
 
 
 class DatePicker:
@@ -1687,14 +1695,14 @@ class App:
                     px15, py15 = int(p15[2]), int(p15[3])
                     log(f"采集阅读数：移动鼠标到点位15({px15},{py15})")
                     _u32().SetCursorPos(px15, py15)
-                    time.sleep(0.05)
-                    # 连续3次快速滚动，每次10000px，总耗时<0.5秒
-                    for _round in range(3):
-                        ticks = 10000 // 120
+                    time.sleep(FAST_SCROLL_SLEEP)
+                    # 连续 SCROLL_READ_ROUNDS 次快速滚动，每轮 SCROLL_READ_PX px，总耗时<0.5秒
+                    for _round in range(SCROLL_READ_ROUNDS):
+                        ticks = SCROLL_READ_PX // WHEEL_TICK_PX
                         for _ in range(ticks):
                             _u32().mouse_event(MOUSEEVENTF_WHEEL, 0, 0, -WHEEL_DELTA, None)
-                        log(f"采集阅读数：第{_round+1}/3次快速滚动完成")
-                        time.sleep(0.05)
+                        log(f"采集阅读数：第{_round+1}/{SCROLL_READ_ROUNDS}次快速滚动完成")
+                        time.sleep(FAST_SCROLL_SLEEP)
                 except Exception as e:
                     log(f"采集阅读数滚动失败: {e}")
             if p15:
@@ -1721,8 +1729,8 @@ class App:
                     log("采集阅读数：按回车")
                     key_press(VK_RETURN)
                     self._sleep(5)
-                    # 等2秒加载 → 截图点位15/16区域(阅读数) → base64
-                    self._sleep(2)
+                    # 等加载 → 截图点位15/16区域(阅读数) → base64
+                    self._sleep(READ_LOAD_WAIT)
                     p16 = pts.get(16)
                     try:
                         rbox = self._sub_region(pts, 15, 16)
