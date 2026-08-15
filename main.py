@@ -898,7 +898,7 @@ def doubao_recognize_interact(shot_b64, api_key, timeout=30):
         payload = {
             "model": DOUBAO_MODEL,
             "input": [{"role": "user", "content": [
-                {"type": "input_image", "image_url": "data:image/png;base64," + b64},
+                {"type": "input_image", "image_url": "data:image/webp;base64," + b64},
                 {"type": "input_text", "text": DOUBAO_PROMPT},
             ]}],
         }
@@ -920,8 +920,8 @@ def doubao_recognize_interact(shot_b64, api_key, timeout=30):
         return None
 
 
-def _pil_to_b64(img, scale=None, quality=70):
-    """PIL 图片转 base64 JPEG；失败返回 None"""
+def _pil_to_b64(img, scale=None, quality=None):
+    """PIL 图片转 base64 WebP（无损，最小体积且最清晰）；失败返回 None"""
     try:
         import io
         import base64
@@ -932,15 +932,15 @@ def _pil_to_b64(img, scale=None, quality=70):
         if img.mode != "RGB":
             img = img.convert("RGB")
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=quality, optimize=True)
-        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+        img.save(buf, format="WEBP", lossless=True, method=6)
+        return "data:image/webp;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
     except Exception:
         return None
 
 
 def capture_region_base64(box, scale=None, quality=70):
-    """截取屏幕区域 box=(x1,y1,x2,y2) 并转为 base64 JPEG 字符串；失败返回 None
-    scale: 缩放比例(<1 缩小, 如 0.75), None=不缩放; quality: JPEG 质量(默认70)"""
+    """截取屏幕区域 box=(x1,y1,x2,y2) 并转为 base64 WebP(无损最小)字符串；失败返回 None
+    scale: 缩放比例(<1 缩小, 如 0.75), None=不缩放"""
     try:
         from PIL import ImageGrab
         img = ImageGrab.grab(bbox=(int(box[0]), int(box[1]), int(box[2]), int(box[3])))
