@@ -1547,6 +1547,17 @@ class App:
         self._wait_all_fetches()
         return True
 
+    def _sub_region(self, pts, id_a, id_b):
+        """由两个点位 id 取归一化截图区域 box 或 None"""
+        a, b = pts.get(id_a), pts.get(id_b)
+        if not a or not b:
+            return None
+        x1, y1 = int(a[2]), int(a[3])
+        x2, y2 = int(b[2]), int(b[3])
+        if x1 > 0 and y1 > 0 and x2 > 0 and y2 > 0:
+            return (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
+        return None
+
     def _collect_article_link(self, pts, name, click_time=None, reads=-1, likes=-1):
         """正式文章操作：3次尝试复制链接（点位8 -> OCR找复制链接 -> 点击 -> 检查剪贴板）
         -> fetch_article 抓取标题/时间并保存 HTML
@@ -1585,12 +1596,9 @@ class App:
             capture_4m = getattr(self, "capture_4metrics_var", None)
             if p13 and p14 and capture_4m and capture_4m.get():
                 try:
-                    bx1, by1 = int(p13[2]), int(p13[3])
-                    bx2, by2 = int(p14[2]), int(p14[3])
-                    if bx1 > 0 and by1 > 0 and bx2 > 0 and by2 > 0:
-                        shot_b64 = capture_region_base64(
-                            (min(bx1, bx2), min(by1, by2), max(bx1, bx2), max(by1, by2)),
-                            scale=1.0)
+                    rbox = self._sub_region(pts, 13, 14)
+                    if rbox:
+                        shot_b64 = capture_region_base64(rbox, scale=1.0)
                         log(f"底部互动栏截图完成 (base64 {len(shot_b64) if shot_b64 else 0} B)")
                         # 豆包识图在后台 _fetch_task 里异步执行，不阻塞采集流程
                 except Exception as e:
@@ -1631,17 +1639,12 @@ class App:
                     else:
                         log("豆包识图失败，互动数据保持默认")
 
-            def _ok(**kw):
-                base = {"title": "", "pub_time": "", "save_path": None, "error": None,
+            def _result(error="", **kw):
+                base = {"title": "", "pub_time": "", "save_path": None, "error": error,
                         "reads": -1, "likes": -1, "forwards": -1,
                         "favorites": -1, "comments": -1, "shot": "", "read_shot": ""}
                 base.update(kw)
                 return base
-
-            def _err(msg):
-                return {"title": "", "pub_time": "", "save_path": None, "error": msg,
-                        "reads": -1, "likes": -1, "forwards": -1,
-                        "favorites": -1, "comments": -1, "shot": "", "read_shot": ""}
 
             try:
                 save_dir = os.path.join(self.session_dir, clean_filename(name))
@@ -1652,7 +1655,7 @@ class App:
             if save_dir:
                 fetched = fetch_article(link, save_path=None)
                 if fetched is None:
-                    return _err("标题/时间获取失败")
+                    return _result(error="标题/时间获取失败")
                 title, pub_time = fetched
                 _stem = clean_filename(title or "untitled")
                 _date = (pub_time or "")[:10]
@@ -1660,14 +1663,14 @@ class App:
                 save_path = os.path.join(save_dir, _fname)
                 fetched2 = fetch_article(link, save_path)
                 if fetched2 is None:
-                    return _err("HTML 保存失败")
+                    return _result(error="HTML 保存失败")
             else:
                 fetched = fetch_article(link)
                 if fetched is None:
-                    return _err("抓取失败")
+                    return _result(error="抓取失败")
                 title, pub_time = fetched
             # TODO(采集逻辑): 后续如需转发/喜欢/评论, 在 _ok 中填入对应字段
-            return _ok(title=title, pub_time=pub_time, save_path=save_path,
+            return _result(title=title, pub_time=pub_time, save_path=save_path,
                        write_time=click_time, reads=reads, likes=likes,
                        forwards=forwards, favorites=favorites, comments=comments,
                        shot=shot_b64, read_shot=read_shot_b64)
@@ -1722,13 +1725,9 @@ class App:
                     self._sleep(2)
                     p16 = pts.get(16)
                     try:
-                        bx1, by1 = int(p15[2]), int(p15[3])
-                        bx2, by2 = int(p15[2]), int(p15[3])
-                        if p16:
-                            bx2, by2 = int(p16[2]), int(p16[3])
-                        if bx1 > 0 and by1 > 0 and bx2 > 0 and by2 > 0:
-                            from PIL import ImageGrab as _Grab
-                            rbox = (min(bx1, bx2), min(by1, by2), max(bx1, bx2), max(by1, by2))
+                        rbox = self._sub_region(pts, 15, 16)
+                        from PIL import ImageGrab as _Grab
+                        if rbox:
                             # 抓原图 → OCR 找"阅读"字段 → 颜色判断(灰色)
                             img_raw = _Grab.grab(bbox=rbox)
                             read_info = find_read_in_img(img_raw)
