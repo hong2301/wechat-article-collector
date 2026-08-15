@@ -861,15 +861,12 @@ def ocr_region(box):
     return items
 
 
-def capture_region_base64(box, scale=None, quality=70):
-    """截取屏幕区域 box=(x1,y1,x2,y2) 并转为 base64 JPEG 字符串；失败返回 None
-    scale: 缩放比例(<1 缩小, 如 0.75), None=不缩放; quality: JPEG 质量(默认70)"""
+def _pil_to_b64(img, scale=None, quality=70):
+    """PIL 图片转 base64 JPEG；失败返回 None"""
     try:
         import io
         import base64
-        from PIL import ImageGrab
         from PIL import Image as _PILImage
-        img = ImageGrab.grab(bbox=(int(box[0]), int(box[1]), int(box[2]), int(box[3])))
         if scale and scale < 1.0:
             w, h = img.size
             img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), _PILImage.LANCZOS)
@@ -878,9 +875,56 @@ def capture_region_base64(box, scale=None, quality=70):
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=quality, optimize=True)
         return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:
+        return None
+
+
+def capture_region_base64(box, scale=None, quality=70):
+    """截取屏幕区域 box=(x1,y1,x2,y2) 并转为 base64 JPEG 字符串；失败返回 None
+    scale: 缩放比例(<1 缩小, 如 0.75), None=不缩放; quality: JPEG 质量(默认70)"""
+    try:
+        from PIL import ImageGrab
+        img = ImageGrab.grab(bbox=(int(box[0]), int(box[1]), int(box[2]), int(box[3])))
+        return _pil_to_b64(img, scale=scale, quality=quality)
     except Exception as e:
         log(f"截图失败(box={box}, scale={scale}): {e}")
         return None
+
+
+def ocr_img(img):
+    """对 PIL 图片做 OCR，返回 [(中心x, 中心y, 文本, score, sbox, brightness), ...]
+    sbox 为图片内相对坐标; brightness 为文字区域亮度(深色标题<100, 灰色时间文本>=100)"""
+    try:
+        import io as _io
+        buf = _io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        result, _ = get_ocr_engine()(buf.read())
+        items = []
+        if result:
+            for box_pts, text, score in result:
+                xs = [p[0] for p in box_pts]
+                ys = [p[1] for p in box_pts]
+                cx = int(sum(xs) / len(xs))
+                cy = int(sum(ys) / len(ys))
+                sbox = [(int(p[0]), int(p[1])) for p in box_pts]
+                try:
+                    crop = img.crop((min(xs), min(ys), max(xs), max(ys)))
+                    brightness = _text_brightness(crop)
+                except Exception:
+                    brightness = 255.0
+                items.append((cx, cy, text, score, sbox, brightness))
+        return items
+    except Exception:
+        return []
+
+
+def find_read_in_img(img):
+    """在图片中找包含'阅读'的字段，返回 (中心x, 中心y, 文本, 亮度) 或 None"""
+    for cx, cy, text, score, sbox, brightness in ocr_img(img):
+        if "阅读" in text:
+            return (cx, cy, text, brightness)
+    return None
 
 
 def find_time_items(items):
@@ -2869,7 +2913,9 @@ class App:
         # 提交到线程池异步执行
         # ---- 采集阅读数：滚动到底 → Ctrl+W关闭 → 搜索链接 → 输入回车 ----
         capture_r = getattr(self, "capture_read_var", None)
-        if capture_r and capture_r.get():
+        # 仅当时间点位未提取到阅读数(reads==-1)时, 才执行采集阅读数流程
+        if capture_r and capture_r.get() and reads == -1:
+            log(f"时间点位已提取到阅读数({reads})，跳过采集阅读数流程")
             p15 = pts.get(15)
             p17 = pts.get(17)
             if p15:
@@ -2934,9 +2980,18 @@ class App:
                         if p16:
                             bx2, by2 = int(p16[2]), int(p16[3])
                         if bx1 > 0 and by1 > 0 and bx2 > 0 and by2 > 0:
-                            read_shot_b64 = capture_region_base64(
-                                (min(bx1, bx2), min(by1, by2), max(bx1, bx2), max(by1, by2)),
-                                scale=0.75)
+                            from PIL import ImageGrab as _Grab
+                            rbox = (min(bx1, bx2), min(by1, by2), max(bx1, bx2), max(by1, by2))
+                            # 抓原图 → OCR 找"阅读"字段 → 颜色判断(灰色)
+                            img_raw = _Grab.grab(bbox=rbox)
+                            read_info = find_read_in_img(img_raw)
+                            if read_info:
+                                rcx, rcy, rtext, rb = read_info
+                                log(f"阅读数截图中找到[{rtext}] 亮度={rb:.0f} (灰色={rb>=100} 深色={rb<100})")
+                            else:
+                                log("阅读数截图中未找到'阅读'字段")
+                            # 转 base64 存储(压缩缩小)
+                            read_shot_b64 = _pil_to_b64(img_raw, scale=0.75)
                             log(f"阅读数截图完成 (base64 {len(read_shot_b64) if read_shot_b64 else 0} B)")
                     except Exception as e:
                         log(f"阅读数截图失败: {e}")
