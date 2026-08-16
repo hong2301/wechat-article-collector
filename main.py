@@ -1330,17 +1330,25 @@ class App:
                 ax1, ay1 = int(p19[2]), int(p19[3])
                 ax2, ay2 = int(p20[2]), int(p20[3])
                 self._sleep(0.5)
-                for _i in range(5):
+                log("正在检测作者名称是否加载 ...")
+                # 每 0.1 秒检测一次, 最多 50 次(覆盖5秒); 进度走GUI不刷日志
+                for _i in range(50):
                     self._check_stop()
                     from PIL import ImageGrab as _G
                     _a_img = _G.grab(bbox=(min(ax1, ax2), min(ay1, ay2), max(ax1, ax2), max(ay1, ay2)))
-                    _has = bool(ocr_img(_a_img))
-                    log(f"作者名称加载检测: {'有文字' if _has else '无文字(加载中/全白)'}, 第{_i+1}/5次")
+                    _has, _dark = _region_has_content(_a_img)
                     if _has:
+                        log(f"作者名称已加载 (第{_i+1}/50次, 暗像素={_dark})")
+                        self._sleep(1)   # 检测到后等待 1 秒再点击
                         break
-                    # 失败立即接下一次, 不额外等待
+                    if _i % 10 == 0:   # 每10次更新一次GUI进度(不刷日志)
+                        self._set_progress(f"检测作者名称加载... {_i+1}/50", int((_i+1)/50*100))
+                    self._sleep(0.1)   # 每 0.1 秒一次
+                else:
+                    log("作者名称加载检测: 50次仍未检测到(继续尝试点击)")
             except Exception as _e:
-                log(f"作者名称加载检测异常: {_e}")
+                log(f"作者名称加载检测异常: {_e}，回退固定等待5秒")
+                self._sleep(5)
         else:
             log("等待 5 秒加载...")
             self._sleep(5)
@@ -1543,6 +1551,7 @@ class App:
                 else:
                     log(f"点击文章卡片 {n + 1}/{len(cards)} (x=点位12:{p12_x}, y={cy}) 时间[{text}] 阅读[{reads}] 赞[{likes}]")
                 mouse_click(p12_x, cy)
+                self._sleep(1)   # 点击时间点位后等待 1 秒
                 r = self._collect_article_link(pts, name, click_time, reads, likes)
                 if r is False:
                     log("文章操作失败，任务标记 error")
@@ -1611,17 +1620,21 @@ class App:
             self._sleep(0.5)
             before = read_clipboard_text()
             mouse_click(tx, ty)
-            # 轮询等待剪贴板更新（最多 10 秒，每 0.5 秒查一次 = 20 次）
-            deadline = time.time() + 10
-            while time.time() < deadline:
-                self._sleep(0.5)
+            # 轮询等待剪贴板更新（0.1 秒/次 × 30 次 = 3 秒）
+            for _p in range(30):
+                self._check_stop()
+                self._sleep(0.1)
                 cur = read_clipboard_text()
                 if cur and cur != before and "mp.weixin.qq.com" in cur:
                     link = cur
                     break
             if link:
                 break
-            log(f"尝试{attempt}: 剪贴板未更新为文章链接")
+            log(f"尝试{attempt}: 剪贴板未更新为文章链接，点击两次点位8重试")
+            # 失败后额外操作：点击两次点位8(重新触发三点菜单)
+            for _ in range(2):
+                mouse_click(int(p8[2]), int(p8[3]))
+                self._sleep(0.3)
         return link
 
     def _capture_interact_shot(self, pts):

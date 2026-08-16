@@ -52,6 +52,19 @@ def screenshot_region(box, path):
     return img
 
 
+def _region_has_content(img, dark_threshold=200, min_dark=30):
+    """判断截图区域是否已加载(非全白): 统计暗像素数量
+    返回 (是否已加载, 暗像素数)
+    加载中全白→暗像素≈0; 加载后有文字/元素→有明显暗像素(比OCR更稳, 不依赖文字识别)"""
+    try:
+        gray = img.convert("L")
+        px = list(gray.getdata())
+        dark = sum(1 for p in px if p < dark_threshold)
+        return dark >= min_dark, dark
+    except Exception:
+        return True, 0   # 无法判断时保守视为已加载
+
+
 def _text_brightness(crop):
     """计算裁剪区域内文字像素的平均亮度(0-255, 排除白色背景)；无文字返回 255"""
     try:
@@ -200,4 +213,4 @@ def extract_likes(text):
 __all__ = ["TIME_PATTERNS", "TIME_RE", "_ocr_engine", "_ocr_lock",
            "get_ocr_engine", "screenshot_region", "_text_brightness", "ocr_region",
            "_pil_to_b64", "capture_region_base64", "ocr_img", "find_read_in_img",
-           "find_time_items", "extract_reads", "extract_likes"]
+           "find_time_items", "extract_reads", "extract_likes", "_region_has_content"]
