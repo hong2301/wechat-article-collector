@@ -193,7 +193,7 @@ class PointsDialog(tk.Toplevel):
                  font=self.FONT).pack(side=tk.LEFT, padx=2)
         tk.Label(head, text="y", width=8, anchor="center",
                  font=self.FONT).pack(side=tk.LEFT, padx=2)
-        tk.Label(head, text="操作", width=14, anchor="center",
+        tk.Label(head, text="操作", width=20, anchor="center",
                  font=self.FONT).pack(side=tk.LEFT, padx=2)
 
         # ---- 可滚动列表区 ----
@@ -243,7 +243,11 @@ class PointsDialog(tk.Toplevel):
                  font=self.FONT).pack(side=tk.LEFT, padx=2)
         tk.Label(row, text=str(y or ""), width=8, anchor="center",
                  font=self.FONT).pack(side=tk.LEFT, padx=2)
-        # 操作列：修改 / 删除（蓝色下划线按钮样式）
+        # 操作列：预览 / 修改 / 删除（蓝色下划线按钮样式）
+        prev_btn = tk.Label(row, text="预览", width=4, fg="#c62828",
+                            font=self.LINK, cursor="hand2")
+        prev_btn.pack(side=tk.LEFT, padx=4)
+        prev_btn.bind("<Button-1>", lambda e, p=pos: self._preview(p))
         edit_btn = tk.Label(row, text="修改", width=4, fg="#1565c0",
                             font=self.LINK, cursor="hand2")
         edit_btn.pack(side=tk.LEFT, padx=4)
@@ -345,6 +349,35 @@ class PointsDialog(tk.Toplevel):
         else:
             log("坐标采集取消，点位未修改")
     # ---------- 删除 / 新增 ----------
+    def _preview(self, pos):
+        """预览: 在屏幕对应坐标亮起红点(直径约20px), 持续1秒自动消失"""
+        if pos >= len(self.rows):
+            return
+        idx, name, x, y = self.rows[pos]
+        try:
+            px, py = int(float(x)), int(float(y))
+        except (TypeError, ValueError):
+            messagebox.showwarning("坐标无效",
+                                   f"点位 [{idx}] {name} 的坐标无效，请先【修改】采集", parent=self)
+            return
+        r = 10   # 红点半径
+        ov = tk.Toplevel(self)
+        ov.title("")
+        ov.overrideredirect(True)              # 无边框
+        ov.attributes("-topmost", True)        # 置顶
+        ov.attributes("-alpha", 0.9)           # 半透明
+        ov.geometry(f"+{px - r - 2}+{py - r - 2}")
+        c = tk.Canvas(ov, width=r * 2 + 4, height=r * 2 + 4,
+                      highlightthickness=0, bg="white")
+        c.pack()
+        c.create_oval(2, 2, r * 2 + 2, r * 2 + 2, fill="#e53935", outline="#b71c1c", width=2)
+        try:
+            ov.attributes("-toolwindow", True)
+        except Exception:
+            pass
+        log(f"预览点位 [{idx}] {name} 坐标({px},{py})")
+        self.after(1000, ov.destroy)   # 1秒后消失
+
     def _delete_row(self, pos):
         if pos >= len(self.rows):
             return
