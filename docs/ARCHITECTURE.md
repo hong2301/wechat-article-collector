@@ -1,11 +1,15 @@
 # 微信公众号OCR采集器 - 架构关系文档
 
-> 由分析 main.py(3141行) 生成，作为模块化拆分的蓝图。
+> **状态: 模块化拆分已完成(2026-08-16)**
+> 原单文件 main.py(3141行) 已按本蓝图拆分为 core/ 6 个关注点分离模块。
+> 现状: main.py 约1863行(GUI+App采集核心) + core/ 包(约1400行工具层)
 
 ## 一、当前结构
-- 单文件 `main.py`：3141 行 / 134 个 def / 15 个 class
+- `main.py`: 1863 行(App 类 + GUI + 入口, 高内聚保留)
+- `core/`: paths / utils / win32util / image_ocr / doubao_api / datastore
+- `docs/`: 本架构文档
 
-## 二、拆模块方案(按依赖耦合度排序)
+## 二、拆模块方案(按依赖耦合度排序) — **全部已落地 ✅**
 
 ### core/win32util.py — 键鼠/窗口/剪贴板低层
 - 低层结构类: POINT MSLLHOOKSTRUCT KEYBDINPUT MOUSEINPUT _INPUTUNION INPUT KBDLLHOOKSTRUCT PROCESSENTRY32W

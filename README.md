@@ -29,19 +29,22 @@ pip install rapidocr_onnxruntime requests Pillow
 
 ```
 微信公众号ocr采集器/
-├── main.py              # 主程序
-├── log.txt              # 运行日志（运行时生成，自动忽略）
-├── .gitignore           # git 忽略规则
+├── main.py              # 主程序（GUI + 采集核心 App 类）
+├── core/                # 模块化工具包（关注点分离）
+│   ├── paths.py         # 常量与路径（打包兼容）
+│   ├── utils.py         # 日志/日期解析/文件名/文章抓取
+│   ├── win32util.py     # 键鼠/窗口/剪贴板/低层钩子
+│   ├── image_ocr.py     # OCR/截图/文字亮度/WebP
+│   ├── doubao_api.py    # 豆包识图（互动数据）
+│   └── datastore.py     # 数据层（CSV/配置读写）
 ├── config/              # 配置文件
 │   ├── input.csv        # 任务列表（公众号）
 │   ├── points.csv       # 屏幕点位坐标
 │   └── ui_state.json    # 界面设置记忆（运行时生成）
-└── data/                 # 数据目录（自动忽略）
-    ├── 下载/            # 文章HTML采集结果
+├── docs/ARCHITECTURE.md # 架构关系文档
+└── data/                # 数据目录（自动忽略）
+    ├── 下载/            # 文章HTML采集结果（公众号/标题.html）
     └── collected.csv    # 采集记录 CSV
-    └── 会话时间戳/       # 每次点开始的目录
-        └── 公众号名称/   # 按公众号分目录
-            └── 标题.html # 文章（含图片）
 ```
 
 ---
