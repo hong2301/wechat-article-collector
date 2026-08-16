@@ -1572,21 +1572,9 @@ class App:
             return (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
         return None
 
-    def _collect_article_link(self, pts, name, click_time=None, reads=-1, likes=-1):
-        """正式文章操作：3次尝试复制链接（点位8 -> OCR找复制链接 -> 点击 -> 检查剪贴板）
-        -> fetch_article 抓取标题/时间并保存 HTML
-        click_time: 点击时间点位的时间（写入 CSV 用）
-        reads/likes: 列表页 OCR 提取的阅读/点赞数（-1=未识别到，写入 CSV 用）
-        返回: True=成功继续 / "stop"=达到停止条件退出循环 / False=失败(error)"""
-        p8 = pts.get(8)
-        p18 = pts.get(18)
-        p13 = pts.get(13)
-        p14 = pts.get(14)
-        if not p8 or not p18:
-            log("错误: 缺少点位8/18，任务失败")
-            self.last_error = "缺少点位8/18"
-            return False
-        # 复制链接：最多尝试 3 次
+    def _copy_link(self, pts, p8, p18):
+        """复制链接：点8(三点) → 等0.5秒 → 点18(固定复制链接按钮) → 轮询剪贴板
+        最多尝试3次; 成功返回链接, 失败返回 None"""
         link = None
         for attempt in range(1, 4):
             self._check_stop()
@@ -1594,7 +1582,6 @@ class App:
             log(f"点击点位8({p8[2]},{p8[3]}) {p8[1]}")
             mouse_click(int(p8[2]), int(p8[3]))
             self._sleep(0.5)
-            # 复制链接按钮位置固定(点位18), 不再OCR识别
             tx, ty = int(p18[2]), int(p18[3])
             log(f"点击点位18({tx},{ty}) {p18[1]}")
             # 点击前清空剪贴板，确保检测到的一定是新复制的链接
@@ -1602,20 +1589,6 @@ class App:
             self._sleep(0.5)
             before = read_clipboard_text()
             mouse_click(tx, ty)
-            # 初始化截图&互动数据变量
-            shot_b64 = None
-            read_shot_b64 = None
-            forwards = favorites = comments = -1   # 转发/喜欢/留言 默认-1(未识别)
-            # 点击"复制链接"后：截图底部互动栏区域(点位13/14) -> base64
-            if p13 and p14 and self.capture_4metrics_var.get():
-                try:
-                    rbox = self._sub_region(pts, 13, 14)
-                    if rbox:
-                        shot_b64 = capture_region_base64(rbox, scale=1.0)
-                        log(f"底部互动栏截图完成 (base64 {len(shot_b64) if shot_b64 else 0} B)")
-                        # 豆包识图在后台 _fetch_task 里异步执行，不阻塞采集流程
-                except Exception as e:
-                    log(f"互动栏截图失败: {e}")
             # 轮询等待剪贴板更新（最多 10 秒，每 0.5 秒查一次 = 20 次）
             deadline = time.time() + 10
             while time.time() < deadline:
@@ -1627,13 +1600,86 @@ class App:
             if link:
                 break
             log(f"尝试{attempt}: 剪贴板未更新为文章链接")
-        if not link:
-            log("错误: 3次尝试复制链接均失败，任务失败")
-            self.last_error = "复制链接失败(3次)"
-            return False
-        self.collected_links.append(link)
-        log(f"已复制文章链接: {link}")
-        # ---- 异步抓取文章：标题/时间 + 保存 HTML（后台执行，不阻塞主流程） ----
+        return link
+
+    def _capture_interact_shot(self, pts):
+        """采集4指标：截图底部互动栏(点位13/14) -> base64(受开关控制)"""
+        shot_b64 = None
+        if self.capture_4metrics_var.get():
+            rbox = self._sub_region(pts, 13, 14)
+            if rbox:
+                try:
+                    shot_b64 = capture_region_base64(rbox, scale=1.0)
+                    log(f"底部互动栏截图完成 (base64 {len(shot_b64) if shot_b64 else 0} B)")
+                except Exception as e:
+                    log(f"互动栏截图失败: {e}")
+        return shot_b64
+
+    def _capture_read_count(self, pts, link):
+        """采集阅读数：滚动到底 → Ctrl+W关闭 → 点位17搜索 → 输入链接 → 回车 → 截图(点位15/16)
+        返回 read_shot_b64(未配置点位/失败返回 None)"""
+        read_shot_b64 = None
+        p15 = pts.get(15)
+        if not p15:
+            return None
+        try:
+            px15, py15 = int(p15[2]), int(p15[3])
+            log(f"采集阅读数：移动鼠标到点位15({px15},{py15})")
+            _u32().SetCursorPos(px15, py15)
+            time.sleep(FAST_SCROLL_SLEEP)
+            for _round in range(SCROLL_READ_ROUNDS):
+                ticks = SCROLL_READ_PX // WHEEL_TICK_PX
+                for _ in range(ticks):
+                    _u32().mouse_event(MOUSEEVENTF_WHEEL, 0, 0, -WHEEL_DELTA, None)
+                log(f"采集阅读数：第{_round+1}/{SCROLL_READ_ROUNDS}次快速滚动完成")
+                time.sleep(FAST_SCROLL_SLEEP)
+        except Exception as e:
+            log(f"采集阅读数滚动失败: {e}")
+        # 等0.5秒 → Ctrl+W关闭标签 → 等0.5秒
+        self._sleep(0.5)
+        log("采集阅读数：Ctrl+W 关闭标签页")
+        ctrl_key("W")
+        self._sleep(0.5)
+        p17 = pts.get(17)
+        if p17:
+            px17, py17 = int(p17[2]), int(p17[3])
+            log(f"采集阅读数：点击点位17({px17},{py17}) 搜索按钮")
+            mouse_click(px17, py17)
+            ctrl_key("A")          # 全选
+            self._sleep(0.15)
+            key_press(VK_DELETE)    # 清空
+            self._sleep(0.15)
+            log("采集阅读数：输入链接")
+            if not set_clipboard_text(link):
+                type_text(link)
+            else:
+                ctrl_key("V")       # 粘贴
+            self._sleep(0.15)
+            log("采集阅读数：按回车")
+            key_press(VK_RETURN)
+            self._sleep(5)
+            # 等加载 → 截图点位15/16区域(阅读数) → base64
+            self._sleep(READ_LOAD_WAIT)
+            try:
+                from PIL import ImageGrab as _Grab
+                rbox = self._sub_region(pts, 15, 16)
+                if rbox:
+                    img_raw = _Grab.grab(bbox=rbox)
+                    read_info = find_read_in_img(img_raw)
+                    if read_info:
+                        _rcx, _rcy, rtext, rb = read_info
+                        log(f"阅读数截图中找到[{rtext}] 亮度={rb:.0f} (灰色={rb>=100} 深色={rb<100})")
+                    else:
+                        log("阅读数截图中未找到'阅读'字段")
+                    read_shot_b64 = _pil_to_b64(img_raw, scale=0.75)
+                    log(f"阅读数截图完成 (base64 {len(read_shot_b64) if read_shot_b64 else 0} B)")
+            except Exception as e:
+                log(f"阅读数截图失败: {e}")
+        return read_shot_b64
+
+    def _spawn_fetch(self, link, name, shot_b64, read_shot_b64,
+                     click_time, reads, likes, forwards, favorites, comments):
+        """提交后台抓取任务(标题/时间/HTML + 豆包识图互动数据)，不阻塞主流程"""
         def _fetch_task(link, name, shot_b64, read_shot_b64,
                       likes, forwards, favorites, comments):
             """后台抓取任务：抓取标题/时间 + 保存 HTML + 互动数据
@@ -1679,88 +1725,45 @@ class App:
                 if fetched is None:
                     return _result(error="抓取失败")
                 title, pub_time = fetched
-            # TODO(采集逻辑): 后续如需转发/喜欢/评论, 在 _ok 中填入对应字段
             return _result(title=title, pub_time=pub_time, save_path=save_path,
-                       write_time=click_time, reads=reads, likes=likes,
-                       forwards=forwards, favorites=favorites, comments=comments,
-                       shot=shot_b64, read_shot=read_shot_b64)
-        # 提交到线程池异步执行
-        # ---- 采集阅读数：滚动到底 → Ctrl+W关闭 → 搜索链接 → 输入回车 ----
-        # 仅当时间点位未提取到阅读数(reads==-1)时, 才执行采集阅读数流程
-        if self.capture_read_var.get() and reads == -1:
-            log(f"时间点位已提取到阅读数({reads})，跳过采集阅读数流程")
-            p15 = pts.get(15)
-            p17 = pts.get(17)
-            if p15:
-                try:
-                    px15, py15 = int(p15[2]), int(p15[3])
-                    log(f"采集阅读数：移动鼠标到点位15({px15},{py15})")
-                    _u32().SetCursorPos(px15, py15)
-                    time.sleep(FAST_SCROLL_SLEEP)
-                    # 连续 SCROLL_READ_ROUNDS 次快速滚动，每轮 SCROLL_READ_PX px，总耗时<0.5秒
-                    for _round in range(SCROLL_READ_ROUNDS):
-                        ticks = SCROLL_READ_PX // WHEEL_TICK_PX
-                        for _ in range(ticks):
-                            _u32().mouse_event(MOUSEEVENTF_WHEEL, 0, 0, -WHEEL_DELTA, None)
-                        log(f"采集阅读数：第{_round+1}/{SCROLL_READ_ROUNDS}次快速滚动完成")
-                        time.sleep(FAST_SCROLL_SLEEP)
-                except Exception as e:
-                    log(f"采集阅读数滚动失败: {e}")
-            if p15:
-                p16 = pts.get(16)
-                # 等0.5秒 → Ctrl+W关闭标签 → 等0.5秒
-                self._sleep(0.5)
-                log("采集阅读数：Ctrl+W 关闭标签页")
-                ctrl_key("W")
-                self._sleep(0.5)
-                if p17:
-                    px17, py17 = int(p17[2]), int(p17[3])
-                    log(f"采集阅读数：点击点位17({px17},{py17}) 搜索按钮")
-                    mouse_click(px17, py17)
-                    ctrl_key("A")          # 全选
-                    self._sleep(0.15)
-                    key_press(VK_DELETE)    # 清空
-                    self._sleep(0.15)
-                    log("采集阅读数：输入链接")
-                    if not set_clipboard_text(link):
-                        type_text(link)
-                    else:
-                        ctrl_key("V")       # 粘贴
-                    self._sleep(0.15)
-                    log("采集阅读数：按回车")
-                    key_press(VK_RETURN)
-                    self._sleep(5)
-                    # 等加载 → 截图点位15/16区域(阅读数) → base64
-                    self._sleep(READ_LOAD_WAIT)
-                    p16 = pts.get(16)
-                    try:
-                        rbox = self._sub_region(pts, 15, 16)
-                        from PIL import ImageGrab as _Grab
-                        if rbox:
-                            # 抓原图 → OCR 找"阅读"字段 → 颜色判断(灰色)
-                            img_raw = _Grab.grab(bbox=rbox)
-                            read_info = find_read_in_img(img_raw)
-                            if read_info:
-                                rcx, rcy, rtext, rb = read_info
-                                log(f"阅读数截图中找到[{rtext}] 亮度={rb:.0f} (灰色={rb>=100} 深色={rb<100})")
-                            else:
-                                log("阅读数截图中未找到'阅读'字段")
-                            # 转 base64 存储(压缩缩小)
-                            read_shot_b64 = _pil_to_b64(img_raw, scale=0.75)
-                            log(f"阅读数截图完成 (base64 {len(read_shot_b64) if read_shot_b64 else 0} B)")
-                    except Exception as e:
-                        log(f"阅读数截图失败: {e}")
-
+                           write_time=click_time, reads=reads, likes=likes,
+                           forwards=forwards, favorites=favorites, comments=comments,
+                           shot=shot_b64, read_shot=read_shot_b64)
         # 提交到线程池异步执行(截图数据已就绪, 参数传递避免闭包时序问题)
-        if not hasattr(self, "_fetch_executor"):
-            self._fetch_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="fetch")
-        if not hasattr(self, "_pending_futures"):
-            self._pending_futures = []
         future = self._fetch_executor.submit(
             _fetch_task, link, name, shot_b64, read_shot_b64,
             likes, forwards, favorites, comments)
         self._pending_futures.append((future, link, name))
-        # 不等待结果，直接返回继续处理下一个卡片
+
+    def _collect_article_link(self, pts, name, click_time=None, reads=-1, likes=-1):
+        """正式文章操作流程：复制链接 → 采集4指标截图 → 采集阅读数 → 后台抓取
+        click_time: 点击时间点位的时间（写入 CSV 用）
+        reads/likes: 列表页 OCR 提取的阅读/点赞数（-1=未识别到）
+        返回: True=成功继续 / False=失败(error)"""
+        p8 = pts.get(8)
+        p18 = pts.get(18)
+        if not p8 or not p18:
+            log("错误: 缺少点位8/18，任务失败")
+            self.last_error = "缺少点位8/18"
+            return False
+        link = self._copy_link(pts, p8, p18)
+        if not link:
+            log("错误: 3次尝试复制链接均失败，任务失败")
+            self.last_error = "复制链接失败(3次)"
+            return False
+        self.collected_links.append(link)
+        log(f"已复制文章链接: {link}")
+        # 采集4指标截图(受开关控制, 豆包识图在后台执行)
+        shot_b64 = self._capture_interact_shot(pts)
+        # 采集阅读数: 仅当时间点位未提取到阅读数(reads==-1)时执行
+        read_shot_b64 = None
+        forwards = favorites = comments = -1   # 转发/喜欢/留言 默认-1(未识别)
+        if self.capture_read_var.get() and reads == -1:
+            log("时间点位未提取到阅读数，执行采集阅读数流程")
+            read_shot_b64 = self._capture_read_count(pts, link)
+        # 后台抓取文章(标题/时间/HTML + 互动数据), 不等待直接返回
+        self._spawn_fetch(link, name, shot_b64, read_shot_b64,
+                          click_time, reads, likes, forwards, favorites, comments)
         return True
 
     def _finish_collection(self, stopped, total, done_n):
