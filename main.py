@@ -540,6 +540,25 @@ class App:
         tk.Checkbutton(row5, text="采集4指标", variable=self.capture_4metrics_var,
                        font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(12, 0))
 
+        # 评论采集配置
+        row5b = tk.Frame(ctrl)
+        row5b.pack(fill=tk.X, padx=10, pady=(6, 2))
+        self.capture_comments_var = tk.BooleanVar(
+            value=bool(self.ui.get("capture_comments", False)))
+        tk.Checkbutton(row5b, text="采集评论", variable=self.capture_comments_var,
+                       font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
+        self.capture_reply_var = tk.BooleanVar(
+            value=bool(self.ui.get("capture_reply", False)))
+        tk.Checkbutton(row5b, text="采集二级评论", variable=self.capture_reply_var,
+                       font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(12, 0))
+        tk.Label(row5b, text="每文章最大评论采集数量:", font=("Microsoft YaHei UI", 9)
+                 ).pack(side=tk.LEFT, padx=(12, 0))
+        self.max_comments_var = tk.StringVar(
+            value=str(self.ui.get("max_comments", "") or ""))
+        tk.Spinbox(row5b, from_=1, to=9999, textvariable=self.max_comments_var, width=6,
+                   font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=4)
+        self.max_comments_var.set(str(self.ui.get("max_comments", "") or ""))
+
         # 豆包 API Key（密码式输入）
         row6 = tk.Frame(ctrl)
         row6.pack(fill=tk.X, padx=10, pady=(6, 2))
@@ -969,6 +988,9 @@ class App:
             "window_split": self.window_split_var.get(),
             "capture_read": self.capture_read_var.get(),
             "capture_4metrics": self.capture_4metrics_var.get(),
+            "capture_comments": self.capture_comments_var.get(),
+            "capture_reply": self.capture_reply_var.get(),
+            "max_comments": self.max_comments_var.get(),
             "doubao_api_key": self.doubao_key_var.get(),
         })
 
@@ -1013,7 +1035,9 @@ class App:
             f"最大数量[{self.max_count_var.get() or '无限'}] "
             f"窗口分离[{('开' if self.window_split_var.get() else '关')}] "
             f"采集阅读[{('开' if self.capture_read_var.get() else '关')}] "
-            f"采集4指标[{('开' if self.capture_4metrics_var.get() else '关')}]")
+            f"采集4指标[{('开' if self.capture_4metrics_var.get() else '关')}] "
+            f"采集评论[{('开' if self.capture_comments_var.get() else '关')}] "
+            f"二级评论[{('开' if self.capture_reply_var.get() else '关')}]")
         log("右侧任务区可编辑 input 数据（双击单元格修改，操作列删除，底部重置/新增）")
         log("请在左侧采集控制设置索引范围、时间范围、最大数量后点击【开始】（或按回车）")
         if not self.input_rows:
@@ -1406,6 +1430,8 @@ class App:
                 title = r.get("title") or ""
                 pub_time = r.get("pub_time") or ""
                 save_path = r.get("save_path")
+                original = r.get("original") or ""
+                ip_location = r.get("ip") or ""
                 log(f"后台抓取完成: 标题[{title}] 时间[{pub_time}] 保存[{save_path or '未保存'}]")
                 # 写入采集记录（单点一次性写入，互动数据一起带入）
                 rec = append_collected(name, pub_time, title, link,
@@ -1415,7 +1441,8 @@ class App:
                                        comments=r.get("comments", -1),
                                        write_time=r.get("write_time"),
                                        shot=r.get("shot") or "",
-                                       read_shot=r.get("read_shot") or "")
+                                       read_shot=r.get("read_shot") or "",
+                                       original=original, ip=ip_location)
                 if rec == "skip":
                     log(f"采集记录已存在，跳过写入: {link}")
                 elif rec == "error":
@@ -1547,6 +1574,14 @@ class App:
                             break
                 if pinned_count:
                     log(f"识别到 {pinned_count} 个置顶文章（时间跳变），置顶不计入范围定位")
+            # 范围不可达判定: 自定义模式且未找到开始点, 本页最上面卡片已早于范围开始 → 只会更旧, 停止
+            if is_custom and tr_dates and not self._found_start and not pinned_count and cards:
+                _top_card = min(cards, key=lambda c: c[1])
+                _top_d = resolve_article_date(_top_card[2], _today)
+                if _top_d and _top_d < start_d:
+                    log(f"本页顶部[{_top_card[2]}]已早于范围开始({start_d})，往下只会更旧，范围内无文章，结束采集")
+                    self._exit_loop = True
+                    break
             # 统一按 y 从上到下遍历
             for n, card in enumerate(sorted(cards, key=lambda c: c[1])):
                 self._check_stop()
@@ -1660,8 +1695,11 @@ class App:
         return link
 
     def _capture_interact_shot(self, pts):
-        """采集4指标：截图底部互动栏(点位13/14) -> base64(受开关控制)"""
+        """采集4指标：截图底部互动栏(点位13/14) -> base64
+        开启评论采集时: 同步识图拿评论数, 评论数>0则点击评论按钮(点位21)
+        返回 (shot_b64, sync_res); sync_res=(点赞,转发,喜欢,留言) 或 None"""
         shot_b64 = None
+        sync_res = None
         if self.capture_4metrics_var.get():
             rbox = self._sub_region(pts, 13, 14)
             if rbox:
@@ -1670,7 +1708,24 @@ class App:
                     log(f"底部互动栏截图完成 (base64 {len(shot_b64) if shot_b64 else 0} B)")
                 except Exception as e:
                     log(f"互动栏截图失败: {e}")
-        return shot_b64
+        # 评论采集: 需同步识别4指标拿评论数(评论为0则无采集必要)
+        if self.capture_comments_var.get() and shot_b64:
+            _key = self.doubao_key_var.get()
+            if _key:
+                _res = doubao_recognize_interact(shot_b64, _key)
+                if _res:
+                    sync_res = _res
+                    _l, _f, _fav, _c = _res
+                    log(f"评论采集-同步识图: 点赞[{_l}] 转发[{_f}] 喜欢[{_fav}] 留言[{_c}]")
+                    if _c > 0:
+                        p21 = pts.get(21)
+                        if p21:
+                            log(f"评论数[{_c}]>0，点击评论按钮(点位21)")
+                            mouse_click(int(p21[2]), int(p21[3]))
+                            self._sleep(0.5)
+                else:
+                    log("评论采集: 4指标识图失败，无法获知评论数")
+        return shot_b64, sync_res
 
     def _capture_read_count(self, pts, link):
         """采集阅读数：滚动到底 → Ctrl+W关闭 → 点位17搜索 → 输入链接 → 回车 → 截图(点位15/16)
@@ -1741,8 +1796,8 @@ class App:
                       likes, forwards, favorites, comments):
             """后台抓取任务：抓取标题/时间 + 保存 HTML + 互动数据
             返回统一 dict：title/pub_time/save_path/error + 互动数据"""
-            # 后台：豆包识图识别互动栏（若截图成功，异步执行不阻塞采集）
-            if shot_b64:
+            # 后台：豆包识图识别互动栏（若截图成功且未同步识别, 异步执行不阻塞采集）
+            if shot_b64 and forwards == -1:
                 _key = self.doubao_key_var.get()
                 if _key:
                     _res = doubao_recognize_interact(shot_b64, _key)
@@ -1755,7 +1810,8 @@ class App:
             def _result(error="", **kw):
                 base = {"title": "", "pub_time": "", "save_path": None, "error": error,
                         "reads": -1, "likes": -1, "forwards": -1,
-                        "favorites": -1, "comments": -1, "shot": "", "read_shot": ""}
+                        "favorites": -1, "comments": -1, "shot": "", "read_shot": "",
+                        "original": "", "ip": ""}
                 base.update(kw)
                 return base
 
@@ -1769,7 +1825,7 @@ class App:
                 fetched = fetch_article(link, save_path=None)
                 if fetched is None:
                     return _result(error="标题/时间获取失败")
-                title, pub_time = fetched
+                title, pub_time, original, ip_location = fetched
                 _stem = clean_filename(title or "untitled")
                 _date = (pub_time or "")[:10]
                 _fname = f"{_date}_{_stem}.html" if _date else f"{_stem}.html"
@@ -1781,11 +1837,12 @@ class App:
                 fetched = fetch_article(link)
                 if fetched is None:
                     return _result(error="抓取失败")
-                title, pub_time = fetched
+                title, pub_time, original, ip_location = fetched
             return _result(title=title, pub_time=pub_time, save_path=save_path,
                            write_time=click_time, reads=reads, likes=likes,
                            forwards=forwards, favorites=favorites, comments=comments,
-                           shot=shot_b64, read_shot=read_shot_b64)
+                           shot=shot_b64, read_shot=read_shot_b64,
+                           original=original, ip=ip_location)
         # 提交到线程池异步执行(截图数据已就绪, 参数传递避免闭包时序问题)
         future = self._fetch_executor.submit(
             _fetch_task, link, name, shot_b64, read_shot_b64,
@@ -1810,11 +1867,14 @@ class App:
             return False
         self.collected_links.append(link)
         log(f"已复制文章链接: {link}")
-        # 采集4指标截图(受开关控制, 豆包识图在后台执行)
-        shot_b64 = self._capture_interact_shot(pts)
+        # 采集4指标截图(评论采集开启时同步识图, 其余后台执行)
+        shot_b64, sync_res = self._capture_interact_shot(pts)
+        # 评论采集时同步识别结果直接使用, 否则保持-1由后台识别
+        forwards = favorites = comments = -1   # 转发/喜欢/留言 默认-1(未识别)
+        if sync_res:
+            likes, forwards, favorites, comments = sync_res
         # 采集阅读数: 仅当时间点位未提取到阅读数(reads==-1)时执行
         read_shot_b64 = None
-        forwards = favorites = comments = -1   # 转发/喜欢/留言 默认-1(未识别)
         if self.capture_read_var.get() and reads == -1:
             log("时间点位未提取到阅读数，执行采集阅读数流程")
             read_shot_b64 = self._capture_read_count(pts, link)

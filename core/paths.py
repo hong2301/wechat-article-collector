@@ -13,7 +13,8 @@ UI_STATE_FILE = "ui_state.json"
 DATA_DIR = "data"
 COLLECTED_CSV = "collected.csv"
 COLLECTED_HEADER = ["公众号名称", "日期", "标题", "链接", "阅读", "点赞",
-                    "转发", "喜欢", "评论", "写入时间", "互动截图", "阅读截图"]
+                    "转发", "喜欢", "评论", "写入时间", "互动截图", "阅读截图",
+                    "是否原创", "IP属地"]
 POINTS_CSV = "points.csv"
 CUSTOM = "custom"
 

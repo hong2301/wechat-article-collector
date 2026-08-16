@@ -77,7 +77,7 @@ def update_input_status(idx, status):
 
 def append_collected(gzh, pub_time, title, link,
                    reads=-1, likes=-1, forwards=-1, favorites=-1, comments=-1,
-                   write_time=None, shot="", read_shot=""):
+                   write_time=None, shot="", read_shot="", original="", ip=""):
     """追加一条采集记录到 data/collected.csv（线程安全，不做重复检查）
     互动数据列（阅读/点赞/转发/喜欢/评论）默认 -1（未采集到），后续采集逻辑可传入；
     write_time = 点击时间点位的时间（精确到秒），不传则用当前时间
@@ -101,6 +101,8 @@ def append_collected(gzh, pub_time, title, link,
                 "喜欢": favorites, "评论": comments, "写入时间": now,
                 "互动截图": shot or "",
                 "阅读截图": read_shot or "",
+                "是否原创": original or "",
+                "IP属地": ip or "",
             }
             if header != COLLECTED_HEADER or not os.path.isfile(path):
                 rows = []

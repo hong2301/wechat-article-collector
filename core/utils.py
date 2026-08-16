@@ -130,7 +130,28 @@ def fetch_article(url, save_path=None):
         if save_path:
             with open(save_path, "w", encoding="utf-8") as f:
                 f.write(html)
-        return title, pub_time
+        # 是否原创: copyright_logo 标签含"原创"
+        original = ""
+        m = re.search(r'id="copyright_logo"[^>]*>([^<]*)<', html)
+        if m and "原创" in m.group(1):
+            original = "原创"
+        else:
+            original = "非原创"
+        # IP属地: JS 变量 ip_wording, 拼接 国家+省+市 全部非空字段(尽可能全)
+        ip_location = ""
+        m = re.search(r"ip_wording\s*:\s*\{(.*?)\}", html, re.S)
+        if m:
+            _parts = []
+            for _k in ("country_name", "province_name", "city_name"):
+                _mm = re.search(_k + r"\s*:\s*'([^']*)'", m.group(1))
+                if _mm and _mm.group(1):
+                    _parts.append(_mm.group(1))
+            ip_location = "".join(_parts)
+        if not ip_location:
+            m = re.search(r'id="js_ip_wording"[^>]*>([^<]*)<', html)
+            if m:
+                ip_location = m.group(1).strip()
+        return title, pub_time, original, ip_location
     except Exception as e:
         log(f"抓取文章失败: {e}")
         return None
