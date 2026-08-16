@@ -1819,7 +1819,7 @@ class App:
             shot2.save(buf2, format="WEBP", lossless=True)
             shot2_b64 = base64.b64encode(buf2.getvalue()).decode()
 
-            # ④ 豆包识图提取评论
+            # ④ 豆包识图提取评论(纯豆包, 无OCR参与)
             comments = doubao_extract_comments(shot2_b64, _key)
             if not comments:
                 new_round += 1
