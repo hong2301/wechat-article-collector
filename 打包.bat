@@ -7,8 +7,8 @@ echo  微信公众号OCR采集器 - 打包脚本
 echo ============================================
 echo.
 
-rem 从 main.py 自动读取版本号（如 V1.1.4）
-for /f "tokens=2 delims== " %%v in ('findstr /b "VERSION" main.py') do set VER=%%v
+rem 从 core/paths.py 自动读取版本号（如 V3.0.0）
+for /f "tokens=2 delims== " %%v in ('findstr /b "VERSION" core\paths.py') do set VER=%%v
 set VER=%VER:"=%
 if "%VER%"=="" set VER=unknown
 echo 当前版本: %VER%
