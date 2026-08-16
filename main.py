@@ -491,10 +491,11 @@ class App:
                        font=("Microsoft YaHei UI", 9),
                        anchor="w").pack(side=tk.LEFT)
         today = date.today()
+        # 自定义日期不记忆, 每次默认近3天
         self.custom_start_var = tk.StringVar(
-            value=str(self.ui.get("custom_start", f"{today:%Y-%m-%d}")))
+            value=f"{(today - timedelta(days=3)):%Y-%m-%d}")
         self.custom_end_var = tk.StringVar(
-            value=str(self.ui.get("custom_end", f"{today:%Y-%m-%d}")))
+            value=f"{today:%Y-%m-%d}")
         self.entry_start = tk.Entry(row3, textvariable=self.custom_start_var, width=11,
                                     font=("Microsoft YaHei UI", 9))
         self.entry_start.pack(side=tk.LEFT, padx=(6, 0))
@@ -661,8 +662,7 @@ class App:
 
         # 设置记忆：任何变更自动保存
         for v in (self.idx_start_var, self.idx_end_var, self.time_var,
-                  self.custom_start_var, self.custom_end_var, self.max_count_var,
-                  self.scroll_px_var):
+                  self.max_count_var, self.scroll_px_var):
             v.trace_add("write", lambda *a: self._save_state())
 
         # 时间范围变更时启用/禁用自定义日期行
@@ -964,8 +964,6 @@ class App:
             "idx_start": self.idx_start_var.get(),
             "idx_end": self.idx_end_var.get(),
             "time_range": self.time_var.get(),
-            "custom_start": self.custom_start_var.get(),
-            "custom_end": self.custom_end_var.get(),
             "max_count": self.max_count_var.get(),
             "scroll_px": self.scroll_px_var.get(),
             "window_split": self.window_split_var.get(),
@@ -1322,46 +1320,70 @@ class App:
         self._sleep(0.3)
         log("按回车")
         key_press(VK_RETURN)
-        # 等待作者名称加载：等0.5秒后截点位19/20区域, OCR判断是否有文字(全白=加载中), 最多5次
+        # 按回车后: 连续点击作者名称+识图(每0.1秒轮询, 总超时5秒)
+        # 区域状态: 全白=加载中 → 不全白=作者名称出现(本轮点击已点中, 进入下一页)
+        p4 = pts.get(4)
         p19 = pts.get(19)
         p20 = pts.get(20)
-        if p19 and p20:
+        _loaded = False
+        if p4 and p19 and p20:
             try:
                 ax1, ay1 = int(p19[2]), int(p19[3])
                 ax2, ay2 = int(p20[2]), int(p20[3])
-                self._sleep(0.5)
-                log("正在检测作者名称是否加载 ...")
-                # 每 0.1 秒检测一次, 最多 50 次(覆盖5秒); 进度走GUI不刷日志
-                for _i in range(50):
+                log("连续点击作者名称并识别区域 ...")
+                _deadline = time.time() + 5
+                _saw_content = False
+                while time.time() < _deadline:
                     self._check_stop()
                     from PIL import ImageGrab as _G
+                    mouse_click(int(p4[2]), int(p4[3]))   # 点击作者名称
                     _a_img = _G.grab(bbox=(min(ax1, ax2), min(ay1, ay2), max(ax1, ax2), max(ay1, ay2)))
                     _has, _dark = _region_has_content(_a_img)
                     if _has:
-                        log(f"作者名称已加载 (第{_i+1}/50次, 暗像素={_dark})")
-                        self._sleep(1)   # 检测到后等待 1 秒再点击
+                        if not _saw_content:
+                            log(f"作者名称已出现(暗像素={_dark})，继续点击确认进入下一页")
+                        _saw_content = True
+                    elif _saw_content:
+                        # 见过作者名称后变全白 = 点击成功进入下一页
+                        log("作者名称已点击，已进入下一页(区域转全白)")
+                        _loaded = True
+                        self._sleep(0.5)
                         break
-                    if _i % 10 == 0:   # 每10次更新一次GUI进度(不刷日志)
-                        self._set_progress(f"检测作者名称加载... {_i+1}/50", int((_i+1)/50*100))
-                    self._sleep(0.1)   # 每 0.1 秒一次
-                else:
-                    log("作者名称加载检测: 50次仍未检测到(继续尝试点击)")
+                    self._sleep(0.1)
             except Exception as _e:
-                log(f"作者名称加载检测异常: {_e}，回退固定等待5秒")
-                self._sleep(5)
-        else:
-            log("等待 5 秒加载...")
-            self._sleep(5)
-        # 7) 点击点位4
-        p4 = pts.get(4)
-        if not p4:
-            log("错误: 缺少点位4，任务失败")
-            self.last_error = "缺少点位4"
+                log(f"作者名称加载检测异常: {_e}")
+        if not _loaded:
+            log("错误: 未检测到作者名称，任务失败")
+            self.last_error = "未检测到作者名称"
             return False
-        log(f"点击点位4({p4[2]},{p4[3]}) {p4[1]}")
-        mouse_click(p4[2], p4[3])
-        # 点击作者名称后等待 5 秒
-        self._sleep(5)
+        # 文章列表页加载稳定检测: 0.1秒间隔截图对比, 连续1秒无变化才算加载完成
+        p5 = pts.get(5)
+        p7 = pts.get(7)
+        if p5 and p7:
+            try:
+                lx1, ly1 = int(p5[2]), int(p5[3])
+                lx2, ly2 = int(p7[2]), int(p7[3])
+                lbox = (min(lx1, lx2), min(ly1, ly2), max(lx1, lx2), max(ly1, ly2))
+                from PIL import ImageGrab as _G
+                _prev = None
+                _stable = 0.0
+                _dl = time.time() + 8   # 总超时8秒兜底
+                while time.time() < _dl:
+                    self._check_stop()
+                    _cur = _G.grab(bbox=lbox)
+                    if _prev is not None and _image_changed(_prev, _cur):
+                        _stable = 0.0        # 有变化(加载中), 重置计时
+                    else:
+                        _stable += 0.1
+                    _prev = _cur
+                    if _stable >= 1.0:       # 连续1秒无变化
+                        log("文章列表加载稳定(连续1秒无变化)")
+                        break
+                    self._sleep(0.1)
+                else:
+                    log("列表加载稳定检测超时(8秒)，继续")
+            except Exception as _le:
+                log(f"列表加载稳定检测异常: {_le}")
         # 8) 文章列表页：OCR 采集循环
         return self._collect_articles(pts, name)
 

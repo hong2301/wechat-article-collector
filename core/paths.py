@@ -4,7 +4,7 @@ import os
 import sys
 
 APP_NAME = "微信公众号OCR采集器"
-VERSION = "V1.1.7"
+VERSION = "V2.0.0"
 WECHAT_VERSION = "4.1.11.24"    # 依赖: 微信 PC 版版本
 
 CONFIG_DIR = "config"

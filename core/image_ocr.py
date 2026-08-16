@@ -52,6 +52,20 @@ def screenshot_region(box, path):
     return img
 
 
+def _image_changed(a, b, threshold=10, diff_ratio=0.001):
+    """两张截图是否有明显变化(缩小后比较差异像素占比)
+    用于检测列表页加载是否稳定: 持续无变化=加载完成"""
+    try:
+        a = a.convert("L").resize((80, 60))
+        b = b.convert("L").resize((80, 60))
+        pa = list(a.getdata())
+        pb = list(b.getdata())
+        diff = sum(1 for x, y in zip(pa, pb) if abs(x - y) > threshold)
+        return diff / len(pa) > diff_ratio
+    except Exception:
+        return True   # 无法比较时保守视为有变化
+
+
 def _region_has_content(img, dark_threshold=200, min_dark=30):
     """判断截图区域是否已加载(非全白): 统计暗像素数量
     返回 (是否已加载, 暗像素数)
@@ -213,4 +227,4 @@ def extract_likes(text):
 __all__ = ["TIME_PATTERNS", "TIME_RE", "_ocr_engine", "_ocr_lock",
            "get_ocr_engine", "screenshot_region", "_text_brightness", "ocr_region",
            "_pil_to_b64", "capture_region_base64", "ocr_img", "find_read_in_img",
-           "find_time_items", "extract_reads", "extract_likes", "_region_has_content"]
+           "find_time_items", "extract_reads", "extract_likes", "_region_has_content", "_image_changed"]
