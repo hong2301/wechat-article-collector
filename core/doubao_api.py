@@ -70,5 +70,103 @@ def doubao_recognize_interact(shot_b64, api_key, timeout=30):
         return None
 
 
+# ========== 评论区识别 ==========
+
+
+COMMENTS_PROMPT = """\
+请从这张微信公众号文章评论区截图中提取所有可见评论，严格以JSON数组输出。
+每条评论为一个对象，字段如下：
+{
+  "名称": "用户名",
+  "地区": "IP属地",
+  "时间": "评论时间",
+  "点赞数量": "点赞数或0",
+  "正文": "评论文本内容",
+  "层级": 1或2,
+  "是否置顶": "是"或"否",
+  "是否作者回复": "是"或"否",
+  "是否作者点赞": "是"或"否",
+  "回复文本": "如果正文含'回复某某某：'则填写'回复某某某：'前缀，否则留空"
+}
+
+识别规则：
+1. 一级评论：左侧有较大头像，右侧顶部行为"名称 地区 时间"，下方为评论文本
+2. 二级评论：相对一级评论向右缩进，左侧无头像或头像较小
+3. 每条评论右下角有"回复"和"..."按钮（灰色），不要提取这些按钮文字
+4. 置顶标签：时间行出现"置顶"二字（灰色/橙色）
+5. 作者标签：时间行出现"作者"二字（绿色），表示该评论是文章作者发的
+6. "回复"标签：评论文本中若含"回复某某某：评论文本"，"回复某某某："前缀填入"回复文本"字段
+7. 点赞数：最右侧小拇指图标旁边的数字，无数字则为0
+8. 头像旁标注"作者"的是文章作者，其评论行中也会出现"作者"标签
+
+只输出JSON数组，不要输出其他说明文字。数组为空时输出[]。"""
+
+
+def doubao_extract_comments(shot_b64, api_key, timeout=30):
+    """调用豆包识图，从评论区截图提取评论数据
+    返回: list[dict]  每个dict包含 名称/地区/时间/点赞数量/正文/层级/
+          是否置顶/是否作者回复/是否作者点赞/回复文本; 失败返回 []"""
+    try:
+        import requests
+        import json as _json
+        b64 = shot_b64
+        if "," in b64:
+            b64 = b64.split(",", 1)[1]
+        payload = {
+            "model": DOUBAO_MODEL,
+            "input": [{"role": "user", "content": [
+                {"type": "input_image", "image_url": "data:image/webp;base64," + b64},
+                {"type": "input_text", "text": COMMENTS_PROMPT},
+            ]}],
+        }
+        headers = {"Authorization": "Bearer " + api_key,
+                   "Content-Type": "application/json"}
+        resp = requests.post(DOUBAO_URL, headers=headers, json=payload, timeout=timeout)
+        if resp.status_code != 200:
+            log(f"豆包评论识别HTTP {resp.status_code}")
+            return []
+        data = resp.json()
+        text = ""
+        for out in data.get("output", []):
+            for c in out.get("content", []):
+                if c.get("type") == "output_text":
+                    text += (c.get("text") or "")
+        text = text.strip()
+        if not text:
+            return []
+        # 提取JSON数组（兼容模型可能包裹在```json...```中）
+        m = re.search(r"\[.*\]", text, re.S)
+        if not m:
+            return []
+        result = _json.loads(m.group(0))
+        if not isinstance(result, list):
+            return []
+        # 过滤/清洗
+        cleaned = []
+        for item in result:
+            if not isinstance(item, dict):
+                continue
+            name = (item.get("名称") or "").strip()
+            if not name:
+                continue
+            cleaned.append({
+                "名称": name,
+                "地区": (item.get("地区") or "").strip(),
+                "时间": (item.get("时间") or "").strip(),
+                "点赞数量": str(item.get("点赞数量") or "0").strip(),
+                "正文": (item.get("正文") or "").strip(),
+                "层级": int(item.get("层级") or 1),
+                "是否置顶": "是" if "是" in str(item.get("是否置顶", "")) else "否",
+                "是否作者回复": "是" if "是" in str(item.get("是否作者回复", "")) else "否",
+                "是否作者点赞": "是" if "是" in str(item.get("是否作者点赞", "")) else "否",
+                "回复文本": (item.get("回复文本") or "").strip(),
+            })
+        return cleaned
+    except Exception as e:
+        log(f"豆包评论识别异常: {e}")
+        return []
+
+
 __all__ = ["DOUBAO_URL", "DOUBAO_MODEL", "DOUBAO_PROMPT",
-           "_parse_interact_text", "doubao_recognize_interact"]
+           "_parse_interact_text", "doubao_recognize_interact",
+           "COMMENTS_PROMPT", "doubao_extract_comments"]

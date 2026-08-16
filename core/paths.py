@@ -12,6 +12,12 @@ INPUT_CSV = "input.csv"
 UI_STATE_FILE = "ui_state.json"
 DATA_DIR = "data"
 COLLECTED_CSV = "collected.csv"
+COMMENTS_CSV = "comments.csv"
+COMMENTS_HEADER = [
+    "文章链接", "名称", "地区", "时间", "点赞数量", "正文", "层级",
+    "是否置顶", "是否作者回复", "是否作者点赞",
+    "评论ID", "父级评论ID", "回复数量",
+]
 COLLECTED_HEADER = ["公众号名称", "日期", "标题", "链接", "阅读", "点赞",
                     "转发", "喜欢", "评论", "写入时间", "互动截图", "阅读截图",
                     "是否原创", "IP属地"]
@@ -51,6 +57,6 @@ def _collected_path():
 
 
 __all__ = ["APP_NAME", "VERSION", "WECHAT_VERSION", "CONFIG_DIR", "INPUT_CSV",
-           "UI_STATE_FILE", "DATA_DIR", "COLLECTED_CSV", "COLLECTED_HEADER",
+           "UI_STATE_FILE", "DATA_DIR", "COLLECTED_CSV", "COLLECTED_HEADER", "COMMENTS_CSV", "COMMENTS_HEADER",
            "POINTS_CSV", "CUSTOM", "LOG_FILE", "_script_root", "_config_dir",
            "_input_path", "_points_path", "_data_dir", "_collected_path"]

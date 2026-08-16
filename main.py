@@ -35,7 +35,7 @@ from tkinter import messagebox, scrolledtext, ttk
 import core.utils as _utils
 from core.paths import *
 from core.utils import *
-from core.doubao_api import doubao_recognize_interact
+from core.doubao_api import doubao_recognize_interact, doubao_extract_comments
 from core.image_ocr import *
 from core.datastore import *
 from core.win32util import *
@@ -551,13 +551,24 @@ class App:
             value=bool(self.ui.get("capture_reply", False)))
         tk.Checkbutton(row5b, text="采集二级评论", variable=self.capture_reply_var,
                        font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(12, 0))
-        tk.Label(row5b, text="每文章最大评论采集数量:", font=("Microsoft YaHei UI", 9)
+        # 评论采集数量: 一级评论数 | 每级二级评论数 | 总评论数 (0=无限)
+        tk.Label(row5b, text="一级评论数量:", font=("Microsoft YaHei UI", 9)
                  ).pack(side=tk.LEFT, padx=(12, 0))
-        self.max_comments_var = tk.StringVar(
-            value=str(self.ui.get("max_comments", "") or ""))
-        tk.Spinbox(row5b, from_=1, to=9999, textvariable=self.max_comments_var, width=6,
-                   font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=4)
-        self.max_comments_var.set(str(self.ui.get("max_comments", "") or ""))
+        self.max_l1_var = tk.StringVar(value=str(self.ui.get("max_l1", 0)))
+        tk.Spinbox(row5b, from_=0, to=9999, textvariable=self.max_l1_var, width=5,
+                   font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(2, 0))
+        tk.Label(row5b, text="每级二级:", font=("Microsoft YaHei UI", 9)
+                 ).pack(side=tk.LEFT, padx=(8, 0))
+        self.max_l2_var = tk.StringVar(value=str(self.ui.get("max_l2", 0)))
+        tk.Spinbox(row5b, from_=0, to=9999, textvariable=self.max_l2_var, width=5,
+                   font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(2, 0))
+        tk.Label(row5b, text="总评论数:", font=("Microsoft YaHei UI", 9)
+                 ).pack(side=tk.LEFT, padx=(8, 0))
+        self.max_total_var = tk.StringVar(value=str(self.ui.get("max_total", 0)))
+        tk.Spinbox(row5b, from_=0, to=9999, textvariable=self.max_total_var, width=5,
+                   font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(2, 0))
+        tk.Label(row5b, text="(0=无限)", font=("Microsoft YaHei UI", 8), fg="#888"
+                 ).pack(side=tk.LEFT, padx=(4, 0))
 
         # 豆包 API Key（密码式输入）
         row6 = tk.Frame(ctrl)
@@ -699,7 +710,8 @@ class App:
         # 设置记忆：任何变更自动保存
         for v in (self.idx_start_var, self.idx_end_var, self.time_var,
                   self.max_count_var, self.scroll_px_var, self.comment_scroll_px_var,
-                  self.capture_comments_var, self.capture_reply_var, self.max_comments_var):
+                  self.capture_comments_var, self.capture_reply_var,
+                  self.max_l1_var, self.max_l2_var, self.max_total_var):
             v.trace_add("write", lambda *a: self._save_state())
 
         # 时间范围变更时启用/禁用自定义日期行
@@ -1024,7 +1036,9 @@ class App:
             "capture_4metrics": self.capture_4metrics_var.get(),
             "capture_comments": self.capture_comments_var.get(),
             "capture_reply": self.capture_reply_var.get(),
-            "max_comments": self.max_comments_var.get(),
+            "max_l1": self.max_l1_var.get(),
+            "max_l2": self.max_l2_var.get(),
+            "max_total": self.max_total_var.get(),
             "doubao_api_key": self.doubao_key_var.get(),
         })
 
@@ -1728,6 +1742,156 @@ class App:
                 self._sleep(0.3)
         return link
 
+    def _wait_comment_stable(self, pts):
+        """评论区加载稳定检测: 截图点位22/23区域, 0.1秒间隔, 最多50次
+        连续30次无变化判定加载完成; 第一张仅作基准不对比
+        返回 True=已稳定 / False=超时"""
+        rbox = self._sub_region(pts, 22, 23)
+        if not rbox:
+            return False
+        from PIL import ImageGrab as _G
+        prev = None
+        stable = 0
+        for _i in range(50):
+            self._check_stop()
+            cur = _G.grab(bbox=rbox)
+            if prev is None:
+                prev = cur          # 第一张仅作基准
+                self._sleep(0.1)
+                continue
+            if _image_changed(prev, cur):
+                stable = 0          # 有变化, 重置
+            else:
+                stable += 1
+            prev = cur
+            if stable >= 30:        # 连续30次无变化
+                log("评论区加载稳定(连续30次无变化)")
+                return True
+            self._sleep(0.1)
+        log("评论区稳定检测超时(50次)")
+        return False
+
+    def _collect_comments(self, pts, article_url, total_comment_count):
+        """评论采集循环: 截图→OCR回复→点击展开→豆包识别→写CSV→滚动
+        直到连续3次无新评论 或 达到数量上限"""
+        try:
+            _key = (self.ui.get("api_key") or "").strip()
+        except Exception:
+            _key = ""
+        if not _key:
+            log("评论采集: 缺少豆包API Key，跳过")
+            return
+        from PIL import ImageGrab as _G
+        import base64, io
+
+        max_l1 = self._parse_int(self.max_l1_var.get())     # 一级评论上限(0=无限)
+        max_l2 = self._parse_int(self.max_l2_var.get())     # 每级二级评论上限(0=无限)
+        max_total = self._parse_int(self.max_total_var.get()) # 总评论上限(0=无限)
+
+        l1_count = 0       # 已采一级评论数
+        new_round = 0      # 连续无新评论轮数
+        total_new = 0      # 本轮已写入新评论数
+        loop_n = 0
+
+        log(f"评论采集开始(上限: 一级={max_l1 or '无限'}, 每级二级={max_l2 or '无限'}, 总={max_total or '无限'})")
+
+        while new_round < 3:
+            self._check_stop()
+            loop_n += 1
+
+            # ① 截图评论区(点位22/23)
+            rbox = self._sub_region(pts, 22, 23)
+            if not rbox:
+                log("评论采集: 缺少点位22/23，停止")
+                break
+            shot = _G.grab(bbox=rbox)
+            buf = io.BytesIO()
+            shot.save(buf, format="WEBP", lossless=True)
+            shot_b64 = base64.b64encode(buf.getvalue()).decode()
+
+            # ② 采集二级评论: OCR找"回复"(灰色) → 依次点击展开
+            if self.capture_reply_var.get():
+                self._expand_replies(shot, rbox, pts)
+
+            # ③ 重新截图(展开后)
+            shot2 = _G.grab(bbox=rbox)
+            buf2 = io.BytesIO()
+            shot2.save(buf2, format="WEBP", lossless=True)
+            shot2_b64 = base64.b64encode(buf2.getvalue()).decode()
+
+            # ④ 豆包识图提取评论
+            comments = doubao_extract_comments(shot2_b64, _key)
+            if not comments:
+                new_round += 1
+                log(f"评论采集第{loop_n}轮: 未识别到评论(连续{new_round}/3)")
+            else:
+                # ⑤ 写入评论CSV(去重+计算ID/父级)
+                wrote = append_comments(article_url, comments)
+                total_new += wrote
+                if wrote > 0:
+                    new_round = 0
+                    # 统计一级评论数
+                    for c in comments:
+                        if c.get("层级") == 1:
+                            l1_count += 1
+                    log(f"评论采集第{loop_n}轮: 识别{len(comments)}条, 写入{wrote}条新评论(累计{total_new})")
+                else:
+                    new_round += 1
+                    log(f"评论采集第{loop_n}轮: {len(comments)}条均重复(连续{new_round}/3)")
+
+            # ⑥ 检查数量上限
+            hit_limit = False
+            if max_l1 > 0 and l1_count >= max_l1:
+                log(f"一级评论达到上限({max_l1})，停止")
+                hit_limit = True
+            if max_total > 0 and total_new >= max_total:
+                log(f"总评论数达到上限({max_total})，停止")
+                hit_limit = True
+            if hit_limit:
+                break
+
+            # ⑦ 滚动评论区
+            try:
+                _px = int(float(self.comment_scroll_px_var.get()))
+            except Exception:
+                _px = 300
+            p23_now = pts.get(23)
+            if p23_now:
+                scroll_down_at(int(p23_now[2]), int(p23_now[3]), _px)
+            pts = {p[0]: p for p in load_points()}
+            self._sleep(0.8)
+
+        log(f"评论采集结束: 共写入{total_new}条评论")
+
+    def _expand_replies(self, shot_img, rbox, pts):
+        """OCR识别评论区截图中的"回复"字样(灰色), 依次点击展开二级评论"""
+        # OCR识别当前截图
+        try:
+            items = ocr_img(shot_img)
+        except Exception:
+            items = []
+        # 筛选含"回复"的灰色点位
+        reply_btns = []
+        for cx, cy, txt, score, sbox, brightness in items:
+            txt_s = txt.strip()
+            if "回复" in txt_s and len(txt_s) <= 4:
+                try:
+                    if 100 < brightness < 200:  # 灰色范围
+                        abs_x = rbox[0] + cx
+                        abs_y = rbox[1] + cy
+                        reply_btns.append((abs_x, abs_y, txt_s))
+                except Exception:
+                    continue
+        if not reply_btns:
+            return
+        log(f"发现{len(reply_btns)}个回复按钮，依次点击展开")
+        for x, y, txt in reply_btns:
+            self._check_stop()
+            mouse_click(x, y)
+            self._sleep(0.8)  # 等二级评论加载
+        # 展开后等稳定
+        self._sleep(1.0)
+
     def _capture_interact_shot(self, pts):
         """采集4指标：截图底部互动栏(点位13/14) -> base64
         开启评论采集时: 同步识图拿评论数, 评论数>0则点击评论按钮(点位21)
@@ -1756,7 +1920,8 @@ class App:
                         if p21:
                             log(f"评论数[{_c}]>0，点击评论按钮(点位21)")
                             mouse_click(int(p21[2]), int(p21[3]))
-                            self._sleep(0.5)
+                            # 评论区加载稳定检测(截图点位22/23, 连续30次无变化)
+                            self._wait_comment_stable(pts)
                         else:
                             log("缺少点位21(评论按钮)，无法采集评论")
                     else:
@@ -1916,6 +2081,12 @@ class App:
         if self.capture_read_var.get() and reads == -1:
             log("时间点位未提取到阅读数，执行采集阅读数流程")
             read_shot_b64 = self._capture_read_count(pts, link)
+        # 评论采集(评论区打开 + 循环提取, 在文章关闭前同步执行)
+        if self.capture_comments_var.get() and comments > 0:
+            try:
+                self._collect_comments(pts, link, comments)
+            except Exception as e:
+                log(f"评论采集异常: {e}")
         # 后台抓取文章(标题/时间/HTML + 互动数据), 不等待直接返回
         self._spawn_fetch(link, name, shot_b64, read_shot_b64,
                           click_time, reads, likes, forwards, favorites, comments)

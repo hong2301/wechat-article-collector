@@ -73,6 +73,117 @@ def update_input_status(idx, status):
         log(f"更新状态失败: {e}")
 
 
+# ================= 数据层（comments.csv 评论） =================
+
+def append_comments(article_url, comment_list):
+    """写入评论到 data/comments.csv
+    comment_list: [{"名称","地区","时间","点赞数量","正文","层级(1/2)",
+                    "是否置顶","是否作者回复","是否作者点赞",...}, ...]
+    父级评论ID / 回复数量 在此函数内计算
+    返回: 写入条数（0 表示全部重复或失败）"""
+    if not article_url or not comment_list:
+        return 0
+    path = os.path.join(_data_dir(), COMMENTS_CSV)
+    try:
+        with _log_lock:
+            os.makedirs(_data_dir(), exist_ok=True)
+            # 读已有评论(去重用)
+            existing = []
+            if os.path.isfile(path):
+                with open(path, encoding="utf-8-sig", newline="") as f:
+                    for row in csv.DictReader(f):
+                        existing.append(row.get("评论ID", ""))
+
+            # ---- 计算评论ID ----
+            def _cid(name, loc, t, likes, text, level):
+                raw = f"{name}|{loc}|{t}|{likes}|{text}|{level}"
+                import hashlib
+                return hashlib.md5(raw.encode("utf-8")).hexdigest()[:16]
+
+            # ---- 计算父级评论ID ----
+            l1_id = ""       # 当前所属一级评论ID
+            id_map = {}      # 名称 -> 评论ID(用于二级"回复某某"找父级)
+            for c in comment_list:
+                name = c.get("名称", "")
+                loc = c.get("地区", "")
+                t = c.get("时间", "")
+                likes = str(c.get("点赞数量", "0"))
+                text = c.get("正文", "")
+                level = c.get("层级", 1)
+                pinned = c.get("是否置顶", "否")
+                author_reply = c.get("是否作者回复", "否")
+                author_like = c.get("是否作者点赞", "否")
+                reply_text = c.get("回复文本", "")
+
+                cid = _cid(name, loc, t, likes, text, level)
+                c["评论ID"] = cid
+                id_map[name] = cid
+
+                if level == 1:
+                    l1_id = cid
+                    c["父级评论ID"] = ""
+                else:
+                    # 二级: "回复某某" -> 父级=某某的ID; 否则父级=所属一级
+                    target = ""
+                    if reply_text and reply_text.startswith("回复"):
+                        # "回复某某某：" -> 提取某某某
+                        m = re.match(r"回复(.{1,20})[：:]", reply_text)
+                        if m:
+                            target = m.group(1)
+                    if target and target in id_map:
+                        c["父级评论ID"] = id_map[target]
+                    else:
+                        c["父级评论ID"] = l1_id
+
+            # ---- 回复数量: 统计每条评论被多少二级回复 ----
+            reply_count_map = {}
+            for c in comment_list:
+                parent_id = c.get("父级评论ID", "")
+                if parent_id:
+                    reply_count_map[parent_id] = reply_count_map.get(parent_id, 0) + 1
+            for c in comment_list:
+                c["回复数量"] = str(reply_count_map.get(c["评论ID"], 0))
+
+            # ---- 去重 + 写入 ----
+            new_count = 0
+            rows_to_write = []
+            for c in comment_list:
+                if c["评论ID"] in existing:
+                    continue
+                rows_to_write.append({
+                    "文章链接": article_url,
+                    "名称": c.get("名称", ""),
+                    "地区": c.get("地区", ""),
+                    "时间": c.get("时间", ""),
+                    "点赞数量": c.get("点赞数量", "0"),
+                    "正文": c.get("正文", ""),
+                    "层级": str(c.get("层级", 1)),
+                    "是否置顶": c.get("是否置顶", "否"),
+                    "是否作者回复": c.get("是否作者回复", "否"),
+                    "是否作者点赞": c.get("是否作者点赞", "否"),
+                    "评论ID": c["评论ID"],
+                    "父级评论ID": c.get("父级评论ID", ""),
+                    "回复数量": c.get("回复数量", "0"),
+                })
+                existing.append(c["评论ID"])
+                new_count += 1
+
+            if not rows_to_write:
+                return 0
+
+            write_header = not os.path.isfile(path) or os.path.getsize(path) == 0
+            with open(path, "a", encoding="utf-8-sig", newline="") as f:
+                w = csv.DictWriter(f, fieldnames=COMMENTS_HEADER)
+                if write_header:
+                    w.writeheader()
+                for row in rows_to_write:
+                    w.writerow(row)
+            return new_count
+    except Exception as e:
+        log(f"写入评论CSV失败: {e}")
+        return 0
+
+
 # ================= 数据层（points.csv） =================
 
 def append_collected(gzh, pub_time, title, link,
