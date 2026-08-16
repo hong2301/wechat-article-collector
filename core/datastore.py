@@ -168,7 +168,8 @@ def load_ui_state():
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except Exception as e:
+        log(f"读取界面记忆失败: {e}")
         return {}
 
 
@@ -179,8 +180,8 @@ def save_ui_state(state):
     try:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(state, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    except Exception as e:
+        log(f"保存界面记忆失败: {e}")
 
 
 
