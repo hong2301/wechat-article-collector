@@ -884,7 +884,7 @@ class App:
                 kind = item[0]
                 if kind == "log":
                     self.text.configure(state="normal")
-                    self.text.insert("end", item[1] + "\n")
+                    self.text.insert("end", item[1] + "\n", item[2] if len(item) > 2 else "def")
                     self.text.see("end")
                     self.text.configure(state="disabled")
                 elif kind == "progress":
