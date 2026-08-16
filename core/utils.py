@@ -25,7 +25,9 @@ def log(msg):
             pass
     try:
         with _log_lock:
-            with open(os.path.join(_script_root(), LOG_FILE), "a", encoding="utf-8") as f:
+            _log_path = os.path.join(_script_root(), LOG_FILE)
+            os.makedirs(os.path.dirname(_log_path), exist_ok=True)
+            with open(_log_path, "a", encoding="utf-8") as f:
                 f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
     except Exception:
         pass

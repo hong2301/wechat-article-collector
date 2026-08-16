@@ -513,7 +513,7 @@ class App:
         # 最大采集数量
         row4 = tk.Frame(ctrl)
         row4.pack(fill=tk.X, padx=10, pady=2)
-        tk.Label(row4, text="每公众号最大采集数量:", font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
+        tk.Label(row4, text="每公众号最大文章采集数量:", font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
         self.max_count_var = tk.StringVar(
             value=str(self.ui.get("max_count", "") or ""))
         tk.Spinbox(row4, from_=1, to=9999, textvariable=self.max_count_var, width=6,
@@ -543,46 +543,23 @@ class App:
         # 评论采集配置
         row5b = tk.Frame(ctrl)
         row5b.pack(fill=tk.X, padx=10, pady=(6, 2))
-        self.capture_comments_var = tk.BooleanVar(
-            value=bool(self.ui.get("capture_comments", False)))
-        tk.Checkbutton(row5b, text="采集评论", variable=self.capture_comments_var,
-                       font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
-        self.capture_reply_var = tk.BooleanVar(
-            value=bool(self.ui.get("capture_reply", False)))
-        tk.Checkbutton(row5b, text="采集二级评论", variable=self.capture_reply_var,
-                       font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(12, 0))
-        # 评论采集数量: 一级评论数 | 每级二级评论数 | 总评论数 (0=无限)
-        tk.Label(row5b, text="一级评论数量:", font=("Microsoft YaHei UI", 9)
-                 ).pack(side=tk.LEFT, padx=(12, 0))
-        self.max_l1_var = tk.StringVar(value=str(self.ui.get("max_l1", 0)))
-        tk.Spinbox(row5b, from_=0, to=9999, textvariable=self.max_l1_var, width=5,
-                   font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(2, 0))
-        tk.Label(row5b, text="每级二级:", font=("Microsoft YaHei UI", 9)
+        tk.Label(row5b, text="一级评论采集数量:", font=("Microsoft YaHei UI", 9)
+                 ).pack(side=tk.LEFT)
+        _saved_l1 = str(self.ui.get("max_l1", 0) or "")   # 空=无限, 0=不采
+        self.max_l1_var = tk.StringVar(value="")
+        self.max_l1_spin = tk.Spinbox(row5b, from_=0, to=9999, textvariable=self.max_l1_var, width=5,
+                                      font=("Microsoft YaHei UI", 10))
+        self.max_l1_var.set(_saved_l1)   # Spinbox创建会回填0, 创建后覆盖为保存值(含空)
+        self.max_l1_spin.pack(side=tk.LEFT, padx=(4, 0))
+        tk.Label(row5b, text="每级二级评论采集数量:", font=("Microsoft YaHei UI", 9)
                  ).pack(side=tk.LEFT, padx=(8, 0))
-        self.max_l2_var = tk.StringVar(value=str(self.ui.get("max_l2", 0)))
-        tk.Spinbox(row5b, from_=0, to=9999, textvariable=self.max_l2_var, width=5,
-                   font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(2, 0))
-        tk.Label(row5b, text="总评论数:", font=("Microsoft YaHei UI", 9)
-                 ).pack(side=tk.LEFT, padx=(8, 0))
-        self.max_total_var = tk.StringVar(value=str(self.ui.get("max_total", 0)))
-        tk.Spinbox(row5b, from_=0, to=9999, textvariable=self.max_total_var, width=5,
-                   font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(2, 0))
-        tk.Label(row5b, text="(0=无限)", font=("Microsoft YaHei UI", 8), fg="#888"
-                 ).pack(side=tk.LEFT, padx=(4, 0))
+        _saved_l2 = str(self.ui.get("max_l2", 0) or "")   # 空=无限, 0=不展
+        self.max_l2_var = tk.StringVar(value="")
+        self.max_l2_spin = tk.Spinbox(row5b, from_=0, to=9999, textvariable=self.max_l2_var, width=5,
+                                      font=("Microsoft YaHei UI", 10))
+        self.max_l2_var.set(_saved_l2)   # 同上
+        self.max_l2_spin.pack(side=tk.LEFT, padx=(2, 0))
 
-        # 豆包 API Key（密码式输入）
-        row6 = tk.Frame(ctrl)
-        row6.pack(fill=tk.X, padx=10, pady=(6, 2))
-        tk.Label(row6, text="豆包API Key:", font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
-        self.doubao_key_var = tk.StringVar(
-            value=str(self.ui.get("doubao_api_key", "") or ""))
-        self.doubao_key_entry = tk.Entry(row6, textvariable=self.doubao_key_var, width=34,
-                                         show="*", font=("Microsoft YaHei UI", 9))
-        self.doubao_key_entry.pack(side=tk.LEFT, padx=(4, 0))
-        self.show_key_var = tk.BooleanVar(value=False)
-        tk.Checkbutton(row6, text="显示", variable=self.show_key_var,
-                       font=("Microsoft YaHei UI", 9),
-                       command=self.toggle_key_show).pack(side=tk.LEFT, padx=(4, 0))
 
         # 开始按钮 + 点位设置（同一栏，点位设置靠右小按钮）
         # 滚动距离 + 测试滚动 配置（紧凑排左）
@@ -618,6 +595,20 @@ class App:
                                                  font=("Microsoft YaHei UI", 9),
                                                  command=self.on_comment_scroll_test)
         self.btn_comment_scroll_test.pack(side=tk.LEFT, padx=4)
+
+        # 豆包 API Key（密码式输入，滚动距离下方一行）
+        row6 = tk.Frame(ctrl)
+        row6.pack(fill=tk.X, padx=10, pady=(6, 2))
+        tk.Label(row6, text="豆包API Key:", font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
+        self.doubao_key_var = tk.StringVar(
+            value=str(self.ui.get("doubao_api_key", "") or ""))
+        self.doubao_key_entry = tk.Entry(row6, textvariable=self.doubao_key_var, width=34,
+                                         show="*", font=("Microsoft YaHei UI", 9))
+        self.doubao_key_entry.pack(side=tk.LEFT, padx=(4, 0))
+        self.show_key_var = tk.BooleanVar(value=False)
+        tk.Checkbutton(row6, text="显示", variable=self.show_key_var,
+                       font=("Microsoft YaHei UI", 9),
+                       command=self.toggle_key_show).pack(side=tk.LEFT, padx=(4, 0))
         btn_bar = tk.Frame(ctrl)
         btn_bar.pack(fill=tk.X, padx=10, pady=(4, 6))
         self.btn_points = tk.Button(btn_bar, text="点位设置", width=10,
@@ -710,8 +701,7 @@ class App:
         # 设置记忆：任何变更自动保存
         for v in (self.idx_start_var, self.idx_end_var, self.time_var,
                   self.max_count_var, self.scroll_px_var, self.comment_scroll_px_var,
-                  self.capture_comments_var, self.capture_reply_var,
-                  self.max_l1_var, self.max_l2_var, self.max_total_var):
+                  self.max_l1_var, self.max_l2_var):
             v.trace_add("write", lambda *a: self._save_state())
 
         # 时间范围变更时启用/禁用自定义日期行
@@ -1034,11 +1024,8 @@ class App:
             "window_split": self.window_split_var.get(),
             "capture_read": self.capture_read_var.get(),
             "capture_4metrics": self.capture_4metrics_var.get(),
-            "capture_comments": self.capture_comments_var.get(),
-            "capture_reply": self.capture_reply_var.get(),
             "max_l1": self.max_l1_var.get(),
             "max_l2": self.max_l2_var.get(),
-            "max_total": self.max_total_var.get(),
             "doubao_api_key": self.doubao_key_var.get(),
         })
 
@@ -1084,8 +1071,7 @@ class App:
             f"窗口分离[{('开' if self.window_split_var.get() else '关')}] "
             f"采集阅读[{('开' if self.capture_read_var.get() else '关')}] "
             f"采集4指标[{('开' if self.capture_4metrics_var.get() else '关')}] "
-            f"采集评论[{('开' if self.capture_comments_var.get() else '关')}] "
-            f"二级评论[{('开' if self.capture_reply_var.get() else '关')}]")
+            f"一级评论[{self.max_l1_var.get()}] 每级二级[{self.max_l2_var.get()}]")
         log("右侧任务区可编辑 input 数据（双击单元格修改，操作列删除，底部重置/新增）")
         log("请在左侧采集控制设置索引范围、时间范围、最大数量后点击【开始】（或按回车）")
         if not self.input_rows:
@@ -1742,6 +1728,16 @@ class App:
                 self._sleep(0.3)
         return link
 
+    def _parse_int(self, v):
+        """评论数量解析: 空=无限(None), 0=不采集, >0=采集N条"""
+        s = (v or "").strip()
+        if s == "":
+            return None
+        try:
+            return int(float(s))
+        except (TypeError, ValueError):
+            return 0
+
     def _wait_comment_stable(self, pts):
         """评论区加载稳定检测: 截图点位22/23区域, 0.1秒间隔, 最多50次
         连续30次无变化判定加载完成; 第一张仅作基准不对比
@@ -1771,11 +1767,12 @@ class App:
         log("评论区稳定检测超时(50次)")
         return False
 
-    def _collect_comments(self, pts, article_url, total_comment_count):
+    def _collect_comments(self, pts, article_url, interact_future=None):
         """评论采集循环: 截图→OCR回复→点击展开→豆包识别→写CSV→滚动
-        直到连续3次无新评论 或 达到数量上限"""
+        连续3次截图相同(到底)或达到数量上限停止
+        interact_future: 4指标异步识别结果, 确认留言=0时立即停止并清理已写入评论"""
         try:
-            _key = (self.ui.get("api_key") or "").strip()
+            _key = (self.ui.get("doubao_api_key") or "").strip()
         except Exception:
             _key = ""
         if not _key:
@@ -1784,87 +1781,154 @@ class App:
         from PIL import ImageGrab as _G
         import base64, io
 
-        max_l1 = self._parse_int(self.max_l1_var.get())     # 一级评论上限(0=无限)
-        max_l2 = self._parse_int(self.max_l2_var.get())     # 每级二级评论上限(0=无限)
-        max_total = self._parse_int(self.max_total_var.get()) # 总评论上限(0=无限)
+        max_l1 = self._parse_int(self.max_l1_var.get())     # 一级: 空=无限, 0=不采, >0=N条
+        max_l2 = self._parse_int(self.max_l2_var.get())     # 二级: 空=无限, 0=不展, >0=N条
 
         l1_count = 0       # 已采一级评论数
-        new_round = 0      # 连续无新评论轮数
         total_new = 0      # 本轮已写入新评论数
         loop_n = 0
+        prev_shot = None   # 上一张截图(滚动对比用)
+        same_count = 0     # 连续相同截图轮数
 
-        log(f"评论采集开始(上限: 一级={max_l1 or '无限'}, 每级二级={max_l2 or '无限'}, 总={max_total or '无限'})")
+        log(f"评论采集开始(一级上限={max_l1}, 每级二级={max_l2})")
 
-        while new_round < 3:
+        while same_count < 3:
             self._check_stop()
             loop_n += 1
+            # 快速检查: 4指标识别已完成且留言=0 → 停止并清理
+            if interact_future is not None and interact_future.done():
+                try:
+                    _res = interact_future.result()
+                    if _res and _res[3] == 0:
+                        log(f"4指标确认留言=0，停止评论采集并清理已写入数据")
+                        _deleted = delete_comments(article_url)
+                        log(f"已删除误采集评论 {_deleted} 条")
+                        return
+                except Exception:
+                    pass
+            log(f"评论采集第{loop_n}轮: 截图评论区(点位22/23)...")
 
-            # ① 截图评论区(点位22/23)
+            # ① 截图评论区(点位22/23); 截图前统一移开鼠标(点位23, 避免遮挡)
             rbox = self._sub_region(pts, 22, 23)
             if not rbox:
                 log("评论采集: 缺少点位22/23，停止")
                 break
+            _pm = pts.get(23)
+            if _pm:
+                mouse_move(int(_pm[2]), int(_pm[3]))
             shot = _G.grab(bbox=rbox)
-            buf = io.BytesIO()
-            shot.save(buf, format="WEBP", lossless=True)
-            shot_b64 = base64.b64encode(buf.getvalue()).decode()
 
-            # ② 采集二级评论: OCR找"回复"(灰色) → 依次点击展开
-            if self.capture_reply_var.get():
+            # ② 与上一张对比: 相同→跳过识别直接滚动; 连续3次相同→到底停止
+            if prev_shot is not None and not _image_changed(prev_shot, shot):
+                same_count += 1
+                log(f"评论采集第{loop_n}轮: 截图与上一张相同(连续{same_count}/3)，跳过识别继续滚动")
+                if same_count >= 3:
+                    log("连续3次截图完全相同，评论区到底，停止采集")
+                    break
+                try:
+                    _px = int(float(self.comment_scroll_px_var.get()))
+                except Exception:
+                    _px = 300
+                p23_now = pts.get(23)
+                if p23_now:
+                    log(f"评论采集第{loop_n}轮: 滚动评论区({_px}px)")
+                    scroll_down_at(int(p23_now[2]), int(p23_now[3]), _px)
+                pts = {p[0]: p for p in load_points()}
+                self._sleep(0.8)
+                continue
+            same_count = 0
+            prev_shot = shot
+
+            # ③ 采集二级评论: OCR找"回复"(灰色) → 依次点击展开
+            if max_l2 is None or max_l2 > 0:
                 self._expand_replies(shot, rbox, pts)
 
-            # ③ 重新截图(展开后)
+            # ④ 重新截图(展开后); 截图前移开鼠标
+            _pm2 = pts.get(23)
+            if _pm2:
+                mouse_move(int(_pm2[2]), int(_pm2[3]))
             shot2 = _G.grab(bbox=rbox)
             buf2 = io.BytesIO()
             shot2.save(buf2, format="WEBP", lossless=True)
             shot2_b64 = base64.b64encode(buf2.getvalue()).decode()
 
-            # ④ 豆包识图提取评论(纯豆包, 无OCR参与)
-            comments = doubao_extract_comments(shot2_b64, _key)
-            if not comments:
-                new_round += 1
-                log(f"评论采集第{loop_n}轮: 未识别到评论(连续{new_round}/3)")
-            else:
-                # ⑤ 写入评论CSV(去重+计算ID/父级)
+            # ⑤ 并行执行: 豆包识图提取评论(网络) + OCR名称行层级(本地CPU)
+            log(f"评论采集第{loop_n}轮: 并行识别中(豆包+OCR校准)...")
+            import concurrent.futures as _cf
+            with _cf.ThreadPoolExecutor(max_workers=2) as _ex:
+                _f_doubao = _ex.submit(doubao_extract_comments, shot2_b64, _key)
+                _f_ocr = _ex.submit(self._ocr_name_levels, shot2)
+                comments = _f_doubao.result()
+                _levels = _f_ocr.result()
+            # OCR坐标覆盖层级(稳定可靠), 豆包"是否缩进"作兜底
+            for _i, _c in enumerate(comments):
+                if _i < len(_levels):
+                    _c["层级"] = _levels[_i]
+            log(f"评论采集第{loop_n}轮: 豆包识别{len(comments)}条, OCR校准层级{_levels}")
+            if comments:
+                # ⑥ 写入评论CSV(去重+计算ID/父级)
                 wrote = append_comments(article_url, comments)
                 total_new += wrote
-                if wrote > 0:
-                    new_round = 0
-                    # 统计一级评论数
-                    for c in comments:
-                        if c.get("层级") == 1:
-                            l1_count += 1
-                    log(f"评论采集第{loop_n}轮: 识别{len(comments)}条, 写入{wrote}条新评论(累计{total_new})")
-                else:
-                    new_round += 1
-                    log(f"评论采集第{loop_n}轮: {len(comments)}条均重复(连续{new_round}/3)")
+                # 统计一级评论数
+                for c in comments:
+                    if c.get("层级") == 1:
+                        l1_count += 1
+                log(f"评论采集第{loop_n}轮: 写入{wrote}条新评论(累计{total_new})")
 
-            # ⑥ 检查数量上限
+            # ⑦ 检查数量上限
             hit_limit = False
-            if max_l1 > 0 and l1_count >= max_l1:
+            if max_l1 is not None and max_l1 > 0 and l1_count >= max_l1:
                 log(f"一级评论达到上限({max_l1})，停止")
-                hit_limit = True
-            if max_total > 0 and total_new >= max_total:
-                log(f"总评论数达到上限({max_total})，停止")
                 hit_limit = True
             if hit_limit:
                 break
 
-            # ⑦ 滚动评论区
+            # ⑧ 滚动评论区
             try:
                 _px = int(float(self.comment_scroll_px_var.get()))
             except Exception:
                 _px = 300
             p23_now = pts.get(23)
             if p23_now:
+                log(f"评论采集第{loop_n}轮: 滚动评论区({_px}px)")
                 scroll_down_at(int(p23_now[2]), int(p23_now[3]), _px)
             pts = {p[0]: p for p in load_points()}
             self._sleep(0.8)
 
+        # 最终确认: 4指标结果留言=0 → 清理本次误采集
+        if interact_future is not None:
+            try:
+                _res = interact_future.result(timeout=60)
+                if _res and _res[3] == 0 and total_new > 0:
+                    log(f"确认留言=0，清理误采集评论")
+                    _deleted = delete_comments(article_url)
+                    log(f"已删除误采集评论 {_deleted} 条")
+            except Exception:
+                pass
         log(f"评论采集结束: 共写入{total_new}条评论")
+
+    def _ocr_name_levels(self, shot_img):
+        """OCR识别名称行(含时间'7月13日'或'作者'标签), 返回层级序列[1,2,1,...]
+        x缩进>15px=二级; 无名称行返回[]"""
+        try:
+            items = ocr_img(shot_img)
+        except Exception:
+            return []
+        name_rows = []
+        for cx, cy, text, score, sbox, brightness in items:
+            if re.search(r"\d+月\d+日", text) or "作者" in text:
+                x0 = min(p[0] for p in sbox)
+                y0 = min(p[1] for p in sbox)
+                name_rows.append((y0, x0, text))
+        if not name_rows:
+            return []
+        name_rows.sort()
+        min_x = min(r[1] for r in name_rows)
+        return [2 if (r[1] - min_x) > 15 else 1 for r in name_rows]
 
     def _expand_replies(self, shot_img, rbox, pts):
         """OCR识别评论区截图中的"回复"字样(灰色), 依次点击展开二级评论"""
+        log("评论采集: OCR检查'回复'按钮...")
         # OCR识别当前截图
         try:
             items = ocr_img(shot_img)
@@ -1883,6 +1947,7 @@ class App:
                 except Exception:
                     continue
         if not reply_btns:
+            log("评论采集: 未发现'回复'按钮")
             return
         log(f"发现{len(reply_btns)}个回复按钮，依次点击展开")
         for x, y, txt in reply_btns:
@@ -1894,10 +1959,10 @@ class App:
 
     def _capture_interact_shot(self, pts):
         """采集4指标：截图底部互动栏(点位13/14) -> base64
-        开启评论采集时: 同步识图拿评论数, 评论数>0则点击评论按钮(点位21)
-        返回 (shot_b64, sync_res); sync_res=(点赞,转发,喜欢,留言) 或 None"""
+        提交豆包识别为异步future(不等待), 评论采集可提前进行
+        返回 (shot_b64, interact_future); future结果=(点赞,转发,喜欢,留言) 或 None"""
         shot_b64 = None
-        sync_res = None
+        interact_future = None
         if self.capture_4metrics_var.get():
             rbox = self._sub_region(pts, 13, 14)
             if rbox:
@@ -1906,29 +1971,13 @@ class App:
                     log(f"底部互动栏截图完成 (base64 {len(shot_b64) if shot_b64 else 0} B)")
                 except Exception as e:
                     log(f"互动栏截图失败: {e}")
-        # 评论采集: 需同步识别4指标拿评论数(评论为0则无采集必要)
-        if self.capture_comments_var.get() and shot_b64:
-            _key = self.doubao_key_var.get()
+        if shot_b64:
+            _key = (self.doubao_key_var.get() or "").strip()
             if _key:
-                _res = doubao_recognize_interact(shot_b64, _key)
-                if _res:
-                    sync_res = _res
-                    _l, _f, _fav, _c = _res
-                    log(f"评论采集-同步识图: 点赞[{_l}] 转发[{_f}] 喜欢[{_fav}] 留言[{_c}]")
-                    if _c > 0:
-                        p21 = pts.get(21)
-                        if p21:
-                            log(f"评论数[{_c}]>0，点击评论按钮(点位21)")
-                            mouse_click(int(p21[2]), int(p21[3]))
-                            # 评论区加载稳定检测(截图点位22/23, 连续30次无变化)
-                            self._wait_comment_stable(pts)
-                        else:
-                            log("缺少点位21(评论按钮)，无法采集评论")
-                    else:
-                        log(f"评论数[{_c}]=0，无需采集评论")
-                else:
-                    log("评论采集: 4指标识图失败，无法获知评论数")
-        return shot_b64, sync_res
+                import concurrent.futures as _cf
+                interact_future = self._fetch_executor.submit(
+                    doubao_recognize_interact, shot_b64, _key)
+        return shot_b64, interact_future
 
     def _capture_read_count(self, pts, link):
         """采集阅读数：滚动到底 → Ctrl+W关闭 → 点位17搜索 → 输入链接 → 回车 → 截图(点位15/16)
@@ -2071,22 +2120,41 @@ class App:
         self.collected_links.append(link)
         log(f"已复制文章链接: {link}")
         # 采集4指标截图(评论采集开启时同步识图, 其余后台执行)
-        shot_b64, sync_res = self._capture_interact_shot(pts)
-        # 评论采集时同步识别结果直接使用, 否则保持-1由后台识别
+        shot_b64, interact_future = self._capture_interact_shot(pts)
+        # 乐观并发: 不等待4指标结果, 提前点击点位21并开始评论采集
+        _m1 = self._parse_int(self.max_l1_var.get())
+        if _m1 is None or _m1 > 0:
+            p21 = pts.get(21)
+            if p21:
+                log("乐观: 提前点击评论按钮(点位21)，4指标识别后台进行中")
+                mouse_click(int(p21[2]), int(p21[3]))
+                # 立即移开鼠标到点位23, 避免遮挡评论区
+                _p23m = pts.get(23)
+                if _p23m:
+                    mouse_move(int(_p23m[2]), int(_p23m[3]))
+                self._wait_comment_stable(pts)
+                try:
+                    self._collect_comments(pts, link, interact_future)
+                except Exception as e:
+                    log(f"评论采集异常: {e}")
+            else:
+                log("缺少点位21(评论按钮)，无法采集评论")
+        # 只有评论采集开启时才等4指标结果(留言判断已在采集内处理, 等待通常秒级);
+        # 不采集评论时不等待, 互动数据由后台抓取异步识别
         forwards = favorites = comments = -1   # 转发/喜欢/留言 默认-1(未识别)
-        if sync_res:
-            likes, forwards, favorites, comments = sync_res
+        if (_m1 is None or _m1 > 0) and interact_future is not None:
+            try:
+                sync_res = interact_future.result(timeout=90)
+                if sync_res:
+                    likes, forwards, favorites, comments = sync_res
+                    log(f"4指标识别: 点赞[{likes}] 转发[{forwards}] 喜欢[{favorites}] 留言[{comments}]")
+            except Exception as e:
+                log(f"4指标识别等待异常: {e}")
         # 采集阅读数: 仅当时间点位未提取到阅读数(reads==-1)时执行
         read_shot_b64 = None
         if self.capture_read_var.get() and reads == -1:
             log("时间点位未提取到阅读数，执行采集阅读数流程")
             read_shot_b64 = self._capture_read_count(pts, link)
-        # 评论采集(评论区打开 + 循环提取, 在文章关闭前同步执行)
-        if self.capture_comments_var.get() and comments > 0:
-            try:
-                self._collect_comments(pts, link, comments)
-            except Exception as e:
-                log(f"评论采集异常: {e}")
         # 后台抓取文章(标题/时间/HTML + 互动数据), 不等待直接返回
         self._spawn_fetch(link, name, shot_b64, read_shot_b64,
                           click_time, reads, likes, forwards, favorites, comments)

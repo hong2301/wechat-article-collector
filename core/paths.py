@@ -24,7 +24,7 @@ COLLECTED_HEADER = ["公众号名称", "日期", "标题", "链接", "阅读", "
 POINTS_CSV = "points.csv"
 CUSTOM = "custom"
 
-LOG_FILE = os.path.join(CONFIG_DIR, "log.txt")
+LOG_FILE = os.path.join(DATA_DIR, "log.txt")   # 日志放 data 文件夹
 
 
 def _script_root():

@@ -184,6 +184,37 @@ def append_comments(article_url, comment_list):
         return 0
 
 
+def delete_comments(article_url):
+    """删除 data/comments.csv 中某文章链接的所有评论(误采集清理用)
+    返回: 删除条数"""
+    if not article_url:
+        return 0
+    path = os.path.join(_data_dir(), COMMENTS_CSV)
+    if not os.path.isfile(path):
+        return 0
+    try:
+        with _log_lock:
+            with open(path, encoding="utf-8-sig", newline="") as f:
+                rows = list(csv.reader(f))
+            if len(rows) < 2:
+                return 0
+            keep = [rows[0]]
+            deleted = 0
+            url = article_url.strip()
+            for r in rows[1:]:
+                if len(r) > 0 and r[0].strip() == url:
+                    deleted += 1
+                else:
+                    keep.append(r)
+            if deleted:
+                with open(path, "w", encoding="utf-8-sig", newline="") as f:
+                    csv.writer(f).writerows(keep)
+            return deleted
+    except Exception as e:
+        log(f"删除评论失败: {e}")
+        return 0
+
+
 # ================= 数据层（points.csv） =================
 
 def append_collected(gzh, pub_time, title, link,
@@ -324,5 +355,7 @@ def time_range_desc(radio, cstart, cend):
 
 
 __all__ = ["load_raw_input_rows", "load_input_rows", "write_input_csv",
-           "update_input_status", "append_collected", "load_points", "write_points",
+           "update_input_status", "append_collected", "append_comments",
+           "delete_comments",
+           "load_points", "write_points",
            "load_ui_state", "save_ui_state", "parse_date", "time_range_desc"]

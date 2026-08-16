@@ -528,6 +528,11 @@ def snap_wechat_left(hwnd):
 
 
 # ================= 模拟输入（SendInput / mouse_event，参考旧项目） =================
+def mouse_move(x, y):
+    """仅移动鼠标到 (x,y)，不点击"""
+    _u32().SetCursorPos(int(x), int(y))
+
+
 def mouse_click(x, y):
     """移动鼠标到 (x,y) 并左键单击，点击后统一等待 0.3 秒"""
     u32 = _u32()
