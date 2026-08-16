@@ -403,6 +403,12 @@ class App:
         self.esc.on_block = self._queue_lock_hint
         self.mouse_lock.on_block = self._queue_lock_hint
         self.ui_queue = queue.Queue()   # 子线程 -> 主线程 UI 消息队列
+        # 采集运行时状态(统一初始化, 避免各处 hasattr/getattr 防御)
+        self._fetch_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="fetch")
+        self._pending_futures = []
+        self.collected_links = []
+        self.collected_count = 0
+        self._time_out_count = 0
 
         self._build_ui()
         self.reload_input()
@@ -1332,7 +1338,7 @@ class App:
     def _check_fetch_results(self):
         """检查后台抓取线程结果，处理写入记录和时间范围检测
         返回 True 表示需要停止（达到停止条件）"""
-        if not hasattr(self, "_pending_futures") or not self._pending_futures:
+        if not self._pending_futures:
             return False
         stop_needed = False
         finished = []
@@ -1363,14 +1369,14 @@ class App:
                 elif rec == "error":
                     log("采集记录写入失败")
                 # 记录一次文章获取成功
-                self.collected_count = getattr(self, "collected_count", 0) + 1
+                self.collected_count += 1
                 # 时间范围检测（延后判定）
                 if pub_time and getattr(self, "time_range_dates", None):
                     try:
                         d = date.fromisoformat(pub_time[:10])
                         start_d, end_d = self.time_range_dates
                         if d < start_d or d > end_d:
-                            self._time_out_count = getattr(self, "_time_out_count", 0) + 1
+                            self._time_out_count += 1
                             if self._time_out_count > 2:
                                 log(f"文章时间 {pub_time} 不在范围内({start_d}~{end_d})，已超2篇容错")
                                 stop_needed = True
@@ -1392,7 +1398,7 @@ class App:
 
     def _wait_all_fetches(self):
         """等待所有后台抓取线程完成"""
-        if not hasattr(self, "_pending_futures"):
+        if not self._pending_futures:
             return
         log(f"等待 {len(self._pending_futures)} 个后台抓取任务完成...")
         for future, link, name in self._pending_futures:
@@ -1433,7 +1439,7 @@ class App:
         box = (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
         # 滚动距离：优先用界面配置，无配置则默认屏幕高度 70%
         try:
-            scroll_px = int(float(getattr(self, "scroll_px_var").get()))
+            scroll_px = int(float(self.scroll_px_var.get()))
         except (AttributeError, ValueError):
             scroll_px = int(_u32().GetSystemMetrics(SM_CYSCREEN) * 0.7)
         if scroll_px <= 0:
@@ -1547,7 +1553,7 @@ class App:
             log("等待 1 秒列表刷新...")
             self._sleep(1)
         # 汇总本次任务收集的文章链接
-        if getattr(self, "collected_links", None):
+        if self.collected_links:
             log(f"本任务共收集 {len(self.collected_links)} 个文章链接:")
             for n, link in enumerate(self.collected_links, 1):
                 log(f"  [{n}] {link}")
@@ -1601,8 +1607,7 @@ class App:
             read_shot_b64 = None
             forwards = favorites = comments = -1   # 转发/喜欢/留言 默认-1(未识别)
             # 点击"复制链接"后：截图底部互动栏区域(点位13/14) -> base64
-            capture_4m = getattr(self, "capture_4metrics_var", None)
-            if p13 and p14 and capture_4m and capture_4m.get():
+            if p13 and p14 and self.capture_4metrics_var.get():
                 try:
                     rbox = self._sub_region(pts, 13, 14)
                     if rbox:
@@ -1626,8 +1631,6 @@ class App:
             log("错误: 3次尝试复制链接均失败，任务失败")
             self.last_error = "复制链接失败(3次)"
             return False
-        if not hasattr(self, "collected_links"):
-            self.collected_links = []
         self.collected_links.append(link)
         log(f"已复制文章链接: {link}")
         # ---- 异步抓取文章：标题/时间 + 保存 HTML（后台执行，不阻塞主流程） ----
@@ -1637,8 +1640,7 @@ class App:
             返回统一 dict：title/pub_time/save_path/error + 互动数据"""
             # 后台：豆包识图识别互动栏（若截图成功，异步执行不阻塞采集）
             if shot_b64:
-                _k = getattr(self, "doubao_key_var", None)
-                _key = _k.get() if _k else ""
+                _key = self.doubao_key_var.get()
                 if _key:
                     _res = doubao_recognize_interact(shot_b64, _key)
                     if _res:
@@ -1684,9 +1686,8 @@ class App:
                        shot=shot_b64, read_shot=read_shot_b64)
         # 提交到线程池异步执行
         # ---- 采集阅读数：滚动到底 → Ctrl+W关闭 → 搜索链接 → 输入回车 ----
-        capture_r = getattr(self, "capture_read_var", None)
         # 仅当时间点位未提取到阅读数(reads==-1)时, 才执行采集阅读数流程
-        if capture_r and capture_r.get() and reads == -1:
+        if self.capture_read_var.get() and reads == -1:
             log(f"时间点位已提取到阅读数({reads})，跳过采集阅读数流程")
             p15 = pts.get(15)
             p17 = pts.get(17)
@@ -1787,6 +1788,10 @@ class App:
     # ---------- 关闭 ----------
     def on_exit(self):
         self._save_state()
+        try:
+            self._fetch_executor.shutdown(wait=False)   # 停止后台抓取线程池
+        except Exception:
+            pass
         show_taskbar()              # 恢复任务栏
         log(f"退出（设置已记忆 -> {UI_STATE_FILE}）")
         self.root.destroy()
