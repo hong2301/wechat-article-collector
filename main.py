@@ -593,6 +593,20 @@ class App:
                                          font=("Microsoft YaHei UI", 9),
                                          command=self.on_scroll_test)
         self.btn_scroll_test.pack(side=tk.LEFT, padx=4)
+        # 评论区滚动距离 + 测试滚动
+        tk.Label(scroll_bar, text="评论区滚动:",
+                 font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(14, 0))
+        self.comment_scroll_px_var = tk.StringVar(
+            value=str(self.ui.get("comment_scroll_px", 300)))
+        tk.Spinbox(scroll_bar, from_=0, to=5000, increment=50,
+                   textvariable=self.comment_scroll_px_var, width=5,
+                   font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(3, 0))
+        tk.Label(scroll_bar, text="px",
+                 font=("Microsoft YaHei UI", 8), fg="#888888").pack(side=tk.LEFT, padx=1)
+        self.btn_comment_scroll_test = tk.Button(scroll_bar, text="测试滚动", width=8,
+                                                 font=("Microsoft YaHei UI", 9),
+                                                 command=self.on_comment_scroll_test)
+        self.btn_comment_scroll_test.pack(side=tk.LEFT, padx=4)
         btn_bar = tk.Frame(ctrl)
         btn_bar.pack(fill=tk.X, padx=10, pady=(4, 6))
         self.btn_points = tk.Button(btn_bar, text="点位设置", width=10,
@@ -654,6 +668,9 @@ class App:
         vsb = ttk.Scrollbar(task, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=vsb.set)
         vsb.pack(side=tk.RIGHT, fill=tk.Y)
+        hsb = ttk.Scrollbar(task, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(xscrollcommand=hsb.set)
+        hsb.pack(side=tk.BOTTOM, fill=tk.X)
         self.tree.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
 
         # 双击编辑 / 单击操作列删除
@@ -681,7 +698,8 @@ class App:
 
         # 设置记忆：任何变更自动保存
         for v in (self.idx_start_var, self.idx_end_var, self.time_var,
-                  self.max_count_var, self.scroll_px_var):
+                  self.max_count_var, self.scroll_px_var, self.comment_scroll_px_var,
+                  self.capture_comments_var, self.capture_reply_var, self.max_comments_var):
             v.trace_add("write", lambda *a: self._save_state())
 
         # 时间范围变更时启用/禁用自定义日期行
@@ -870,6 +888,21 @@ class App:
         except Exception:
             pass
 
+    def on_comment_scroll_test(self):
+        """测试评论区滚动：鼠标移到点位23, 按配置距离向下滚动"""
+        pts = {p[0]: p for p in load_points()}
+        p23 = pts.get(23)
+        if not p23:
+            log("错误: 缺少点位23，无法测试评论区滚动")
+            return
+        try:
+            px = int(float(self.comment_scroll_px_var.get()))
+        except ValueError:
+            log("评论区滚动距离格式错误，请输入数字")
+            return
+        log(f"测试评论区滚动: 鼠标移到点位23({p23[2]},{p23[3]}) 向下滚动 {px}px")
+        scroll_down_at(int(p23[2]), int(p23[3]), px)
+
     def on_scroll_test(self):
         """测试滚动：鼠标移到点位7，按配置的滚动距离向下滚动（人工已打开文章列表时用）"""
         pts = {p[0]: p for p in load_points()}
@@ -985,6 +1018,7 @@ class App:
             "time_range": self.time_var.get(),
             "max_count": self.max_count_var.get(),
             "scroll_px": self.scroll_px_var.get(),
+            "comment_scroll_px": self.comment_scroll_px_var.get(),
             "window_split": self.window_split_var.get(),
             "capture_read": self.capture_read_var.get(),
             "capture_4metrics": self.capture_4metrics_var.get(),
@@ -1355,8 +1389,8 @@ class App:
                 ax1, ay1 = int(p19[2]), int(p19[3])
                 ax2, ay2 = int(p20[2]), int(p20[3])
                 log("连续点击作者名称并识别区域 ...")
-                _deadline = time.time() + 5
-                _saw_content = False
+                _deadline = time.time() + 8   # 总超时8秒
+                _saw_name = False
                 while time.time() < _deadline:
                     self._check_stop()
                     from PIL import ImageGrab as _G
@@ -1364,12 +1398,12 @@ class App:
                     _a_img = _G.grab(bbox=(min(ax1, ax2), min(ay1, ay2), max(ax1, ax2), max(ay1, ay2)))
                     _has, _dark = _region_has_content(_a_img)
                     if _has:
-                        if not _saw_content:
-                            log(f"作者名称已出现(暗像素={_dark})，继续点击确认进入下一页")
-                        _saw_content = True
-                    elif _saw_content:
-                        # 见过作者名称后变全白 = 点击成功进入下一页
-                        log("作者名称已点击，已进入下一页(区域转全白)")
+                        if not _saw_name:
+                            _saw_name = True
+                            log(f"作者名称已出现(暗像素={_dark})，点击后等待区域转全白进入下一页")
+                    elif _saw_name:
+                        # 严格状态机: 作者名称出现后转全白 = 点击成功进入下一页
+                        log("作者名称已点击，区域转全白(进入下一页)")
                         _loaded = True
                         self._sleep(0.5)
                         break
@@ -1723,6 +1757,10 @@ class App:
                             log(f"评论数[{_c}]>0，点击评论按钮(点位21)")
                             mouse_click(int(p21[2]), int(p21[3]))
                             self._sleep(0.5)
+                        else:
+                            log("缺少点位21(评论按钮)，无法采集评论")
+                    else:
+                        log(f"评论数[{_c}]=0，无需采集评论")
                 else:
                     log("评论采集: 4指标识图失败，无法获知评论数")
         return shot_b64, sync_res
