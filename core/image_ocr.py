@@ -78,7 +78,8 @@ def ocr_region(box):
     buf = _io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
-    result, _ = engine(buf.read())
+    with _ocr_lock:   # onnxruntime Session 非线程安全, 推理加锁防并发
+        result, _ = engine(buf.read())
     ox, oy = int(box[0]), int(box[1])   # 截图区域偏移
     items = []
     if result:
@@ -137,7 +138,9 @@ def ocr_img(img):
         buf = _io.BytesIO()
         img.save(buf, format="PNG")
         buf.seek(0)
-        result, _ = get_ocr_engine()(buf.read())
+        engine = get_ocr_engine()   # 先取引擎(锁内创建, 返回后释放)
+        with _ocr_lock:   # onnxruntime Session 非线程安全, 推理加锁防并发
+            result, _ = engine(buf.read())
         items = []
         if result:
             for box_pts, text, score in result:
