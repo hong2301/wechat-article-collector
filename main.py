@@ -377,6 +377,21 @@ class StopSignal(BaseException):
     继承 BaseException 而非 Exception, 避免被各处 except Exception 误捕获"""
 
 
+def _log_tag(msg):
+    """按日志内容返回控制台颜色 tag: err红/ok绿/warn橙/head蓝/默认灰
+    判定顺序: head(分隔) → warn(警告/未命中) → err(失败) → ok(成功)"""
+    m = str(msg)
+    if m.strip().startswith(("=", "-", "═", "─")):
+        return "head"
+    if any(k in m for k in ("警告", "跳过", "未识别", "未找到", "已停止", "中止", "重试")):
+        return "warn"
+    if any(k in m for k in ("错误", "失败", "异常", "Error", "error:")):
+        return "err"
+    if any(k in m for k in ("完成", "成功", "已复制", "已启动", "加载完成", "识别到 ")):
+        return "ok"
+    return "def"
+
+
 class App:
     def __init__(self, root):
         self.root = root
@@ -587,6 +602,12 @@ class App:
             font=("Microsoft YaHei UI", 10),
             relief=tk.GROOVE, borderwidth=1)
         self.text.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+        # 日志颜色分级
+        self.text.tag_configure("err", foreground="#c62828")
+        self.text.tag_configure("ok", foreground="#2e7d32")
+        self.text.tag_configure("warn", foreground="#e65100")
+        self.text.tag_configure("head", foreground="#1565c0", font=("Microsoft YaHei UI", 10, "bold"))
+        self.text.tag_configure("def", foreground="#555555")
 
         # ================= 右侧：任务区（600） =================
         right = tk.Frame(mid, width=600)
@@ -851,7 +872,7 @@ class App:
     def append_log(self, msg):
         """日志：放入队列，由主线程轮询写入控制台（子线程安全）"""
         try:
-            self.ui_queue.put(("log", msg))
+            self.ui_queue.put(("log", msg, _log_tag(msg)))
         except Exception:
             pass
 
@@ -1139,6 +1160,7 @@ class App:
         try:
             for n, (idx, url, name, st) in enumerate(todo):
                 self._check_stop()
+                log(f"════════ 任务 {n + 1}/{total} · {name} ════════")
                 log(f"【{n + 1}/{total}】[{idx}] {name}  {url[:45]}{'...' if len(url) > 45 else ''}")
                 # main 界面靠右半边屏幕（通过队列交给主线程处理）
                 self.ui_queue.put(("snap",))
@@ -1330,8 +1352,8 @@ class App:
             return False
         log(f"点击点位4({p4[2]},{p4[3]}) {p4[1]}")
         mouse_click(p4[2], p4[3])
-        # 点击作者名称后等待 0.5 秒（进入采集循环后有5次识别重试兜底）
-        self._sleep(0.5)
+        # 点击作者名称后等待 5 秒
+        self._sleep(5)
         # 8) 文章列表页：OCR 采集循环
         return self._collect_articles(pts, name)
 
