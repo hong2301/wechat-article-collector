@@ -35,7 +35,8 @@ from tkinter import messagebox, scrolledtext, ttk
 import core.utils as _utils
 from core.paths import *
 from core.utils import *
-from core.doubao_api import doubao_recognize_interact, doubao_extract_comments
+from core.doubao_api import (doubao_recognize_interact, doubao_extract_comments,
+                                DoubaoQuotaError)
 from core.image_ocr import *
 from core.datastore import *
 from core.win32util import *
@@ -409,6 +410,7 @@ class App:
         self.ui = load_ui_state()
         self.busy = False
         self.last_error = ""
+        self._quota_error = False   # 豆包无额度标志(确认后停止后续调用)
         self.esc = EscListener()
         self.mouse_lock = MouseLock()
         self.stop_event = self.esc.stop_event
@@ -1778,6 +1780,9 @@ class App:
         if not _key:
             log("评论采集: 缺少豆包API Key，跳过")
             return
+        if self._quota_error:
+            log("评论采集: 豆包无额度，跳过")
+            return
         from PIL import ImageGrab as _G
         import base64, io
 
@@ -1789,6 +1794,7 @@ class App:
         loop_n = 0
         prev_shot = None   # 上一张截图(滚动对比用)
         same_count = 0     # 连续相同截图轮数
+        seen_ids = set()   # 本次采集已识别评论ID(跨轮去重, 不读CSV)
 
         log(f"评论采集开始(一级上限={max_l1}, 每级二级={max_l2})")
 
@@ -1849,7 +1855,7 @@ class App:
                 mouse_move(int(_pm2[2]), int(_pm2[3]))
             shot2 = _G.grab(bbox=rbox)
             buf2 = io.BytesIO()
-            shot2.save(buf2, format="WEBP", lossless=True)
+            shot2.save(buf2, format="WEBP", lossless=True, method=6)
             shot2_b64 = base64.b64encode(buf2.getvalue()).decode()
 
             # ⑤ 并行执行: 豆包识图提取评论(网络) + OCR名称行层级(本地CPU)
@@ -1858,7 +1864,12 @@ class App:
             with _cf.ThreadPoolExecutor(max_workers=2) as _ex:
                 _f_doubao = _ex.submit(doubao_extract_comments, shot2_b64, _key)
                 _f_ocr = _ex.submit(self._ocr_name_levels, shot2)
-                comments = _f_doubao.result()
+                try:
+                    comments = _f_doubao.result()
+                except DoubaoQuotaError as _e:
+                    self._quota_error = True
+                    log(f"❌ 豆包API没有额度/欠费，停止评论采集: {_e}")
+                    return
                 _levels = _f_ocr.result()
             # OCR坐标覆盖层级(稳定可靠), 豆包"是否缩进"作兜底
             for _i, _c in enumerate(comments):
@@ -1866,14 +1877,27 @@ class App:
                     _c["层级"] = _levels[_i]
             log(f"评论采集第{loop_n}轮: 豆包识别{len(comments)}条, OCR校准层级{_levels}")
             if comments:
-                # ⑥ 写入评论CSV(去重+计算ID/父级)
-                wrote = append_comments(article_url, comments)
-                total_new += wrote
-                # 统计一级评论数
-                for c in comments:
-                    if c.get("层级") == 1:
-                        l1_count += 1
-                log(f"评论采集第{loop_n}轮: 写入{wrote}条新评论(累计{total_new})")
+                # ⑥ 跨轮去重: 本次采集已识别过的评论不重复写入
+                fresh = []
+                for _c in comments:
+                    _cid = calc_comment_id(
+                        _c.get("名称", ""), _c.get("地区", ""), _c.get("时间", ""),
+                        str(_c.get("点赞数量", "0")), _c.get("正文", ""), _c.get("层级", 1))
+                    if _cid in seen_ids:
+                        continue
+                    seen_ids.add(_cid)
+                    fresh.append(_c)
+                if fresh:
+                    # ⑦ 写入评论CSV(采集时间=第一次看到, 即本轮)
+                    wrote = append_comments(article_url, fresh)
+                    total_new += wrote
+                    # 统计一级评论数
+                    for c in fresh:
+                        if c.get("层级") == 1:
+                            l1_count += 1
+                    log(f"评论采集第{loop_n}轮: 写入{wrote}条新评论(累计{total_new})")
+                else:
+                    log(f"评论采集第{loop_n}轮: {len(comments)}条均为本次采集已识别过的(重复), 不写入")
 
             # ⑦ 检查数量上限
             hit_limit = False
@@ -1971,7 +1995,7 @@ class App:
                     log(f"底部互动栏截图完成 (base64 {len(shot_b64) if shot_b64 else 0} B)")
                 except Exception as e:
                     log(f"互动栏截图失败: {e}")
-        if shot_b64:
+        if shot_b64 and not self._quota_error:
             _key = (self.doubao_key_var.get() or "").strip()
             if _key:
                 import concurrent.futures as _cf
@@ -2049,10 +2073,15 @@ class App:
             """后台抓取任务：抓取标题/时间 + 保存 HTML + 互动数据
             返回统一 dict：title/pub_time/save_path/error + 互动数据"""
             # 后台：豆包识图识别互动栏（若截图成功且未同步识别, 异步执行不阻塞采集）
-            if shot_b64 and forwards == -1:
+            if shot_b64 and forwards == -1 and not self._quota_error:
                 _key = self.doubao_key_var.get()
                 if _key:
-                    _res = doubao_recognize_interact(shot_b64, _key)
+                    try:
+                        _res = doubao_recognize_interact(shot_b64, _key)
+                    except DoubaoQuotaError as _e:
+                        self._quota_error = True
+                        log(f"❌ 豆包API没有额度/欠费: {_e}")
+                        _res = None
                     if _res:
                         likes, forwards, favorites, comments = _res
                         log(f"豆包识图: 点赞[{likes}] 转发[{forwards}] 喜欢[{favorites}] 留言[{comments}]")
@@ -2148,6 +2177,9 @@ class App:
                 if sync_res:
                     likes, forwards, favorites, comments = sync_res
                     log(f"4指标识别: 点赞[{likes}] 转发[{forwards}] 喜欢[{favorites}] 留言[{comments}]")
+            except DoubaoQuotaError as _e:
+                self._quota_error = True
+                log(f"❌ 豆包API没有额度/欠费: {_e}")
             except Exception as e:
                 log(f"4指标识别等待异常: {e}")
         # 采集阅读数: 仅当时间点位未提取到阅读数(reads==-1)时执行
@@ -2173,7 +2205,7 @@ class App:
             log(f"已停止（完成 {done_n}/{total}）")
         else:
             self._set_progress(f"进度: 完成（{done_n}/{total}）", 100)
-            log(f"完成: {done_n}/{total} 个（框架阶段为模拟，待接入真实采集流程）")
+            log(f"完成: {done_n}/{total} 个")
 
     def _set_progress(self, text, value=None):
         """进度更新：放入队列，主线程处理（子线程安全）"""

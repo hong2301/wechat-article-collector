@@ -14,7 +14,7 @@ DATA_DIR = "data"
 COLLECTED_CSV = "collected.csv"
 COMMENTS_CSV = "comments.csv"
 COMMENTS_HEADER = [
-    "文章链接", "名称", "地区", "时间", "点赞数量", "正文", "层级",
+    "采集时间", "文章链接", "名称", "地区", "时间", "点赞数量", "正文", "层级",
     "是否置顶", "是否作者回复", "是否作者点赞",
     "评论ID", "父级评论ID", "回复数量",
 ]

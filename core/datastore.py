@@ -75,6 +75,13 @@ def update_input_status(idx, status):
 
 # ================= 数据层（comments.csv 评论） =================
 
+def calc_comment_id(name, loc, t, likes, text, level):
+    """计算评论ID: 名称|地区|时间|点赞|正文|层级 -> md5 前16位"""
+    import hashlib
+    raw = f"{name}|{loc}|{t}|{likes}|{text}|{level}"
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()[:16]
+
+
 def append_comments(article_url, comment_list):
     """写入评论到 data/comments.csv
     comment_list: [{"名称","地区","时间","点赞数量","正文","层级(1/2)",
@@ -87,20 +94,9 @@ def append_comments(article_url, comment_list):
     try:
         with _log_lock:
             os.makedirs(_data_dir(), exist_ok=True)
-            # 读已有评论(去重用)
-            existing = []
-            if os.path.isfile(path):
-                with open(path, encoding="utf-8-sig", newline="") as f:
-                    for row in csv.DictReader(f):
-                        existing.append(row.get("评论ID", ""))
+            collect_time = time.strftime("%Y-%m-%d %H:%M:%S")   # 采集时间(精确到秒)
 
-            # ---- 计算评论ID ----
-            def _cid(name, loc, t, likes, text, level):
-                raw = f"{name}|{loc}|{t}|{likes}|{text}|{level}"
-                import hashlib
-                return hashlib.md5(raw.encode("utf-8")).hexdigest()[:16]
-
-            # ---- 计算父级评论ID ----
+            # ---- 计算评论ID / 父级评论ID ----
             l1_id = ""       # 当前所属一级评论ID
             id_map = {}      # 名称 -> 评论ID(用于二级"回复某某"找父级)
             for c in comment_list:
@@ -115,7 +111,7 @@ def append_comments(article_url, comment_list):
                 author_like = c.get("是否作者点赞", "否")
                 reply_text = c.get("回复文本", "")
 
-                cid = _cid(name, loc, t, likes, text, level)
+                cid = calc_comment_id(name, loc, t, likes, text, level)
                 c["评论ID"] = cid
                 id_map[name] = cid
 
@@ -144,13 +140,15 @@ def append_comments(article_url, comment_list):
             for c in comment_list:
                 c["回复数量"] = str(reply_count_map.get(c["评论ID"], 0))
 
-            # ---- 去重 + 写入 ----
-            new_count = 0
+            # ---- 写入(批次内去重: 同一次识别中相同评论只写一次; 不读取CSV历史) ----
             rows_to_write = []
+            _seen = set()
             for c in comment_list:
-                if c["评论ID"] in existing:
+                if c["评论ID"] in _seen:
                     continue
+                _seen.add(c["评论ID"])
                 rows_to_write.append({
+                    "采集时间": collect_time,
                     "文章链接": article_url,
                     "名称": c.get("名称", ""),
                     "地区": c.get("地区", ""),
@@ -165,11 +163,6 @@ def append_comments(article_url, comment_list):
                     "父级评论ID": c.get("父级评论ID", ""),
                     "回复数量": c.get("回复数量", "0"),
                 })
-                existing.append(c["评论ID"])
-                new_count += 1
-
-            if not rows_to_write:
-                return 0
 
             write_header = not os.path.isfile(path) or os.path.getsize(path) == 0
             with open(path, "a", encoding="utf-8-sig", newline="") as f:
@@ -178,7 +171,7 @@ def append_comments(article_url, comment_list):
                     w.writeheader()
                 for row in rows_to_write:
                     w.writerow(row)
-            return new_count
+            return len(rows_to_write)
     except Exception as e:
         log(f"写入评论CSV失败: {e}")
         return 0
@@ -356,6 +349,6 @@ def time_range_desc(radio, cstart, cend):
 
 __all__ = ["load_raw_input_rows", "load_input_rows", "write_input_csv",
            "update_input_status", "append_collected", "append_comments",
-           "delete_comments",
+           "calc_comment_id", "delete_comments",
            "load_points", "write_points",
            "load_ui_state", "save_ui_state", "parse_date", "time_range_desc"]

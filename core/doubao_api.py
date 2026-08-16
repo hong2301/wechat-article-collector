@@ -7,6 +7,27 @@ import re
 DOUBAO_URL = "https://ark.cn-beijing.volces.com/api/v3/responses"
 DOUBAO_MODEL = "doubao-seed-2-0-mini-260428"
 
+QUOTA_ERROR_CODES = ("overdue", "quota", "balance", "arrears", "insufficient",
+                     "额度", "余额", "欠费")
+
+
+class DoubaoQuotaError(Exception):
+    """豆包API余额不足/欠费(账号无额度)"""
+
+
+def _raise_if_quota_error(resp):
+    """响应指示无额度(403 + 欠费/余额错误码)时抛 DoubaoQuotaError"""
+    try:
+        data = resp.json()
+        err = data.get("error") or {}
+        code = str(err.get("code") or "")
+        msg = str(err.get("message") or "")
+        low = (code + " " + msg).lower()
+    except Exception:
+        return
+    if resp.status_code == 403 and any(k in low for k in QUOTA_ERROR_CODES):
+        raise DoubaoQuotaError(f"豆包API没有额度/欠费(code={code}): {msg}")
+
 DOUBAO_PROMPT = (
     "这是一张微信公众号文章底部的互动栏截图，从左到右可能依次有：点赞(大拇指图标)、"
     "转发(箭头图标)、喜欢(爱心图标)、留言(气泡图标+文字)。"
@@ -56,6 +77,7 @@ def doubao_recognize_interact(shot_b64, api_key, timeout=30):
                    "Content-Type": "application/json"}
         resp = requests.post(DOUBAO_URL, headers=headers, json=payload, timeout=timeout)
         if resp.status_code != 200:
+            _raise_if_quota_error(resp)
             return None
         data = resp.json()
         text = ""
@@ -66,6 +88,8 @@ def doubao_recognize_interact(shot_b64, api_key, timeout=30):
         if not text.strip():
             return None
         return _parse_interact_text(text)
+    except DoubaoQuotaError:
+        raise    # 无额度错误必须透传
     except Exception:
         return None
 
@@ -133,7 +157,7 @@ def doubao_extract_comments(shot_b64, api_key, timeout=30):
                    "Content-Type": "application/json"}
         resp = requests.post(DOUBAO_URL, headers=headers, json=payload, timeout=timeout)
         if resp.status_code != 200:
-            log(f"豆包评论识别HTTP {resp.status_code}")
+            _raise_if_quota_error(resp)
             return []
         data = resp.json()
         text = ""
@@ -177,11 +201,12 @@ def doubao_extract_comments(shot_b64, api_key, timeout=30):
                 "回复文本": (item.get("回复文本") or "").strip(),
             })
         return cleaned
-    except Exception as e:
-        log(f"豆包评论识别异常: {e}")
+    except DoubaoQuotaError:
+        raise    # 无额度错误必须透传
+    except Exception:
         return []
 
 
 __all__ = ["DOUBAO_URL", "DOUBAO_MODEL", "DOUBAO_PROMPT",
            "_parse_interact_text", "doubao_recognize_interact",
-           "COMMENTS_PROMPT", "doubao_extract_comments"]
+           "COMMENTS_PROMPT", "doubao_extract_comments", "DoubaoQuotaError"]
