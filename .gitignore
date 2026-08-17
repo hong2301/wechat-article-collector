@@ -17,9 +17,14 @@ config/log.txt
 
 # 采集结果
 下载/
+data/
 
 # PyInstaller 产物
 build/
 dist/
 release/
 *.zip
+
+# 打包脚本与配置(本地使用, 不上传)
+打包.bat
+*.spec
