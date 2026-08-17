@@ -444,6 +444,7 @@ class App:
         self.busy = False
         self.last_error = ""
         self._quota_error = False   # 豆包无额度标志(确认后停止后续调用)
+        self._abort_all = False     # 停止全部任务标志(豆包无额度等致命错误)
         self.esc = EscListener()
         self.mouse_lock = MouseLock()
         self.stop_event = self.esc.stop_event
@@ -1253,6 +1254,9 @@ class App:
         try:
             for n, (idx, url, name, st, _rm) in enumerate(todo):
                 self._check_stop()
+                if self._abort_all:
+                    log("检测到中止标志，停止剩余任务")
+                    break
                 log(f"════════ 任务 {n + 1}/{total} · {name} ════════")
                 log(f"【{n + 1}/{total}】[{idx}] {name}  {url[:45]}{'...' if len(url) > 45 else ''}")
                 # main 界面靠右半边屏幕（通过队列交给主线程处理）
@@ -2188,8 +2192,13 @@ class App:
         # 乐观并发: 不等待4指标结果, 提前点击点位21并开始评论采集
         _m1 = self._parse_int(self.max_l1_var.get())
         if _m1 is None or _m1 > 0:
-            if self._quota_error and idx is not None:
-                update_input_remark(idx, "评论采集:豆包无额度,评论未采集")
+            if self._quota_error:
+                if idx is not None:
+                    update_input_remark(idx, "评论采集:豆包无额度,评论未采集")
+                self.last_error = "豆包无额度(评论采集)"
+                self._abort_all = True
+                log("评论采集: 豆包无额度，标记任务错误并停止全部任务")
+                return False
             p21 = pts.get(21)
             if p21:
                 log("乐观: 提前点击评论按钮(点位21)，4指标识别后台进行中")
@@ -2205,10 +2214,13 @@ class App:
                 except Exception as e:
                     log(f"评论采集异常: {e}")
                 if not _q_before and self._quota_error:
-                    # 评论采集中途确认豆包无额度 -> 记录错误备注
+                    # 评论采集中途确认豆包无额度 -> 任务error + 停止全部
                     if idx is not None:
                         update_input_remark(idx, "评论采集失败:豆包无额度,评论未采集")
-                    log("评论采集: 豆包无额度，记录备注并结束评论采集")
+                    self.last_error = "豆包无额度(评论采集)"
+                    self._abort_all = True
+                    log("评论采集失败: 豆包无额度，标记任务错误并停止全部任务")
+                    return False
             else:
                 log("缺少点位21(评论按钮)，无法采集评论")
         # 只有评论采集开启时才等4指标结果(留言判断已在采集内处理, 等待通常秒级);
