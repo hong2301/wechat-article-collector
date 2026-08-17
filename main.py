@@ -444,7 +444,9 @@ class App:
         self.busy = False
         self.last_error = ""
         self._quota_error = False   # 豆包无额度标志(确认后停止后续调用)
-        self._abort_all = False     # 停止全部任务标志(豆包无额度等致命错误)
+        self._abort_all = False     # 停止全部任务标志(评论采集致命错误)
+        self._api_fail_streak = 0   # 豆包连续失败计数
+        self._api_disabled = False  # 豆包连续失败3次后本批次禁用
         self.esc = EscListener()
         self.mouse_lock = MouseLock()
         self.stop_event = self.esc.stop_event
@@ -1251,6 +1253,9 @@ class App:
         """采集线程：遍历任务，每个任务执行点位操作流程"""
         total = len(todo)
         done_n = 0
+        # 本批次开始: 重置豆包失败计数
+        self._api_fail_streak = 0
+        self._api_disabled = False
         try:
             for n, (idx, url, name, st, _rm) in enumerate(todo):
                 self._check_stop()
@@ -1769,6 +1774,20 @@ class App:
                 self._sleep(0.5)
         return link
 
+    def _api_fail(self):
+        """豆包调用失败: 计数+1; 返回True表示已连续失败3次(触发禁用)"""
+        self._api_fail_streak += 1
+        if self._api_fail_streak >= 3:
+            self._api_disabled = True
+            log(f"⚠️ 豆包API连续{self._api_fail_streak}次调用失败，判定短时间无法恢复，后续任务跳过豆包调用")
+            return True
+        return False
+
+    def _api_ok(self):
+        """豆包调用成功: 重置失败计数"""
+        self._api_fail_streak = 0
+        self._api_disabled = False
+
     def _parse_int(self, v):
         """评论数量解析: 空=无限(None), 0=不采集, >0=采集N条"""
         s = (v or "").strip()
@@ -1808,10 +1827,11 @@ class App:
         log("评论区稳定检测超时(50次)")
         return False
 
-    def _collect_comments(self, pts, article_url, interact_future=None):
+    def _collect_comments(self, pts, article_url, interact_future=None, idx=None):
         """评论采集循环: 截图→OCR回复→点击展开→豆包识别→写CSV→滚动
         连续3次截图相同(到底)或达到数量上限停止
-        interact_future: 4指标异步识别结果, 确认留言=0时立即停止并清理已写入评论"""
+        interact_future: 4指标异步识别结果, 确认留言=0时立即停止并清理已写入评论
+        豆包失败: 单次记录错误备注(任务继续); 连续3次 -> 错误+停止全部任务"""
         try:
             _key = (self.ui.get("doubao_api_key") or "").strip()
         except Exception:
@@ -1820,7 +1840,14 @@ class App:
             log("评论采集: 缺少豆包API Key，跳过")
             return
         if self._quota_error:
+            if idx is not None:
+                update_input_remark(idx, "评论采集失败:豆包无额度,评论未采集")
             log("评论采集: 豆包无额度，跳过")
+            return
+        if self._api_disabled:
+            if idx is not None:
+                update_input_remark(idx, "评论采集失败:豆包API连续失败暂不可用,评论未采集")
+            log("评论采集: 豆包API已禁用(连续失败)，跳过")
             return
         from PIL import ImageGrab as _G
         import base64, io
@@ -1907,7 +1934,28 @@ class App:
                     comments = _f_doubao.result()
                 except DoubaoQuotaError as _e:
                     self._quota_error = True
+                    if idx is not None:
+                        update_input_remark(idx, "评论采集失败:豆包无额度,评论未采集")
+                    if self._api_fail():
+                        self.last_error = "豆包API连续失败(评论采集)"
+                        self._abort_all = True
+                        if idx is not None:
+                            update_input_remark(idx, "豆包API连续失败,评论采集终止")
                     log(f"❌ 豆包API没有额度/欠费，停止评论采集: {_e}")
+                    return
+                except Exception as _e:
+                    # 豆包调用异常(非额度): 普通失败 -> 记错误备注, 结束本任务评论采集
+                    if idx is not None:
+                        update_input_remark(idx, "评论采集失败:豆包调用异常")
+                    if self._api_fail():
+                        # 连续3次失败 -> 错误 + 停止全部
+                        self.last_error = "豆包API连续失败(评论采集)"
+                        self._abort_all = True
+                        if idx is not None:
+                            update_input_remark(idx, "豆包API连续失败,评论采集终止")
+                        log(f"评论采集: 豆包连续失败, 标记错误并停止全部任务: {_e}")
+                        return
+                    log(f"评论采集: 豆包调用失败(普通), 评论未采集, 任务继续: {_e}")
                     return
                 _levels = _f_ocr.result()
             # OCR坐标覆盖层级(稳定可靠), 豆包"是否缩进"作兜底
@@ -2034,7 +2082,7 @@ class App:
                     log(f"底部互动栏截图完成 (base64 {len(shot_b64) if shot_b64 else 0} B)")
                 except Exception as e:
                     log(f"互动栏截图失败: {e}")
-        if shot_b64 and not self._quota_error:
+        if shot_b64 and not self._quota_error and not self._api_disabled:
             _key = (self.doubao_key_var.get() or "").strip()
             if _key:
                 import concurrent.futures as _cf
@@ -2112,20 +2160,23 @@ class App:
             """后台抓取任务：抓取标题/时间 + 保存 HTML + 互动数据
             返回统一 dict：title/pub_time/save_path/error + 互动数据"""
             # 后台：豆包识图识别互动栏（若截图成功且未同步识别, 异步执行不阻塞采集）
-            if shot_b64 and forwards == -1 and not self._quota_error:
+            if shot_b64 and forwards == -1 and not self._quota_error and not self._api_disabled:
                 _key = self.doubao_key_var.get()
                 if _key:
                     try:
                         _res = doubao_recognize_interact(shot_b64, _key)
                     except DoubaoQuotaError as _e:
                         self._quota_error = True
+                        self._api_fail()
                         log(f"❌ 豆包API没有额度/欠费: {_e}")
                         _res = None
                     if _res:
+                        self._api_ok()
                         likes, forwards, favorites, comments = _res
                         log(f"豆包识图: 点赞[{likes}] 转发[{forwards}] 喜欢[{favorites}] 留言[{comments}]")
                     else:
-                        log("豆包识图失败，互动数据保持默认")
+                        self._api_fail()
+                        log("豆包识图失败，互动数据保持默认(截图已保存可二次处理)")
 
             def _result(error="", **kw):
                 base = {"title": "", "pub_time": "", "save_path": None, "error": error,
@@ -2195,10 +2246,11 @@ class App:
             if self._quota_error:
                 if idx is not None:
                     update_input_remark(idx, "评论采集:豆包无额度,评论未采集")
-                self.last_error = "豆包无额度(评论采集)"
-                self._abort_all = True
-                log("评论采集: 豆包无额度，标记任务错误并停止全部任务")
-                return False
+                log("评论采集: 豆包无额度,评论未采集(任务继续)")
+            if self._api_disabled:
+                if idx is not None:
+                    update_input_remark(idx, "评论采集:豆包API连续失败,评论未采集")
+                log("评论采集: 豆包API连续失败已禁用,评论未采集(任务继续)")
             p21 = pts.get(21)
             if p21:
                 log("乐观: 提前点击评论按钮(点位21)，4指标识别后台进行中")
@@ -2210,35 +2262,51 @@ class App:
                 self._wait_comment_stable(pts)
                 _q_before = self._quota_error
                 try:
-                    self._collect_comments(pts, link, interact_future)
+                    self._collect_comments(pts, link, interact_future, idx)
                 except Exception as e:
                     log(f"评论采集异常: {e}")
                 if not _q_before and self._quota_error:
-                    # 评论采集中途确认豆包无额度 -> 任务error + 停止全部
+                    # 评论采集因无额度失败: 单次 -> 记错误备注, 任务继续
+                    # (连续3次失败触发停止全部已在 _collect_comments 内处理)
                     if idx is not None:
                         update_input_remark(idx, "评论采集失败:豆包无额度,评论未采集")
-                    self.last_error = "豆包无额度(评论采集)"
-                    self._abort_all = True
-                    log("评论采集失败: 豆包无额度，标记任务错误并停止全部任务")
+                    log("评论采集: 豆包无额度,评论未采集(单次失败,任务继续)")
+                # 评论采集连续失败触发的停止全部标志
+                if self._abort_all:
                     return False
             else:
                 log("缺少点位21(评论按钮)，无法采集评论")
         # 只有评论采集开启时才等4指标结果(留言判断已在采集内处理, 等待通常秒级);
         # 不采集评论时不等待, 互动数据由后台抓取异步识别
         forwards = favorites = comments = -1   # 转发/喜欢/留言 默认-1(未识别)
-        if (_m1 is None or _m1 > 0) and interact_future is not None:
-            try:
-                sync_res = interact_future.result(timeout=90)
-                if sync_res:
-                    likes, forwards, favorites, comments = sync_res
-                    log(f"4指标识别: 点赞[{likes}] 转发[{forwards}] 喜欢[{favorites}] 留言[{comments}]")
-            except DoubaoQuotaError as _e:
-                self._quota_error = True
+        if _m1 is None or _m1 > 0:
+            if interact_future is not None:
+                try:
+                    sync_res = interact_future.result(timeout=90)
+                    if sync_res:
+                        self._api_ok()
+                        likes, forwards, favorites, comments = sync_res
+                        log(f"4指标识别: 点赞[{likes}] 转发[{forwards}] 喜欢[{favorites}] 留言[{comments}]")
+                    else:
+                        # 识别失败: 普通失败处理 -> 跳过并备注, 任务继续
+                        if idx is not None:
+                            update_input_remark(idx, "4指标识别:豆包调用失败,截图已保存待二次处理")
+                        if self._api_fail() and idx is not None:
+                            update_input_remark(idx, "豆包API连续失败,后续任务跳过豆包调用(截图仍保存)")
+                        log("4指标识别失败, 截图已保存待二次处理")
+                except DoubaoQuotaError as _e:
+                    self._quota_error = True
+                    if idx is not None:
+                        update_input_remark(idx, "4指标识别:豆包无额度,截图已保存待二次处理")
+                    self._api_fail()
+                    log(f"❌ 豆包API没有额度/欠费: {_e} (4指标截图已保存,可二次处理)")
+                except Exception as e:
+                    log(f"4指标识别等待异常: {e}")
+            elif self._api_disabled:
+                # 豆包已禁用(连续失败): 跳过识别, 截图已存, 走后续流程
                 if idx is not None:
-                    update_input_remark(idx, "4指标识别:豆包无额度,截图已保存待二次处理")
-                log(f"❌ 豆包API没有额度/欠费: {_e} (4指标截图已保存,可二次处理)")
-            except Exception as e:
-                log(f"4指标识别等待异常: {e}")
+                    update_input_remark(idx, "4指标识别:豆包API暂不可用,跳过识别(截图已保存)")
+                log("豆包API已禁用, 跳过4指标识别(截图已保存), 继续后续流程")
         # 采集阅读数: 仅当时间点位未提取到阅读数(reads==-1)时执行
         read_shot_b64 = None
         if self.capture_read_var.get() and reads == -1:
