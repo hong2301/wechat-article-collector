@@ -1424,7 +1424,7 @@ class App:
                 ax1, ay1 = int(p19[2]), int(p19[3])
                 ax2, ay2 = int(p20[2]), int(p20[3])
                 log("连续点击作者名称并识别区域 ...")
-                _deadline = time.time() + 8   # 总超时8秒
+                _deadline = time.time() + 15   # 总超时15秒
                 _saw_name = False
                 while time.time() < _deadline:
                     self._check_stop()
