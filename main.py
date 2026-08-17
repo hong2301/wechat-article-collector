@@ -575,8 +575,10 @@ class App:
                        font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT)
         self.capture_4metrics_var = tk.BooleanVar(
             value=bool(self.ui.get("capture_4metrics", False)))
-        tk.Checkbutton(row5, text="采集4指标", variable=self.capture_4metrics_var,
-                       font=("Microsoft YaHei UI", 10)).pack(side=tk.LEFT, padx=(12, 0))
+        self.capture_4metrics_chk = tk.Checkbutton(row5, text="采集4指标",
+                                                   variable=self.capture_4metrics_var,
+                                                   font=("Microsoft YaHei UI", 10))
+        self.capture_4metrics_chk.pack(side=tk.LEFT, padx=(12, 0))
 
         # 评论采集配置
         row5b = tk.Frame(ctrl)
@@ -597,6 +599,25 @@ class App:
                                       font=("Microsoft YaHei UI", 10))
         self.max_l2_var.set(_saved_l2)   # 同上
         self.max_l2_spin.pack(side=tk.LEFT, padx=(2, 0))
+
+        # 联动: 一级评论≠0(采集评论) -> 4指标强制开启(置灰不可取消)
+        #       一级评论=0(不采评论) -> 二级置灰默认0
+        def _sync_comment_ui(*_a):
+            _v1 = (self.max_l1_var.get() or "").strip()
+            if _v1 != "0":
+                # 采集评论: 4指标强制开启
+                self.capture_4metrics_var.set(True)
+                self.capture_4metrics_chk.config(state=tk.DISABLED)
+                # 一级有效: 二级可设置
+                self.max_l2_spin.config(state=tk.NORMAL)
+            else:
+                # 不采评论: 4指标恢复可自由选择
+                self.capture_4metrics_chk.config(state=tk.NORMAL)
+                # 一级=0: 二级置灰并默认0
+                self.max_l2_var.set("0")
+                self.max_l2_spin.config(state=tk.DISABLED)
+        self.max_l1_var.trace_add("write", _sync_comment_ui)
+        _sync_comment_ui()
 
 
         # 开始按钮 + 点位设置（同一栏，点位设置靠右小按钮）
