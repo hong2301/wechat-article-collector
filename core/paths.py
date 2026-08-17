@@ -4,7 +4,7 @@ import os
 import sys
 
 APP_NAME = "微信公众号OCR采集器"
-VERSION = "V3.0.0"   # V3.0.0: 完整评论采集(二级评论/层级/父级/CSV14列) + 乐观并发 + 无额度提示
+VERSION = "V3.0.1"   # V3.0.0: 完整评论采集(二级评论/层级/父级/CSV14列) + 乐观并发 + 无额度提示
 WECHAT_VERSION = "4.1.11.24"    # 依赖: 微信 PC 版版本
 
 CONFIG_DIR = "config"
