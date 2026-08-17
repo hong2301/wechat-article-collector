@@ -14,7 +14,7 @@ from .utils import log, _log_lock
 
 
 def load_raw_input_rows():
-    """读取 input.csv 所有行 -> [(idx, url, 公众号名称, 状态), ...]（含 url 为空的新增行）"""
+    """读取 input.csv 所有行 -> [(idx, url, 公众号名称, 状态, 备注), ...]（含 url 为空的新增行）"""
     rows = []
     if not os.path.isfile(_input_path()):
         return rows
@@ -27,7 +27,8 @@ def load_raw_input_rows():
             rows.append((idx,
                          (row.get("url") or "").strip(),
                          (row.get("公众号名称") or "").strip(),
-                         (row.get("状态") or "pending").strip()))
+                         (row.get("状态") or "pending").strip(),
+                         (row.get("备注") or "").strip()))
     rows.sort(key=lambda r: r[0])
     return rows
 
@@ -40,12 +41,12 @@ def load_input_rows():
 
 
 def write_input_csv(rows):
-    """把 [(idx, url, 公众号名称, 状态), ...] 整体写回 input.csv"""
+    """把 [(idx, url, 公众号名称, 状态, 备注), ...] 整体写回 input.csv"""
     with open(_input_path(), "w", encoding="utf-8-sig", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["索引", "url", "公众号名称", "状态"])
-        for idx, url, name, st in rows:
-            w.writerow([idx, url, name, st])
+        w.writerow(["索引", "url", "公众号名称", "状态", "备注"])
+        for idx, url, name, st, remark in rows:
+            w.writerow([idx, url, name, st, remark])
 
 
 
@@ -61,6 +62,9 @@ def update_input_status(idx, status):
         if "状态" not in header:
             return
         col = header.index("状态")
+        # 确保行包含所有列(新表头含备注)
+        if len(rows[0]) > 4 and "备注" in header and len(rows[0]) == len(header):
+            pass
         for r in rows[1:]:
             if len(r) > 0 and r[0].strip() == str(idx):
                 if len(r) <= col:
@@ -208,7 +212,30 @@ def delete_comments(article_url):
         return 0
 
 
-# ================= 数据层（points.csv） =================
+def update_input_remark(idx, remark):
+    """按索引列更新 input.csv 中某行的备注列(追加模式: 已有备注则追加)"""
+    path = _input_path()
+    try:
+        with open(path, encoding="utf-8-sig", newline="") as f:
+            rows = list(csv.reader(f))
+        if len(rows) < 2:
+            return
+        header = rows[0]
+        if "备注" not in header:
+            header.append("备注")
+            rows[0] = header
+        col = header.index("备注")
+        for r in rows[1:]:
+            if len(r) > 0 and r[0].strip() == str(idx):
+                if len(r) <= col:
+                    r.extend([""] * (col - len(r) + 1))
+                old = r[col].strip()
+                r[col] = (old + "; " + remark) if old else remark
+                break
+        with open(path, "w", encoding="utf-8-sig", newline="") as f:
+            csv.writer(f).writerows(rows)
+    except Exception as e:
+        log(f"更新备注失败: {e}")
 
 def append_collected(gzh, pub_time, title, link,
                    reads=-1, likes=-1, forwards=-1, favorites=-1, comments=-1,
@@ -348,7 +375,8 @@ def time_range_desc(radio, cstart, cend):
 
 
 __all__ = ["load_raw_input_rows", "load_input_rows", "write_input_csv",
-           "update_input_status", "append_collected", "append_comments",
+           "update_input_status", "update_input_remark",
+           "append_collected", "append_comments",
            "calc_comment_id", "delete_comments",
            "load_points", "write_points",
            "load_ui_state", "save_ui_state", "parse_date", "time_range_desc"]

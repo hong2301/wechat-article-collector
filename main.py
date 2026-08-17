@@ -689,18 +689,20 @@ class App:
                              font=("Microsoft YaHei UI", 10))
         task.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        # 表格：索引 | 链接 | 公众号名称 | 状态 | 操作
-        cols = ("idx", "url", "name", "status", "op")
+        # 表格：索引 | 链接 | 公众号名称 | 状态 | 备注 | 操作
+        cols = ("idx", "url", "name", "status", "remark", "op")
         self.tree = ttk.Treeview(task, columns=cols, show="headings")
         self.tree.heading("idx", text="索引")
         self.tree.heading("url", text="链接")
         self.tree.heading("name", text="公众号名称")
         self.tree.heading("status", text="状态")
+        self.tree.heading("remark", text="备注")
         self.tree.heading("op", text="操作")
         self.tree.column("idx", width=45, anchor="center", stretch=False)
-        self.tree.column("url", width=230, anchor="w", stretch=True)
-        self.tree.column("name", width=150, anchor="w", stretch=False)
-        self.tree.column("status", width=130, anchor="w", stretch=False)
+        self.tree.column("url", width=220, anchor="w", stretch=True)
+        self.tree.column("name", width=140, anchor="w", stretch=False)
+        self.tree.column("status", width=120, anchor="w", stretch=False)
+        self.tree.column("remark", width=160, anchor="w", stretch=False)
         self.tree.column("op", width=40, anchor="center", stretch=False)
         vsb = ttk.Scrollbar(task, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=vsb.set)
@@ -757,7 +759,7 @@ class App:
         """大标题同步 input 情况：有效链接数 / 待处理数"""
         try:
             total = len(self.input_rows)
-            todo = sum(1 for _, _, _, st in self.input_rows
+            todo = sum(1 for _, _, _, st, _rm in self.input_rows
                        if st in ("pending", "null") or "error" in st)
             self.status_var.set(f"有效链接 {total} 个（待处理 {todo} 个）")
         except Exception:
@@ -783,23 +785,23 @@ class App:
     def _refresh_tree(self):
         """按 rows_all 刷新表格内容"""
         self.tree.delete(*self.tree.get_children())
-        for pos, (idx, url, name, st) in enumerate(self.rows_all):
+        for pos, (idx, url, name, st, remark) in enumerate(self.rows_all):
             tag = ""
             if st == "pending":
                 tag = "pending"
             elif "error" in st:
                 tag = "error"
             self.tree.insert("", "end", iid=str(pos),
-                             values=(idx, url, name, st, "删除"), tags=(tag,))
+                             values=(idx, url, name, st, remark, "删除"), tags=(tag,))
         self.tree.tag_configure("pending", background="#fff8e1")
         self.tree.tag_configure("error", background="#ffebee")
 
     def _save_input(self, log_msg):
         """rows_all 写回 input.csv 并刷新；自动修正：链接已填写但状态为 null 的行改为 pending"""
         auto = 0
-        for i, (idx, url, name, st) in enumerate(self.rows_all):
+        for i, (idx, url, name, st, remark) in enumerate(self.rows_all):
             if st == "null" and url:
-                self.rows_all[i] = (idx, url, name, "pending")
+                self.rows_all[i] = (idx, url, name, "pending", remark)
                 auto += 1
         write_input_csv(self.rows_all)
         self.reload_input(log_msg)
@@ -811,7 +813,7 @@ class App:
         """单击：命中操作列则删除该行"""
         rowid = self.tree.identify_row(event.y)
         col = self.tree.identify_column(event.x)
-        if not rowid or col == "#5":        # 操作列
+        if not rowid or col == "#6":        # 操作列
             self._delete_row(rowid)
 
     def _on_tree_double_click(self, event):
@@ -823,7 +825,7 @@ class App:
         col_idx = int(col.replace("#", "")) - 1
         if col_idx == 0:                    # 索引只读
             return
-        if col_idx == 4:                    # 操作列
+        if col_idx == 5:                    # 操作列
             self._delete_row(rowid)
             return
         bbox = self.tree.bbox(rowid, col)
@@ -868,7 +870,7 @@ class App:
         pos = int(rowid)
         if pos >= len(self.rows_all):
             return
-        idx, url, name, st = self.rows_all[pos]
+        idx, url, name, st, _rm = self.rows_all[pos]
         if not messagebox.askyesno("删除确认", f"确定删除第 {idx} 行？\n{name or url[:50] or '(空)'}"):
             return
         self.rows_all.pop(pos)
@@ -880,10 +882,10 @@ class App:
                                    "将所有链接状态重置为 pending（待采集）？\n链接为空的行状态设为 null，\n该操作会覆盖现有状态(done/error/null)。"):
             return
         rows = load_raw_input_rows()
-        rows = [(idx, url, name, "pending" if url else "null")
-                for idx, url, name, _st in rows]
+        rows = [(idx, url, name, "pending" if url else "null", "")
+                for idx, url, name, _st, _rm in rows]
         write_input_csv(rows)
-        self.reload_input("已重置: 有链接的改为 pending，链接为空的改为 null，并重新加载 input.csv")
+        self.reload_input("已重置: 状态改为 pending/null，备注已清空，并重新加载 input.csv")
 
     def on_add(self):
         """新增：追加一行空记录（双击编辑）"""
@@ -891,7 +893,7 @@ class App:
             new_idx = 0
         else:
             new_idx = max(r[0] for r in self.rows_all) + 1
-        self.rows_all.append((new_idx, "", "", "null"))
+        self.rows_all.append((new_idx, "", "", "null", ""))
         self._save_input(f"已新增空行 [索引 {new_idx}]，双击链接/名称列填写内容，状态默认 null")
 
     # ---------- 控制区逻辑 ----------
@@ -1094,7 +1096,7 @@ class App:
         if hide_taskbar():
             log("已隐藏任务栏（程序退出时自动恢复）")
         total = len(self.input_rows)
-        todo = sum(1 for _, _, _, st in self.input_rows
+        todo = sum(1 for _, _, _, st, _rm in self.input_rows
                    if st in ("pending", "null") or "error" in st)
         self.idx_end_var.set(str(max(total - 1, 0)))
         self.status_var.set(f"已加载 {total} 个公众号（待处理 {todo} 个）")
@@ -1202,7 +1204,7 @@ class App:
             log("范围内没有待处理(pending/null/error)的链接，无需采集")
             return
         log("待处理列表:")
-        for idx, url, name, st in todo:
+        for idx, url, name, st, _rm in todo:
             log(f"  [{idx}] {name}  ({st})")
 
         # 微信窗口检查：找不到则暂停并提示，按钮保持【开始】
@@ -1249,7 +1251,7 @@ class App:
         total = len(todo)
         done_n = 0
         try:
-            for n, (idx, url, name, st) in enumerate(todo):
+            for n, (idx, url, name, st, _rm) in enumerate(todo):
                 self._check_stop()
                 log(f"════════ 任务 {n + 1}/{total} · {name} ════════")
                 log(f"【{n + 1}/{total}】[{idx}] {name}  {url[:45]}{'...' if len(url) > 45 else ''}")
@@ -1478,7 +1480,7 @@ class App:
             except Exception as _le:
                 log(f"列表加载稳定检测异常: {_le}")
         # 8) 文章列表页：OCR 采集循环
-        return self._collect_articles(pts, name)
+        return self._collect_articles(pts, name, idx)
 
     def _check_fetch_results(self):
         """检查后台抓取线程结果，处理写入记录和时间范围检测
@@ -1559,7 +1561,7 @@ class App:
         self._pending_futures.clear()
 
     # ---------- 文章采集循环（OCR） ----------
-    def _collect_articles(self, pts, name):
+    def _collect_articles(self, pts, name, idx=None):
         """文章列表循环采集：
         循环: OCR识别卡片 -> 依次点击(5秒后文章操作) -> 全部点完 -> 滚动 -> 再OCR
         停止条件: 无卡片 / 达到最大数量 / 文章时间超出范围"""
@@ -1678,7 +1680,7 @@ class App:
                     log(f"点击文章卡片 {n + 1}/{len(cards)} (x=点位12:{p12_x}, y={cy}) 时间[{text}] 阅读[{reads}] 赞[{likes}]")
                 mouse_click(p12_x, cy)
                 self._sleep(1)   # 点击时间点位后等待 1 秒
-                r = self._collect_article_link(pts, name, click_time, reads, likes)
+                r = self._collect_article_link(pts, name, click_time, reads, likes, idx)
                 if r is False:
                     log("文章操作失败，任务标记 error")
                     return False
@@ -1731,11 +1733,11 @@ class App:
 
     def _copy_link(self, pts, p8, p18):
         """复制链接：点8(三点) → 等0.5秒 → 点18(固定复制链接按钮) → 轮询剪贴板
-        最多尝试3次; 成功返回链接, 失败返回 None"""
+        最多尝试5次; 成功返回链接, 失败返回 None"""
         link = None
-        for attempt in range(1, 4):
+        for attempt in range(1, 6):
             self._check_stop()
-            log(f"--- 复制链接尝试 {attempt}/3 ---")
+            log(f"--- 复制链接尝试 {attempt}/5 ---")
             log(f"点击点位8({p8[2]},{p8[3]}) {p8[1]}")
             mouse_click(int(p8[2]), int(p8[3]))
             self._sleep(0.5)
@@ -1757,10 +1759,10 @@ class App:
             if link:
                 break
             log(f"尝试{attempt}: 剪贴板未更新为文章链接，点击两次点位8重试")
-            # 失败后额外操作：点击两次点位8(重新触发三点菜单)
+            # 失败后额外操作：点击两次点位8(重新触发三点菜单), 间隔0.5秒(原0.3+0.2)
             for _ in range(2):
                 mouse_click(int(p8[2]), int(p8[3]))
-                self._sleep(0.3)
+                self._sleep(0.5)
         return link
 
     def _parse_int(self, v):
@@ -2163,7 +2165,7 @@ class App:
             likes, forwards, favorites, comments)
         self._pending_futures.append((future, link, name))
 
-    def _collect_article_link(self, pts, name, click_time=None, reads=-1, likes=-1):
+    def _collect_article_link(self, pts, name, click_time=None, reads=-1, likes=-1, idx=None):
         """正式文章操作流程：复制链接 → 采集4指标截图 → 采集阅读数 → 后台抓取
         click_time: 点击时间点位的时间（写入 CSV 用）
         reads/likes: 列表页 OCR 提取的阅读/点赞数（-1=未识别到）
@@ -2176,8 +2178,8 @@ class App:
             return False
         link = self._copy_link(pts, p8, p18)
         if not link:
-            log("错误: 3次尝试复制链接均失败，任务失败")
-            self.last_error = "复制链接失败(3次)"
+            log("错误: 5次尝试复制链接均失败，任务失败")
+            self.last_error = "复制链接失败(5次)"
             return False
         self.collected_links.append(link)
         log(f"已复制文章链接: {link}")
@@ -2186,6 +2188,8 @@ class App:
         # 乐观并发: 不等待4指标结果, 提前点击点位21并开始评论采集
         _m1 = self._parse_int(self.max_l1_var.get())
         if _m1 is None or _m1 > 0:
+            if self._quota_error and idx is not None:
+                update_input_remark(idx, "评论采集:豆包无额度,评论未采集")
             p21 = pts.get(21)
             if p21:
                 log("乐观: 提前点击评论按钮(点位21)，4指标识别后台进行中")
@@ -2195,10 +2199,16 @@ class App:
                 if _p23m:
                     mouse_move(int(_p23m[2]), int(_p23m[3]))
                 self._wait_comment_stable(pts)
+                _q_before = self._quota_error
                 try:
                     self._collect_comments(pts, link, interact_future)
                 except Exception as e:
                     log(f"评论采集异常: {e}")
+                if not _q_before and self._quota_error:
+                    # 评论采集中途确认豆包无额度 -> 记录错误备注
+                    if idx is not None:
+                        update_input_remark(idx, "评论采集失败:豆包无额度,评论未采集")
+                    log("评论采集: 豆包无额度，记录备注并结束评论采集")
             else:
                 log("缺少点位21(评论按钮)，无法采集评论")
         # 只有评论采集开启时才等4指标结果(留言判断已在采集内处理, 等待通常秒级);
@@ -2212,7 +2222,9 @@ class App:
                     log(f"4指标识别: 点赞[{likes}] 转发[{forwards}] 喜欢[{favorites}] 留言[{comments}]")
             except DoubaoQuotaError as _e:
                 self._quota_error = True
-                log(f"❌ 豆包API没有额度/欠费: {_e}")
+                if idx is not None:
+                    update_input_remark(idx, "4指标识别:豆包无额度,截图已保存待二次处理")
+                log(f"❌ 豆包API没有额度/欠费: {_e} (4指标截图已保存,可二次处理)")
             except Exception as e:
                 log(f"4指标识别等待异常: {e}")
         # 采集阅读数: 仅当时间点位未提取到阅读数(reads==-1)时执行
