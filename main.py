@@ -624,7 +624,7 @@ class App:
         # 滚动距离 + 测试滚动 配置（紧凑排左）
         scroll_bar = tk.Frame(ctrl)
         scroll_bar.pack(fill=tk.X, padx=10, pady=(6, 2))
-        tk.Label(scroll_bar, text="滚动距离:",
+        tk.Label(scroll_bar, text="文章列表滚动:",
                  font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT)
         # 默认 = 屏幕高度 70%（若无记忆）
         _def_scroll = int(_u32().GetSystemMetrics(SM_CYSCREEN) * 0.7)
