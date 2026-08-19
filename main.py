@@ -668,16 +668,6 @@ class App:
         tk.Checkbutton(row6, text="显示", variable=self.show_key_var,
                        font=("Microsoft YaHei UI", 9),
                        command=self.toggle_key_show).pack(side=tk.LEFT, padx=(4, 0))
-        # 时间点位点击Y偏移(临时设置)
-        self.time_point_offset_var = tk.StringVar(
-            value=str(self.ui.get("time_point_offset", 0)))
-        tk.Label(row6, text="时间点位偏移Y:", font=("Microsoft YaHei UI", 9)
-                 ).pack(side=tk.LEFT, padx=(14, 0))
-        tk.Spinbox(row6, from_=-100, to=100, increment=5,
-                   textvariable=self.time_point_offset_var, width=5,
-                   font=("Microsoft YaHei UI", 9)).pack(side=tk.LEFT, padx=(3, 0))
-        tk.Label(row6, text="px", font=("Microsoft YaHei UI", 8), fg="#888"
-                 ).pack(side=tk.LEFT, padx=1)
         btn_bar = tk.Frame(ctrl)
         btn_bar.pack(fill=tk.X, padx=10, pady=(4, 6))
         self.btn_points = tk.Button(btn_bar, text="点位设置", width=10,
@@ -772,7 +762,7 @@ class App:
         # 设置记忆：任何变更自动保存
         for v in (self.idx_start_var, self.idx_end_var, self.time_var,
                   self.max_count_var, self.scroll_px_var, self.comment_scroll_px_var,
-                  self.max_l1_var, self.max_l2_var, self.time_point_offset_var):
+                  self.max_l1_var, self.max_l2_var):
             v.trace_add("write", lambda *a: self._save_state())
 
         # 时间范围变更时启用/禁用自定义日期行
@@ -1097,7 +1087,6 @@ class App:
             "capture_4metrics": self.capture_4metrics_var.get(),
             "max_l1": self.max_l1_var.get(),
             "max_l2": self.max_l2_var.get(),
-            "time_point_offset": self.time_point_offset_var.get(),
             "doubao_api_key": self.doubao_key_var.get(),
         })
 
@@ -1719,12 +1708,7 @@ class App:
                     log(f"点击文章卡片 {n + 1}/{len(cards)} (x=点位12:{p12_x}, y={cy}) 时间[{text}] 阅读[{reads}] 赞[{likes}] 日期[{d}]")
                 else:
                     log(f"点击文章卡片 {n + 1}/{len(cards)} (x=点位12:{p12_x}, y={cy}) 时间[{text}] 阅读[{reads}] 赞[{likes}]")
-                _yoff = "0"
-                try:
-                    _yoff = str(int(float(self.time_point_offset_var.get())))
-                except Exception:
-                    pass
-                mouse_click(p12_x, cy + int(_yoff or 0))
+                mouse_click(p12_x, cy)
                 self._sleep(1)   # 点击时间点位后等待 1 秒
                 r = self._collect_article_link(pts, name, click_time, reads, likes, idx)
                 if r is False:
