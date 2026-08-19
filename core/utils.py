@@ -97,6 +97,30 @@ _CT_RE = re.compile(r"var\s+ct\s*=\s*['\"]?(\d+)")
 _PUBLISH_TIME_RE = re.compile(r"(?:var\s+publish_time\s*=\s*['\"]?)(\d+)")
 
 
+def fetch_biz(article_url, timeout=15):
+    """输入公众号文章链接, 解析出该公众号的 biz (base64标识)
+    示例: https://mp.weixin.qq.com/s/LBfAIgo4JeWN2iW6y7goiQ -> Mzg4NTY2NzUxMQ==
+    请求失败或未解析到返回 None"""
+    if not article_url:
+        return None
+    try:
+        import requests
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                          "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+            "Referer": "https://mp.weixin.qq.com/",
+        }
+        html = requests.get(article_url, headers=headers, timeout=timeout).text
+        m = re.search(r"""(?:var\s+biz|__biz)\s*=\s*['"]?([A-Za-z0-9=+/_-]+)""", html)
+        if m:
+            biz = m.group(1).strip()
+            if biz:
+                return biz
+    except Exception as e:
+        log("获取biz失败: %s" % e)
+    return None
+
+
 def fetch_article(url, save_path=None):
     """抓取微信文章：返回 (标题, 发布时间 str 或 None)；save_path 给定时保存完整 HTML
     失败返回 None"""
