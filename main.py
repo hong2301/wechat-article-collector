@@ -1600,6 +1600,7 @@ class App:
         self._time_out_count = 0   # 时间范围外容错计数（置顶旧文章最多2篇）
         self._exit_loop = False
         self._found_start = False  # 自定义模式：是否已找到范围开始点
+        self._pending_time = None  # 跨轮保留的时间点位(滚动衔接)
         # 等待文章列表加载（由 OCR 识别过程自然加载，无需额外等待）
         p5 = pts.get(5)
         p7 = pts.get(7)
@@ -1637,8 +1638,8 @@ class App:
                 break
             loop_n += 1
             log(f"--- 列表循环 {loop_n}：OCR 识别中 ---")
-            # 识别文章卡片：最多 5 次机会（列表可能还在加载）
-            cards = []
+            # 识别文章列表(新结构: 时间点位/文章点位 交替, 支持"余下"加载更多)
+            ordered = []
             for attempt in range(1, 6):
                 self._check_stop()
                 try:
@@ -1647,16 +1648,27 @@ class App:
                     log(f"OCR 失败: {e}")
                     self.last_error = f"OCR 失败: {e}"
                     return False
-                cards = find_time_items(items)
-                if cards:
+                # "余下"按钮: 点击加载更多文章后再重新OCR(可多次)
+                more = find_more_buttons(items)
+                while more:
+                    _mx, _my, _mt = more[0]
+                    log(f"识别到'余下'加载更多按钮({_mx},{_my})[{_mt}]，点击后重新OCR")
+                    mouse_click(int(_mx), int(_my))
+                    self._sleep(1)
+                    items = ocr_region(box)
+                    more = find_more_buttons(items)
+                ordered = classify_article_items(items, box)
+                if ordered:
                     break
-                log(f"OCR 未识别到文章卡片，重试 {attempt}/5...")
-            if not cards:
-                log("错误: OCR 未识别到文章卡片（列表页异常），任务失败")
-                self.last_error = "未识别到文章卡片"
+                log(f"OCR 未识别到文章点位，重试 {attempt}/5...")
+            if not ordered:
+                log("错误: OCR 未识别到文章（列表页异常），任务失败")
+                self.last_error = "未识别到文章"
                 return False
-            log(f"识别到 {len(cards)} 个文章卡片（含时间）")
-            # ---- 遍历卡片：统一逻辑，自定义模式额外做时间范围判断/跳过 ----
+            times = [(c, y, t) for _, typ, c, y, t in ordered if typ == "time"]
+            articles = [(c, y, t) for _, typ, c, y, t in ordered if typ == "article"]
+            log(f"识别到 {len(times)} 个时间点位, {len(articles)} 篇文章")
+            # ---- 自定义模式: 置顶识别 + 范围判断(基于时间点位序列) ----
             is_custom = getattr(self, "is_custom_mode", False)
             tr_dates = getattr(self, "time_range_dates", None)
             start_d = end_d = None
@@ -1665,51 +1677,49 @@ class App:
             _today = date.today()
             if is_custom and tr_dates:
                 start_d, end_d = tr_dates
-                # 置顶识别：仅第一页前3个点位，出现旧->新回升说明有置顶（最多2篇）
                 if loop_n == 1:
-                    for i in range(1, min(3, len(cards))):
-                        dp = resolve_article_date(cards[i - 1][2], _today)
-                        dc = resolve_article_date(cards[i][2], _today)
+                    for i in range(1, min(3, len(times))):
+                        dp = resolve_article_date(times[i - 1][2], _today)
+                        dc = resolve_article_date(times[i][2], _today)
                         if dp and dc and dc > dp:
                             pinned_count = i
                             break
                 if pinned_count:
                     log(f"识别到 {pinned_count} 个置顶文章（时间跳变），置顶不计入范围定位")
-            # 范围不可达判定: 自定义模式且未找到开始点, 本页最上面卡片已早于范围开始 → 只会更旧, 停止
-            if is_custom and tr_dates and not self._found_start and not pinned_count and cards:
-                _top_card = min(cards, key=lambda c: c[1])
-                _top_d = resolve_article_date(_top_card[2], _today)
+            # 范围不可达: 顶部第一个时间点位已早于范围开始 -> 只会更旧, 停止
+            if is_custom and tr_dates and not self._found_start and not pinned_count and times:
+                _top_d = resolve_article_date(times[0][2], _today)
                 if _top_d and _top_d < start_d:
-                    log(f"本页顶部[{_top_card[2]}]已早于范围开始({start_d})，往下只会更旧，范围内无文章，结束采集")
+                    log(f"顶部时间[{times[0][2]}]已早于范围开始({start_d})，往下只会更旧，范围内无文章，结束采集")
                     self._exit_loop = True
                     break
-            # 统一按 y 从上到下遍历
-            for n, card in enumerate(sorted(cards, key=lambda c: c[1])):
+            # ---- 时间状态机: 时间点位赋予其下文章直到下一时间点位 ----
+            # 继承上一轮末尾的时间点位(滚动衔接: 上轮末尾"今天"给本轮顶部文章用)
+            cur_time = self._pending_time
+            for _, typ, cx, cy, text in ordered:
                 self._check_stop()
-                cx, cy, text = card
-                # 自定义模式：解析日期并判断范围，范围外跳过
-                d = None
+                if typ == "time":
+                    cur_time = text
+                    continue   # 时间点位不点击
+                # 文章(数据)点位: 时间取最近的时间点位
+                art_time = cur_time or ""
+                d = resolve_article_date(art_time, _today)
+                # 自定义范围判断(基于该文章所属时间)
                 if is_custom and tr_dates:
-                    d = resolve_article_date(text, _today)
-                    is_pinned = n < pinned_count
+                    is_pinned = False
                     in_range = d is not None and start_d <= d <= end_d
                     if in_range:
-                        if not is_pinned:
-                            self._found_start = True
-                            page_has_in_range = True
+                        self._found_start = True
+                        page_has_in_range = True
                     else:
-                        tag = "置顶" if is_pinned else ""
-                        log(f"跳过卡片 ({cx},{cy}) 时间[{text}] 日期[{d or '无法解析'}] 不在范围 {start_d}~{end_d}{('（' + tag + '）') if tag else ''}")
+                        log(f"跳过文章 ({cx},{cy}) 时间[{art_time}] 日期[{d or '无法解析'}] 不在范围 {start_d}~{end_d}")
                         continue
-                click_time = time.strftime("%Y-%m-%d %H:%M:%S")  # 点击时间点位的时间
-                reads = extract_reads(text)   # 列表页识别到的阅读数(-1=未识别到)
-                likes = extract_likes(text)   # 列表页识别到的点赞数(-1=未识别到)
-                if is_custom and tr_dates:
-                    log(f"点击文章卡片 {n + 1}/{len(cards)} (x=点位12:{p12_x}, y={cy}) 时间[{text}] 阅读[{reads}] 赞[{likes}] 日期[{d}]")
-                else:
-                    log(f"点击文章卡片 {n + 1}/{len(cards)} (x=点位12:{p12_x}, y={cy}) 时间[{text}] 阅读[{reads}] 赞[{likes}]")
+                click_time = time.strftime("%Y-%m-%d %H:%M:%S")
+                reads = extract_reads(text)   # 阅读数(-1=未识别到)
+                likes = extract_likes(text)   # 点赞数(-1=未识别到)
+                log(f"点击文章点位 (x=点位12:{p12_x}, y={cy}) 阅读[{reads}] 赞[{likes}] 时间[{art_time}] 日期[{d or '-'}]")
                 mouse_click(p12_x, cy)
-                self._sleep(1)   # 点击时间点位后等待 1 秒
+                self._sleep(1)   # 点击文章点位后等待 1 秒
                 r = self._collect_article_link(pts, name, click_time, reads, likes, idx)
                 if r is False:
                     log("文章操作失败，任务标记 error")
@@ -1718,6 +1728,7 @@ class App:
                     log("达到停止条件，退出文章采集循环")
                     self._exit_loop = True
                     break
+
                 log("Ctrl+W 关闭文章")
                 ctrl_key("W")
                 self._sleep(0.5)
@@ -1730,6 +1741,8 @@ class App:
             if is_custom and tr_dates and self._found_start and not page_has_in_range:
                 log("已找到范围结束点（本页无范围内点位），结束文章采集")
                 break
+            # 轮末: 保留最新时间点位给下一轮(滚动衔接)
+            self._pending_time = cur_time
             # 全部点击完毕：滚动前先检查后台结果（可能已触发停止条件）
             if self._check_fetch_results():
                 log("后台任务触发停止条件，不再滚动，结束文章采集")
@@ -1741,11 +1754,6 @@ class App:
             scroll_down_at(int(p7[2]), int(p7[3]), scroll_px)
             log("等待 1 秒列表刷新...")
             self._sleep(1)
-        # 汇总本次任务收集的文章链接
-        if self.collected_links:
-            log(f"本任务共收集 {len(self.collected_links)} 个文章链接:")
-            for n, link in enumerate(self.collected_links, 1):
-                log(f"  [{n}] {link}")
         # 等待所有后台抓取任务完成
         self._wait_all_fetches()
         return True
