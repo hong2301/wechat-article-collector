@@ -242,13 +242,14 @@ def _region_grayish(sbox, box=None):
 def classify_article_items(items, box=None):
     """文章列表新结构分类: 区分 时间点位 与 文章点位(数据)
     时间点位: 含时间模式(TIME_RE)且不含'阅读', 并校验文字为灰色系(RGB三通道接近)
-    文章点位: 含"阅读"+数字(阅读\d+), 仅"阅读"二字不合法 -> type='article'
+    文章点位: 含"阅读"+数字(阅读\d+) 或 含"付费" -> type='article'
     返回: [(y, type, cx, cy, text), ...] 按 y 从上到下 = time/article 交替
     """
     ordered = []
     for cx, cy, text, score, sbox, brightness in items:
         has_time = TIME_RE.search(text or "")
         m_read = re.search(r"阅读\s*\d+", text or "")    # '阅读'+数字
+        m_pay = "付费" in (text or "")                     # '付费'(可能无阅读)
         if has_time and not m_read:
             # 时间点位文字为浅灰白(亮度高, 如'今天'亮度185); 深色图表日期/标题(亮度<140)排除
             gray = _region_grayish(sbox, box)
@@ -257,7 +258,7 @@ def classify_article_items(items, box=None):
             if gray is False:
                 continue                      # RGB非灰 -> 非时间点位
             ordered.append((cy, "time", cx, cy, text))
-        elif m_read:
+        elif m_read or m_pay:
             ordered.append((cy, "article", cx, cy, text))
     ordered.sort(key=lambda r: r[0])
     return ordered

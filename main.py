@@ -1648,8 +1648,9 @@ class App:
                     log(f"OCR 失败: {e}")
                     self.last_error = f"OCR 失败: {e}"
                     return False
-                # "余下"按钮: 点击加载更多文章后再重新OCR(可多次)
+                # "余下"按钮: 点击加载更多文章后再重新OCR(可多次, 最多5次防死循环)
                 more = find_more_buttons(items)
+                _more_cnt = 0
                 while more:
                     _mx, _my, _mt = more[0]
                     log(f"识别到'余下'加载更多按钮({_mx},{_my})[{_mt}]，点击后重新OCR")
@@ -1657,6 +1658,10 @@ class App:
                     self._sleep(1)
                     items = ocr_region(box)
                     more = find_more_buttons(items)
+                    _more_cnt += 1
+                    if _more_cnt >= 5:
+                        log("'余下'加载按钮连续点击5次仍未消失，停止继续加载")
+                        break
                 ordered = classify_article_items(items, box)
                 if ordered:
                     break
@@ -1770,15 +1775,14 @@ class App:
         return None
 
     def _copy_link(self, pts, p8, p18):
-        """复制链接：点8(三点) → 等0.5秒 → 点18(固定复制链接按钮) → 轮询剪贴板
-        最多尝试5次; 成功返回链接, 失败返回 None"""
+        """复制链接：点8(三点) → 点18(固定复制链接按钮) → 轮询剪贴板
+        仅保留清空剪贴板后等0.5秒; 最多尝试5次; 成功返回链接, 失败返回 None"""
         link = None
         for attempt in range(1, 6):
             self._check_stop()
             log(f"--- 复制链接尝试 {attempt}/5 ---")
             log(f"点击点位8({p8[2]},{p8[3]}) {p8[1]}")
             mouse_click(int(p8[2]), int(p8[3]))
-            self._sleep(0.5)
             tx, ty = int(p18[2]), int(p18[3])
             log(f"点击点位18({tx},{ty}) {p18[1]}")
             # 点击前清空剪贴板，确保检测到的一定是新复制的链接
