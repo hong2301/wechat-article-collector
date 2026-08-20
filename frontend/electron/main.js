@@ -42,7 +42,7 @@ function createWindow() {
   if (isDev) {
     win.loadURL('http://localhost:3000')
   } else {
-    win.loadFile(path.join(__dirname, '../frontend/out/index.html'))
+    win.loadFile(path.join(__dirname, '../next/out/index.html'))
   }
 }
 

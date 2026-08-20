@@ -41,3 +41,12 @@ frontend/package-lock.json
 electron/node_modules/
 electron/dist/
 electron/out/
+# 前端/electron 新结构
+frontend/next/node_modules/
+frontend/next/.next/
+frontend/next/out/
+frontend/electron/node_modules/
+frontend/electron/dist/
+# Python 后端
+backend/__pycache__/
+node_modules/

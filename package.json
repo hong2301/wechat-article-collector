@@ -2,10 +2,15 @@
   "name": "wechat-collector",
   "version": "3.1.0",
   "private": true,
-  "description": "微信公众号采集器 (Next.js 前端 + Electron 壳 + Python 采集后端)",
+  "description": "微信公众号采集器 (Next.js前端 + Electron壳 + Python后端)",
   "scripts": {
-    "dev": "npm --prefix electron run dev",
-    "package:frontend": "npm --prefix frontend run export",
+    "dev": "concurrently -k -n backend,frontend -c green,blue \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "python backend/run.py",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "package:frontend": "npm --prefix frontend/next run export",
     "package": "npm run package:frontend && echo '生产打包: 配置 electron-builder 后运行'"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
   }
 }

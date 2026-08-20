@@ -4,7 +4,7 @@
   "main": "main.js",
   "scripts": {
     "dev": "concurrently -k -n next,electron -c blue,green \"npm run dev:next\" \"npm run dev:wait\"",
-    "dev:next": "npm --prefix ../frontend run dev",
+    "dev:next": "npm --prefix ../next run dev",
     "dev:wait": "wait-on http://localhost:3000 && electron .",
     "start": "electron ."
   },
