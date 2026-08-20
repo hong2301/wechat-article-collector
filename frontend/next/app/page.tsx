@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Table, Button, Typography, Tag, Tooltip, Space, Input, message, Modal, Spin, Progress, Empty } from "antd";
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
-import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined } from "@ant-design/icons";
+import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined } from "@ant-design/icons";
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -256,6 +256,11 @@ export default function Home() {
     await loadCalendar(row.id, mk);
     setCalOpen(true);
   }
+  function copyBiz(row: Task) {
+    if (!row.biz) return;
+    navigator.clipboard.writeText(row.biz);
+    message.success("biz 已复制");
+  }
   async function clearAll() {
     if (selectedKeys.length === 0) {
       Modal.warning({ title: "未选择", content: "请在左侧勾选要删除的公众号", okText: "知道了" });
@@ -308,8 +313,21 @@ export default function Home() {
               components={{ body: { row: SortableRow } }}
               rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
               columns={[
-                { title: "公众号名称", dataIndex: "name", width: 160 },
-                { title: "biz 代码", dataIndex: "biz", render: (v: string) => <Typography.Text code style={{ fontSize: 12 }}>{v || "—"}</Typography.Text> },
+                {
+                  title: "公众号名称", dataIndex: "name", width: 180,
+                  render: (_: unknown, r: Task) => (
+                    <Tooltip
+                      title={r.biz ? (
+                        <span>
+                          <code style={{ marginRight: 8 }}>{r.biz}</code>
+                          <a onClick={() => copyBiz(r)} style={{ color: "#69b1ff" }}><CopyOutlined /></a>
+                        </span>
+                      ) : "无 biz"}
+                    >
+                      <span style={{ cursor: "default" }}>{r.name}</span>
+                    </Tooltip>
+                  ),
+                },
 
                 {
                   title: "文章采集统计", dataIndex: "op2", width: 140, align: "center",
