@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip } from "antd";
-import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, ScanOutlined, InboxOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined } from "@ant-design/icons";
 
 const API = "http://127.0.0.1:8000/api/accounts";
 
@@ -151,7 +151,7 @@ export default function ArticlePage() {
             { title: "操作", dataIndex: "op", align: "center",
               render: (_: unknown, r: Article) => (
                 <Space>
-                  <Button size="small" type="link" icon={<ScanOutlined />} onClick={() => message.info("采集功能开发中")}>采集</Button>
+                  <Button size="small" type="link" icon={<InboxOutlined />} onClick={() => message.info("采集功能开发中")}>采集</Button>
                   <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => del(r)}>删除</Button>
                 </Space>
               ) },
