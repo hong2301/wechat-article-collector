@@ -141,6 +141,35 @@ class SortPayload(BaseModel):
     ids: List[int]
 
 
+
+@router.get("/articles-by-biz")
+def account_articles_by_biz(biz: str):
+    """按 biz 返回该公众号的文章列表"""
+    conn = get_conn()
+    try:
+        acc = conn.execute("SELECT id, name FROM accounts WHERE biz=?", (biz,)).fetchone()
+        rows = conn.execute("SELECT * FROM articles WHERE biz=? ORDER BY date DESC, id DESC", (biz,)).fetchall()
+    finally:
+        conn.close()
+    name = dict(acc)["name"] if acc else ""
+    arts = [{"id": d["id"], "title": d["title"], "date": d["date"], "link": d["link"],
+             "reads": d["reads"], "likes": d["likes"], "original": d["original"], "ip": d["ip"]} for d in rows]
+    return {"biz": biz, "name": name, "articles": arts}
+
+
+@router.delete("/articles-by-biz/{artid}", status_code=204)
+def delete_article_by_biz(artid: int, biz: str):
+    """按 biz 删除某公众号下的一篇文章"""
+    conn = get_conn()
+    try:
+        cur = conn.execute("DELETE FROM articles WHERE id=? AND biz=?", (artid, biz))
+        conn.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(404, "文章不存在")
+    finally:
+        conn.close()
+
+
 @router.get("/calendar/{aid}")
 def account_calendar(aid: int, year: int = None, month: int = None):
     """单个公众号的采集日历; 指定年/月返回该月每日数量, 否则返回全部daily"""
@@ -161,6 +190,47 @@ def account_calendar(aid: int, year: int = None, month: int = None):
         m = {f"{year}-{month:02d}-{d:02d}": daily.get(f"{year}-{month:02d}-{d:02d}", 0) for d in range(1, ndays + 1)}
         daily = m
     return {"id": aid, "name": r["name"], "count": st["count"], "daily": daily}
+
+
+@router.get("/{aid}/articles")
+def account_articles(aid: int):
+    """该公众号的文章列表(从 SQLite articles 表)"""
+    conn = get_conn()
+    try:
+        r = conn.execute("SELECT name, biz FROM accounts WHERE id=?", (aid,)).fetchone()
+        if not r:
+            raise HTTPException(404, "账号不存在")
+        # 按 biz 关联文章(biz 为空时退化为 account_id)
+        biz = r["biz"] or ""
+        if biz:
+            rows = conn.execute("SELECT * FROM articles WHERE biz=? ORDER BY date DESC, id DESC", (biz,)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM articles WHERE account_id=? ORDER BY date DESC, id DESC", (aid,)).fetchall()
+    finally:
+        conn.close()
+    arts = []
+    for row in rows:
+        d = dict(row)
+        arts.append({
+            "id": d.get("id"), "title": d.get("title"), "date": d.get("date"),
+            "link": d.get("link"), "reads": d.get("reads"), "likes": d.get("likes"),
+            "original": d.get("original"), "ip": d.get("ip"),
+        })
+    return {"id": aid, "name": r["name"], "articles": arts}
+
+
+@router.delete("/{aid}/articles/{artid}", status_code=204)
+def delete_article(aid: int, artid: int):
+    """删除某公众号下的一篇文章"""
+    conn = get_conn()
+    try:
+        cur = conn.execute("DELETE FROM articles WHERE id=? AND account_id=?", (artid, aid))
+        conn.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(404, "文章不存在")
+    finally:
+        conn.close()
+
 
 @router.put("/sort")
 def sort_accounts(payload: SortPayload):

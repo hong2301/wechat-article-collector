@@ -32,6 +32,25 @@ def init_db():
             sort_order  INTEGER NOT NULL,
             UNIQUE(sort_order)
         );
+        CREATE TABLE IF NOT EXISTS articles (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            account_id   INTEGER,
+            biz          TEXT DEFAULT '',
+            name         TEXT DEFAULT '',
+            date         TEXT DEFAULT '',
+            title        TEXT DEFAULT '',
+            link         TEXT DEFAULT '',
+            reads        TEXT DEFAULT '',
+            likes        TEXT DEFAULT '',
+            forwards     TEXT DEFAULT '',
+            favorites    TEXT DEFAULT '',
+            comments     TEXT DEFAULT '',
+            write_time   TEXT DEFAULT '',
+            shot         TEXT DEFAULT '',
+            read_shot    TEXT DEFAULT '',
+            original     TEXT DEFAULT '',
+            ip           TEXT DEFAULT ''
+        );
         """)
         # biz 唯一(同 biz 不允许重复公众号)
         try:
@@ -40,6 +59,11 @@ def init_db():
         except Exception:
             pass
         conn.commit()
+        # 迁移: articles 补 biz 列
+        _acols = [r[1] for r in conn.execute("PRAGMA table_info(articles)").fetchall()]
+        if "biz" not in _acols:
+            conn.execute("ALTER TABLE articles ADD COLUMN biz TEXT DEFAULT ''")
+            conn.commit()
         # 迁移: 旧表 link -> biz
         cols = [r[1] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()]
         if "link" in cols and "biz" not in cols:

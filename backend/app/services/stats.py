@@ -45,6 +45,23 @@ def account_stats():
     return {k: {"count": v["count"], "daily": dict(v["daily"])} for k, v in by.items()}
 
 
+def account_articles(biz="", name=""):
+    """该公众号的文章列表(collected.csv, 按biz优先/名称匹配)"""
+    rows = load_collected()
+    out = []
+    for r in rows:
+        # 匹配: biz 相同, 或名称相同
+        if (biz and r.get("biz") == biz) or (not biz and name and r.get("公众号名称") == name) or (biz == r.get("biz")):
+            out.append({
+                "title": r.get("标题") or "",
+                "date": r.get("日期") or "",
+                "link": r.get("链接") or "",
+                "reads": r.get("阅读") or "",
+                "likes": r.get("点赞") or "",
+            })
+    return out
+
+
 def get_account_collect(account_id=None, biz="", name=""):
     """单个公众号的采集统计; 优先按 biz, 其次按名称"""
     stats = account_stats()

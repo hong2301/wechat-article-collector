@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Table, Button, Typography, Tag, Tooltip, Space, Input, message, Modal, Spin, Progress, Empty } from "antd";
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
-import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined } from "@ant-design/icons";
+import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined } from "@ant-design/icons";
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -43,7 +44,7 @@ function SortableRow({ children, ...props }: SortableRowProps) {
     ...(isDragging ? { opacity: 0.6, background: "#eef4ff" } : {}),
   };
   return (
-    <tr {...props} ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <tr suppressHydrationWarning {...props} ref={setNodeRef} style={style} {...attributes} {...listeners}>
       {children}
     </tr>
   );
@@ -117,6 +118,7 @@ function CollectCalendar({ daily, monthKey, onMonthChange }: {
 }
 
 export default function Home() {
+  const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -284,26 +286,7 @@ export default function Home() {
   }
 
   return (
-    <div style={{ height: "100vh", boxSizing: "border-box", overflow: "hidden", display: "flex", flexDirection: "column", background: "#f5f6f8", padding: "0 20px 14px" }}>
-      {/* 顶栏 */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 2px 16px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 34, height: 34, borderRadius: 9, background: "#1565c0", display: "flex", alignItems: "center", justifyContent: "center" }}><Telescope /></div>
-          <div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-              <span style={{ fontSize: 19, fontWeight: 700 }}>微信公众号采集器</span>
-              <span style={{ fontSize: 12, color: "#8b949e" }}>v3.1.0</span>
-            </div>
-            <div style={{ fontSize: 12, color: "#8b949e" }}>基于 微信 Windows 版 4.1.12.55</div>
-          </div>
-        </div>
-        <Tooltip title="GitHub 仓库">
-          <a href="https://github.com/hong2301/wechat-article-collector" target="_blank" rel="noreferrer"
-             style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", border: "1px solid #d0d7de", color: "#57606a", display: "flex", alignItems: "center", justifyContent: "center" }}><GithubIcon /></a>
-        </Tooltip>
-      </div>
-
-      {/* 列表卡片 */}
+      <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column", background: "#f5f6f8" }}>
       <div className="dropzone"
            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
            onDragLeave={() => setDragOver(false)}
@@ -333,9 +316,7 @@ export default function Home() {
                   render: (_: unknown, row: Task) => (
                     <Space>
                       <span>{row.collected_count ?? 0}</span>
-                      {(row.collected_count ?? 0) > 0 && (
-                        <Button size="small" type="link" icon={<CalendarOutlined />} onClick={() => openCalendar(row)}>统计</Button>
-                      )}
+                      <Button size="small" type="link" icon={<ProfileOutlined />} onClick={() => router.push(`/articles?biz=${encodeURIComponent(row.biz || "")}`)}>查看</Button>
                     </Space>
                   ),
                 },
