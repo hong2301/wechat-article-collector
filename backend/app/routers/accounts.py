@@ -172,6 +172,35 @@ def delete_article_by_biz(artid: int, biz: str):
         conn.close()
 
 
+class ArticleCreate(BaseModel):
+    biz: str
+    link: str
+    title: str = ""
+
+
+@router.post("/articles-by-biz", status_code=201)
+def create_article(payload: ArticleCreate):
+    """按 biz 新增一篇文章; 无标题时用链接占位"""
+    link = payload.link.strip()
+    if not link:
+        raise HTTPException(400, "文章链接不能为空")
+    title = payload.title.strip() or link
+    conn = get_conn()
+    try:
+        # 关联公众号名称与 account_id
+        acc = conn.execute("SELECT id, name FROM accounts WHERE biz=?", (payload.biz,)).fetchone()
+        name = dict(acc)["name"] if acc else ""
+        account_id = acc["id"] if acc else None
+        cur = conn.execute(
+            "INSERT INTO articles (account_id, name, date, title, link, biz) VALUES (?,?,?,?,?,?)",
+            (account_id, name, "", title, link, payload.biz),
+        )
+        conn.commit()
+        return {"id": cur.lastrowid, "title": title, "link": link, "biz": payload.biz}
+    finally:
+        conn.close()
+
+
 @router.get("/calendar/{aid}")
 def account_calendar(aid: int, year: int = None, month: int = None):
     """单个公众号的采集日历; 指定年/月返回该月每日数量, 否则返回全部daily"""

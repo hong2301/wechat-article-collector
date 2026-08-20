@@ -314,7 +314,7 @@ export default function Home() {
               rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
               columns={[
                 {
-                  title: "公众号名称", dataIndex: "name", width: 180,
+                  title: "公众号名称", dataIndex: "name",
                   render: (_: unknown, r: Task) => (
                     <Tooltip
                       title={r.biz ? (
@@ -330,7 +330,7 @@ export default function Home() {
                 },
 
                 {
-                  title: "文章采集统计", dataIndex: "op2", width: 140, align: "center",
+                  title: "文章采集统计", dataIndex: "op2", align: "center",
                   render: (_: unknown, row: Task) => (
                     <Space>
                       <span>{row.collected_count ?? 0}</span>
@@ -339,7 +339,7 @@ export default function Home() {
                   ),
                 },
                 {
-                  title: "操作", dataIndex: "op", width: 150, align: "center",
+                  title: "操作", dataIndex: "op", align: "center",
                   render: (_: unknown, row: Task) => (
                     <Space>
                       <Button size="small" type="link" icon={<InboxOutlined />} onClick={() => collectRow(row)}>采集</Button>
