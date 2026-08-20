@@ -81,15 +81,13 @@ html, body {
   overflow-x: hidden;
 }
 
-/* 表格滚动条脱离内容区: 给body加右内边距 */
-.ant-table-body {
-  padding-right: 16px !important;
-}
-.ant-table-tbody > tr > td {
-  overflow: visible !important;
-}
 
-/* 表格整体避免被右侧滚动条遮挡: 给表体加右内边距 */
-.ant-table-body {
-  padding-right: 26px !important;
+
+
+
+
+/* 操作列右侧留白给滚动条, 表头与行对齐 */
+.ant-table-thead > tr > th:last-child,
+.ant-table-tbody > tr > td:last-child {
+  padding-right: 18px !important;
 }

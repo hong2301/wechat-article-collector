@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Table, Button, Typography, Tag, Tooltip, Space, Input, message, Modal, Spin, Progress, Empty } from "antd";
-import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined } from "@ant-design/icons";
+import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined } from "@ant-design/icons";
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -65,6 +65,7 @@ export default function Home() {
   const [dragOver, setDragOver] = useState(false);
   const [failedRows, setFailedRows] = useState<{ name: string }[]>([]);
   const [sbWidth, setSbWidth] = useState(6);
+  const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
 
   useEffect(() => {
     const probe = document.createElement("div");
@@ -160,10 +161,25 @@ export default function Home() {
     Modal.confirm({ title: "删除确认", content: `确定删除「${row.name}」？`, okText: "确认", cancelText: "取消",
       onOk: async () => { await fetch(`${API}/${row.id}`, { method: "DELETE" }); load(); } });
   }
+  function collectSelected() {
+    if (selectedKeys.length === 0) { Modal.warning({ title: "未选择", content: "请在左侧勾选要采集的公众号", okText: "知道了" }); return; }
+    message.info(`准备采集 ${selectedKeys.length} 个公众号（功能待接后端）`);
+  }
+  function collectRow(row: Task) {
+    message.info(`开始采集「${row.name}」（功能待接后端）`);
+  }
   async function clearAll() {
-    Modal.confirm({ title: "清空确认", content: "确定清空全部公众号？此操作不可恢复", okText: "确认", cancelText: "取消",
+    if (selectedKeys.length === 0) {
+      Modal.warning({ title: "未选择", content: "请在左侧勾选要删除的公众号", okText: "知道了" });
+      return;
+    }
+    Modal.confirm({ title: "删除选中", content: `确定删除选中的 ${selectedKeys.length} 个公众号？`, okText: "确认", cancelText: "取消",
       okButtonProps: { danger: true },
-      onOk: async () => { await fetch(`${API}/clear`, { method: "DELETE" }); load(); message.success("已清空"); } });
+      onOk: async () => {
+        for (const id of selectedKeys) { await fetch(`${API}/${String(id)}`, { method: "DELETE" }); }
+        setSelectedKeys([]);
+        load(); message.success("已删除选中项");
+      } });
   }
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -206,30 +222,31 @@ export default function Home() {
            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
            onDragLeave={() => setDragOver(false)}
            onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) importFile(f); }}
-           style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px 16px 10px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
+           style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>新增</Button>
-          <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>文件导入</Button>
-          <Button danger type="text" icon={<DeleteOutlined />} onClick={clearAll}>清空</Button>
-          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }} onChange={onPick} />
+          <Button type="primary" icon={<InboxOutlined />} onClick={collectSelected}>采集选中</Button>
           <div style={{ flex: 1 }} />
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>当前 {tasks.length} 个公众号</Typography.Text>
+          <Button color="primary" variant="outlined" icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>新增</Button>
+          <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>文件导入</Button>
+          <Button danger icon={<DeleteOutlined />} onClick={clearAll}>删除选中</Button>
+          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }} onChange={onPick} />
         </div>
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={tasks.map((t) => String(t.id))} strategy={verticalListSortingStrategy}>
-            <Table rowKey="id" dataSource={tasks} loading={loading} pagination={false} scroll={{ y: "calc(100vh - 235px)" }}
+            <Table rowKey="id" dataSource={tasks} loading={loading} pagination={false} bordered scroll={{ y: "calc(100vh - 255px)" }}
               locale={{ emptyText: <Empty description="请添加一个公众号" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
               components={{ body: { row: SortableRow } }}
+              rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
               columns={[
                 { title: "公众号名称", dataIndex: "name", width: 160 },
                 { title: "biz 代码", dataIndex: "biz", render: (v: string) => <Typography.Text code style={{ fontSize: 12 }}>{v || "—"}</Typography.Text> },
-                { title: "状态", dataIndex: "status", width: 100, render: (s: string) => <Tag color={statusMap[s]?.color || "default"}>{statusMap[s]?.text || s}</Tag> },
+
                 {
-                  title: "操作", dataIndex: "op", width: 130,
+                  title: "操作", dataIndex: "op", width: 150, align: "center",
                   render: (_: unknown, row: Task) => (
-                    <Space style={{ marginRight: sbWidth + 22 }}>
-                      <Button size="small" type="link" icon={<ReloadOutlined />} onClick={() => reset(row)}>重置</Button>
+                    <Space>
+                      <Button size="small" type="link" icon={<InboxOutlined />} onClick={() => collectRow(row)}>采集</Button>
                       <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => del(row)}>删除</Button>
                     </Space>
                   ),
@@ -238,6 +255,9 @@ export default function Home() {
             />
           </SortableContext>
         </DndContext>
+        <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 10 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>当前 {tasks.length} 个公众号</Typography.Text>
+        </div>
       </div>
 
       {/* 导入进度/失败弹窗 */}
