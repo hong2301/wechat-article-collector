@@ -27,6 +27,8 @@ TIME_PATTERNS = (
 )
 TIME_RE = re.compile("|".join(f"({p})" for p in TIME_PATTERNS))
 
+TIME_BRIGHT_MIN = 140   # 时间点位文字最小亮度(浅灰白, 区分深色图表/标题)
+
 
 # 星期汉字 -> 0-6（周一=0）
 
@@ -209,6 +211,90 @@ def find_time_items(items):
     return found
 
 
+def _region_grayish(sbox, box=None):
+    """截取 sbox 区域, 判断主色是否为灰色系(时间点位文字: 三通道接近, 中等亮度)
+    返回 True/False; box 为空或失败返回 None(不判定/不阻断)"""
+    if not sbox or len(sbox) < 4 or box is None:
+        return None
+    try:
+        xs = [p[0] for p in sbox]
+        ys = [p[1] for p in sbox]
+        abs_box = (box[0] + min(xs), box[1] + min(ys),
+                   box[0] + max(xs), box[1] + max(ys))
+        from PIL import ImageGrab
+        img = ImageGrab.grab(bbox=abs_box).convert("RGB")
+        w, h = img.size
+        samples = [img.getpixel((x, y)) for y in range(0, h, 2) for x in range(0, w, 2)]
+        # 取深色像素(文字)
+        dark = [p for p in samples if sum(p) < 650]
+        if not dark:
+            return None
+        r = sum(p[0] for p in dark) / len(dark)
+        g = sum(p[1] for p in dark) / len(dark)
+        b = sum(p[2] for p in dark) / len(dark)
+        spread = max(r, g, b) - min(r, g, b)
+        # 灰色系: 三通道接近(spread小) 且 中等亮度
+        return spread < 45 and 100 <= (r + g + b) / 3 <= 210
+    except Exception:
+        return None
+
+
+def classify_article_items(items, box=None):
+    """文章列表新结构分类: 区分 时间点位 与 文章点位(数据)
+    时间点位: 含时间模式(TIME_RE)且不含'阅读', 并校验文字为灰色系(RGB三通道接近)
+    文章点位: 含"阅读"+数字(阅读\d+) 或 含"付费" -> type='article'
+    返回: [(y, type, cx, cy, text), ...] 按 y 从上到下 = time/article 交替
+    """
+    ordered = []
+    for cx, cy, text, score, sbox, brightness in items:
+        has_time = TIME_RE.search(text or "")
+        m_read = re.search(r"阅读\s*\d+", text or "")    # '阅读'+数字
+        m_pay = "付费" in (text or "")                     # '付费'(可能无阅读)
+        if has_time and not m_read:
+            # 时间点位文字为浅灰白(亮度高, 如'今天'亮度185); 深色图表日期/标题(亮度<140)排除
+            gray = _region_grayish(sbox, box)
+            if brightness < TIME_BRIGHT_MIN:
+                continue                      # 深色 -> 非时间点位
+            if gray is False:
+                continue                      # RGB非灰 -> 非时间点位
+            ordered.append((cy, "time", cx, cy, text))
+        elif m_read or m_pay:
+            ordered.append((cy, "article", cx, cy, text))
+    ordered.sort(key=lambda r: r[0])
+    return ordered
+
+
+def find_more_buttons(items):
+    """识别'余下'(加载更多)蓝色按钮, 返回 [(cx, cy, text), ...]
+    '余下'为蓝色(#576b95约, R<100 且 G/B 在100-190 蓝灰), 白底"""
+    found = []
+    for cx, cy, text, score, sbox, brightness in items:
+        t = (text or "").strip()
+        if "余下" in t and len(t) <= 6:
+            # 校验文字颜色为蓝色(用文字区域中心像素)
+            if sbox and len(sbox) >= 4:
+                xs = [p[0] for p in sbox]
+                ys = [p[1] for p in sbox]
+                try:
+                    from PIL import ImageGrab
+                    px = ImageGrab.grab(bbox=(min(xs), min(ys), max(xs), max(ys)))
+                    # 取区域主色近似蓝色
+                    import numpy as _np
+                    arr = _np.array(px.convert("RGB"))
+                    nonwhite = arr[(arr.sum(axis=2) < 600)]
+                    if len(nonwhite):
+                        r = int(nonwhite[:, 0].mean())
+                        if r < 140:
+                            found.append((cx, cy, t))
+                    continue
+                except Exception:
+                    pass
+                found.append((cx, cy, t))
+            else:
+                found.append((cx, cy, t))
+    return found
+
+
 def extract_reads(text):
     """从时间点位文本中提取阅读数，提取不到返回 -1
     如: '星期四阅读821赞4' -> 821，'昨天 阅读 117' -> 117，'昨天' -> -1"""
@@ -227,4 +313,4 @@ def extract_likes(text):
 __all__ = ["TIME_PATTERNS", "TIME_RE", "_ocr_engine", "_ocr_lock",
            "get_ocr_engine", "screenshot_region", "_text_brightness", "ocr_region",
            "_pil_to_b64", "capture_region_base64", "ocr_img", "find_read_in_img",
-           "find_time_items", "extract_reads", "extract_likes", "_region_has_content", "_image_changed"]
+           "find_time_items", "classify_article_items", "find_more_buttons", "extract_reads", "extract_likes", "_region_has_content", "_image_changed"]

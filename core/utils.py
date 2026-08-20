@@ -58,6 +58,13 @@ def resolve_article_date(text, today=None):
             return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
         except ValueError:
             pass
+    # 中文年份格式: 2025年8月11日 / 2025年8月11 (必须带年份, 优先于无年份的"X月X日")
+    m = re.search(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?", text)
+    if m:
+        try:
+            return date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            pass
     if "今天" in text:
         return today
     if "昨天" in text:
@@ -159,5 +166,56 @@ def fetch_article(url, save_path=None):
         return None
 
 
+def localize_article_images(html_path, timeout=20):
+    """把微信文章HTML里的图片下载到本地并改写src, 实现离线可看
+    图片存入 html 同目录下的 images/ 文件夹; 返回处理成功的图片数"""
+    if not os.path.isfile(html_path):
+        return 0
+    try:
+        import requests
+        with open(html_path, encoding="utf-8") as f:
+            html = f.read()
+        imgs = re.findall(r'(?:data-src|src)="(https://mmbiz\.qpic\.cn/[^"]+)"', html)
+        if not imgs:
+            return 0
+        img_dir = os.path.join(os.path.dirname(html_path), "images")
+        os.makedirs(img_dir, exist_ok=True)
+        headers = {"User-Agent": "Mozilla/5.0",
+                   "Referer": "https://mp.weixin.qq.com/"}
+        n = 0
+        for u in imgs:
+            try:
+                r = requests.get(u, headers=headers, timeout=timeout)
+                if r.status_code != 200:
+                    continue
+                ext = os.path.splitext(u.split("?")[0])[1]
+                if not ext or len(ext) > 5:
+                    ext = ".jpg"
+                _h = __import__("hashlib").md5(u.encode()).hexdigest()[:8]
+                _fname = _h + ext
+                with open(os.path.join(img_dir, _fname), "wb") as f:   # 写入 .../images/ 目录
+                    f.write(r.content)
+                # HTML里用正斜杠(URL标准), 反斜杠在 file:// 下浏览器不识别
+                html = html.replace(u, "images/" + _fname)
+                n += 1
+            except Exception:
+                continue
+        if n:
+            # 把 data-src 复制到 src(离线时JS懒加载不执行, 需静态可见)
+            html = re.sub(
+                r'<img\s+([^>]*?)data-src="([^"]+)"([^>]*?)>',
+                lambda m: (
+                    m.group(0) if re.search(r"src\s*=", m.group(1) + m.group(3))
+                    else '<img %(a)ssrc="%(d)s" data-src="%(d)s"%(c)s>' % {
+                        "a": m.group(1), "d": m.group(2), "c": m.group(3)}
+                ), html)
+            with open(html_path, "w", encoding="utf-8") as f:
+                f.write(html)
+        return n
+    except Exception as e:
+        log("图片本地化失败: %s" % e)
+        return 0
+
+
 __all__ = ["UI_LOG_HOOK", "CONSOLE_PRINT", "log", "clean_filename",
-           "resolve_article_date", "fetch_article"]
+           "resolve_article_date", "fetch_article", "localize_article_images"]
