@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Table, Button, Typography, Tag, Tooltip, Space, Input, message, Modal, Spin, Progress, Empty } from "antd";
-import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined } from "@ant-design/icons";
+import { DatePicker, Select } from "antd";
+import dayjs from "dayjs";
+import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined } from "@ant-design/icons";
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -16,6 +18,10 @@ interface Task {
   biz: string;
   status: string;
   remark: string;
+  collected_count?: number;
+}
+interface CalData {
+  id: number; name: string; count: number; daily: Record<string, number>;
 }
 
 const Telescope = () => (
@@ -49,6 +55,67 @@ const statusMap: Record<string, { color: string; text: string }> = {
   error: { color: "red", text: "出错" },
 };
 
+function CollectCalendar({ daily, monthKey, onMonthChange }: {
+  daily: Record<string, number>; monthKey: string; onMonthChange: (m: string) => void;
+}) {
+  // 多个月度日历横排拼接: 选中月 往前推2个月, 共3个月横排显示
+  const [y, m] = monthKey.split("-").map(Number);
+  // 旧月在左新月在右: offset 从大(最早)到小(最近)
+  const months = [2, 1, 0].map((off) => {
+    let my = y, mm = m - off;
+    if (mm <= 0) { mm += 12; my--; }
+    const nd = new Date(my, mm, 0).getDate();
+    const days = [];
+    for (let d = 1; d <= nd; d++) {
+      const ds = `${my}-${String(mm).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      days.push({ date: ds, n: daily[ds] || 0, day: d });
+    }
+    return { my, mm, days, first: new Date(my, mm - 1, 1).getDay() };
+  });
+  const allN = months.flatMap((mo) => mo.days.map((c) => c.n));
+  const max = Math.max(1, ...allN);
+  const color = (n: number) => n === 0 ? "#ebedf0" : `rgba(21,101,192,${0.25 + 0.75 * (n / max)})`;
+  const wkHead = ["日", "一", "二", "三", "四", "五", "六"];
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+        <Select value={y} style={{ width: 90 }} onChange={(yv: number) => onMonthChange(`${yv}-${m}`)}
+          options={Array.from({ length: 5 }).map((_, i) => { const yr = new Date().getFullYear() - i; return { value: yr, label: `${yr} 年` }; })} />
+        <Select value={m} style={{ width: 90 }} onChange={(mv: number) => onMonthChange(`${y}-${mv}`)}
+          options={Array.from({ length: 12 }).map((_, i) => ({ value: i + 1, label: `${i + 1} 月` }))} />
+      </div>
+      <div style={{ display: "flex", gap: 24 }}>
+        {months.map((mo) => (
+          <div key={`${mo.my}-${mo.mm}`} style={{ flex: 1, minWidth: 0 }}>
+            <Typography.Text strong style={{ fontSize: 13 }}>{mo.my} 年 {mo.mm} 月</Typography.Text>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 22px)", columnGap: 4, rowGap: 4, marginTop: 8 }}>
+              {wkHead.map((w) => <div key={w} style={{ textAlign: "center", fontSize: 10, color: "#bbb" }}>{w}</div>)}
+              {Array.from({ length: (mo.first + 6) % 7 }).map((_, i) => <div key={"b" + i} />)}
+              {mo.days.map((c) => {
+                const d = c.day;
+                return (
+                  <div key={c.date} title={`${c.date}: ${c.n} 篇`}
+                    style={{ width: 22, height: 22, borderRadius: 4, background: color(c.n), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: c.n > 0 ? "#fff" : "#888" }}>
+                    {c.n > 0 ? c.n : d}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 5, marginTop: 12 }}>
+        <Typography.Text type="secondary" style={{ fontSize: 11 }}>少</Typography.Text>
+        <div style={{ width: 14, height: 14, borderRadius: 3, background: "#ebedf0" }} />
+        <div style={{ width: 14, height: 14, borderRadius: 3, background: "rgba(21,101,192,.35)" }} />
+        <div style={{ width: 14, height: 14, borderRadius: 3, background: "rgba(21,101,192,.6)" }} />
+        <div style={{ width: 14, height: 14, borderRadius: 3, background: "rgba(21,101,192,.9)" }} />
+        <Typography.Text type="secondary" style={{ fontSize: 11 }}>多</Typography.Text>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
@@ -66,6 +133,8 @@ export default function Home() {
   const [failedRows, setFailedRows] = useState<{ name: string }[]>([]);
   const [sbWidth, setSbWidth] = useState(6);
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
+  const [calOpen, setCalOpen] = useState(false);
+  const [calData, setCalData] = useState<CalData | null>(null);
 
   useEffect(() => {
     const probe = document.createElement("div");
@@ -168,6 +237,23 @@ export default function Home() {
   function collectRow(row: Task) {
     message.info(`开始采集「${row.name}」（功能待接后端）`);
   }
+  const [calMonthKey, setCalMonthKey] = useState<string>("");
+  async function loadCalendar(id: number, monthKey: string) {
+    const [y, m] = monthKey.split("-").map(Number);
+    try {
+      const r = await fetch(`${API}/calendar/${id}?year=${y}&month=${m}`);
+      const d = await r.json();
+      setCalData(d);
+      setCalMonthKey(monthKey);   // 同步显示值, 触发3个月历刷新
+    } catch { message.error("获取日历失败"); }
+  }
+  async function openCalendar(row: Task) {
+    const now = new Date();
+    const mk = `${now.getFullYear()}-${now.getMonth() + 1}`;
+    setCalMonthKey(mk);
+    await loadCalendar(row.id, mk);
+    setCalOpen(true);
+  }
   async function clearAll() {
     if (selectedKeys.length === 0) {
       Modal.warning({ title: "未选择", content: "请在左侧勾选要删除的公众号", okText: "知道了" });
@@ -243,6 +329,17 @@ export default function Home() {
                 { title: "biz 代码", dataIndex: "biz", render: (v: string) => <Typography.Text code style={{ fontSize: 12 }}>{v || "—"}</Typography.Text> },
 
                 {
+                  title: "文章采集统计", dataIndex: "op2", width: 140, align: "center",
+                  render: (_: unknown, row: Task) => (
+                    <Space>
+                      <span>{row.collected_count ?? 0}</span>
+                      {(row.collected_count ?? 0) > 0 && (
+                        <Button size="small" type="link" icon={<CalendarOutlined />} onClick={() => openCalendar(row)}>统计</Button>
+                      )}
+                    </Space>
+                  ),
+                },
+                {
                   title: "操作", dataIndex: "op", width: 150, align: "center",
                   render: (_: unknown, row: Task) => (
                     <Space>
@@ -277,6 +374,12 @@ export default function Home() {
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>解析文件并识别公众号名称…</Typography.Text>
           </div>
         )}
+      </Modal>
+
+      {/* 采集日历弹窗 */}
+      <Modal title={calData ? `${calData.name} · 采集日历` : "采集日历"} open={calOpen}
+        footer={null} onCancel={() => setCalOpen(false)} width={760} style={{ maxHeight: "80vh", overflow: "auto" }}>
+        {calData && <CollectCalendar daily={calData.daily} monthKey={calMonthKey} onMonthChange={(m) => loadCalendar(calData.id, m)} />}
       </Modal>
 
       {/* 新增弹窗 */}

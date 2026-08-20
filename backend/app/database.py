@@ -33,6 +33,12 @@ def init_db():
             UNIQUE(sort_order)
         );
         """)
+        # biz 唯一(同 biz 不允许重复公众号)
+        try:
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_biz ON accounts(biz)")
+            conn.commit()
+        except Exception:
+            pass
         conn.commit()
         # 迁移: 旧表 link -> biz
         cols = [r[1] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()]

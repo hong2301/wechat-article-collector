@@ -23,7 +23,15 @@ def list_accounts():
             "SELECT a.* FROM accounts a "
             "LEFT JOIN sort_config s ON a.id = s.record_id "
             "ORDER BY COALESCE(s.sort_order, 999999999), a.id ASC").fetchall()
-        return [_row_to_dict(r) for r in rows]
+        # 附文章采集统计
+        from ..services.stats import get_account_collect
+        result = []
+        for r in rows:
+            d = _row_to_dict(r)
+            st = get_account_collect(biz=d.get("biz") or "", name=d.get("name") or "")
+            d["collected_count"] = st["count"]
+            result.append(d)
+        return result
     finally:
         conn.close()
 
@@ -131,6 +139,28 @@ from pydantic import BaseModel
 
 class SortPayload(BaseModel):
     ids: List[int]
+
+
+@router.get("/calendar/{aid}")
+def account_calendar(aid: int, year: int = None, month: int = None):
+    """单个公众号的采集日历; 指定年/月返回该月每日数量, 否则返回全部daily"""
+    import calendar as _cal
+    from ..services.stats import get_account_collect
+    conn = get_conn()
+    try:
+        r = conn.execute("SELECT name, biz FROM accounts WHERE id=?", (aid,)).fetchone()
+    finally:
+        conn.close()
+    if not r:
+        raise HTTPException(404, "账号不存在")
+    st = get_account_collect(biz=r["biz"] or "", name=r["name"] or "")
+    daily = st["daily"]
+    if year is not None and month is not None:
+        # 该月每日(含0)
+        _, ndays = _cal.monthrange(year, month)
+        m = {f"{year}-{month:02d}-{d:02d}": daily.get(f"{year}-{month:02d}-{d:02d}", 0) for d in range(1, ndays + 1)}
+        daily = m
+    return {"id": aid, "name": r["name"], "count": st["count"], "daily": daily}
 
 @router.put("/sort")
 def sort_accounts(payload: SortPayload):

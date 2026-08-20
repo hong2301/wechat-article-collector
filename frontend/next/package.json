@@ -16,6 +16,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@next/swc-win32-x64-msvc": "^16.3.1",
     "antd": "^6.6.1",
+    "dayjs": "^1.11.23",
     "next": "16.3.1",
     "react": "19.2.8",
     "react-dom": "19.2.8",

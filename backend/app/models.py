@@ -24,3 +24,4 @@ class AccountUpdate(BaseModel):
 
 class Account(AccountBase):
     id: int
+    collected_count: int = 0
