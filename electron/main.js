@@ -1,6 +1,5 @@
-const { app, BrowserWindow, nativeImage } = require('electron')
+const { app, BrowserWindow, nativeImage, shell } = require('electron')
 const path = require('path')
-const fs = require('fs')
 
 const isDev = !app.isPackaged
 
@@ -20,8 +19,26 @@ function createWindow() {
     height: 760,
     autoHideMenuBar: true,
     icon,
-    webPreferences: { contextIsolation: true, nodeIntegration: false }
+    webContents: { contextIsolation: true, nodeIntegration: false },
   })
+
+  // 拦截导航：外部 http(s) 链接用系统默认浏览器打开，不在应用内跳转
+  win.webContents.on('will-navigate', (event, url) => {
+    if (url.startsWith('http://localhost') || url.startsWith('http://127.0.0.1')) {
+      return   // 本地(Nex/后端) 放行
+    }
+    event.preventDefault()
+    shell.openExternal(url)
+  })
+  // 拦截 target=_blank 新窗口
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http://localhost') || url.startsWith('http://127.0.0.1')) {
+      return { action: 'allow' }
+    }
+    shell.openExternal(url)
+    return { action: 'deny' }
+  })
+
   if (isDev) {
     win.loadURL('http://localhost:3000')
   } else {
@@ -29,9 +46,7 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
-  createWindow()
-})
+app.whenReady().then(createWindow)
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
