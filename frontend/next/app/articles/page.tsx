@@ -14,6 +14,10 @@ interface Article {
   link: string;
   reads: string;
   likes: string;
+  forwards: string;
+  favorites: string;
+  comments: string;
+  write_time: string;
   original: string;
   ip: string;
 }
@@ -63,15 +67,19 @@ export default function ArticlePage() {
       </div>
 
       <div style={{ flex: 1, minHeight: 0, overflow: "hidden", background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px" }}>
-        <Table rowKey="id" dataSource={shown} loading={loading} pagination={false} scroll={{ y: "calc(100vh - 205px)" }} size="middle"
+        <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} scroll={{ x: 1000, y: "calc(100vh - 205px)" }} size="small"
           locale={{ emptyText: <Empty description="暂无文章" /> }}
           columns={[
-            { title: "标题", dataIndex: "title", render: (v: string, r: Article) => r.link ? <a href={r.link} target="_blank">{v}</a> : v },
-            { title: "日期", dataIndex: "date", width: 160 },
+            { title: "标题", dataIndex: "title", width: 260, render: (v: string, r: Article) => r.link ? <a href={r.link} target="_blank">{v}</a> : v },
+            { title: "日期", dataIndex: "date", width: 150 },
             { title: "阅读", dataIndex: "reads", width: 80 },
             { title: "点赞", dataIndex: "likes", width: 80 },
+            { title: "转发", dataIndex: "forwards", width: 80 },
+            { title: "喜欢", dataIndex: "favorites", width: 80 },
+            { title: "评论", dataIndex: "comments", width: 80 },
+            { title: "写入时间", dataIndex: "write_time", width: 170 },
             { title: "原创", dataIndex: "original", width: 90, render: (v: string) => <Tag color={v === "原创" ? "green" : "default"}>{v || "—"}</Tag> },
-            { title: "IP属地", dataIndex: "ip", width: 130 },
+            { title: "IP属地", dataIndex: "ip", width: 140 },
             { title: "操作", dataIndex: "op", width: 80, align: "center",
               render: (_: unknown, r: Article) => (
                 <Space><Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => del(r)}>删除</Button></Space>

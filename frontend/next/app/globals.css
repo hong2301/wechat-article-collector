@@ -70,12 +70,14 @@ a {
   background: #9aa0aa;
 }
 
-/* 隐藏横向滚动条(列表不出现横向) */
-.ant-table-body {
+/* 首页(公众号列表)隐藏横向滚动条; 文章列表(.articles-table)允许横向 */
+.home-table .ant-table-body,
+.home-table .ant-table-content {
   overflow-x: hidden !important;
 }
-.ant-table-content {
-  overflow-x: hidden !important;
+.articles-table .ant-table-body,
+.articles-table .ant-table-content {
+  overflow-x: auto !important;
 }
 html, body {
   overflow-x: hidden;

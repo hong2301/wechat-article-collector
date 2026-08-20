@@ -303,7 +303,7 @@ export default function Home() {
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={tasks.map((t) => String(t.id))} strategy={verticalListSortingStrategy}>
-            <Table rowKey="id" dataSource={tasks} loading={loading} pagination={false} bordered scroll={{ y: "calc(100vh - 255px)" }}
+            <Table className="home-table" rowKey="id" dataSource={tasks} loading={loading} pagination={false} bordered scroll={{ y: "calc(100vh - 255px)" }}
               locale={{ emptyText: <Empty description="请添加一个公众号" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
               components={{ body: { row: SortableRow } }}
               rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}

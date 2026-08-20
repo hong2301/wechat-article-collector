@@ -153,7 +153,9 @@ def account_articles_by_biz(biz: str):
         conn.close()
     name = dict(acc)["name"] if acc else ""
     arts = [{"id": d["id"], "title": d["title"], "date": d["date"], "link": d["link"],
-             "reads": d["reads"], "likes": d["likes"], "original": d["original"], "ip": d["ip"]} for d in rows]
+             "reads": d["reads"], "likes": d["likes"], "forwards": d["forwards"],
+             "favorites": d["favorites"], "comments": d["comments"], "write_time": d["write_time"],
+             "original": d["original"], "ip": d["ip"]} for d in rows]
     return {"biz": biz, "name": name, "articles": arts}
 
 
