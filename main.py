@@ -848,7 +848,7 @@ class App:
         # ---- 底部：微信版本（靠右） ----
         bottom = tk.Frame(root)
         bottom.pack(side=tk.BOTTOM, fill=tk.X, padx=14, pady=4)
-        tk.Label(bottom, text=f"微信 PC 版 {WECHAT_VERSION}",
+        tk.Label(bottom, text=f"微信 Windows 版 {WECHAT_VERSION}",
                  font=("Microsoft YaHei UI", 9),
                  fg="#888888", anchor="e").pack(side=tk.RIGHT)
 
@@ -1257,7 +1257,7 @@ class App:
         self.status_var.set(f"已加载 {total} 个公众号（待处理 {todo} 个）")
         log(f"{APP_NAME} 已启动")
         log(f"已加载 {CONFIG_DIR}/{INPUT_CSV}: {total} 个有效公众号（pending/null/error 共 {todo} 个）")
-        log(f"微信 PC 版: {WECHAT_VERSION}（程序版本 {VERSION}）")
+        log(f"微信 Windows 版: {WECHAT_VERSION}（程序版本 {VERSION}）")
         log(f"记忆设置已读取: 时间范围[{dict(TIME_OPTIONS).get(self.time_var.get(), '?')}] "
             f"最大数量[{self.max_count_var.get() or '无限'}] "
             f"窗口分离[{('开' if self.window_split_var.get() else '关')}] "
