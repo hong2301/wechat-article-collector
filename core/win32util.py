@@ -359,13 +359,15 @@ class MouseLock:
         if code == 0:
             ms = ctypes.cast(lparam, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
             if not (ms.flags & LLMHF_INJECTED):
-                # 用户鼠标输入（移动/点击/滚轮）全部拦截
-                cb = self.on_block
-                if cb is not None:
-                    try:
-                        cb()
-                    except Exception:
-                        pass
+                # 移动消息(WM_MOUSEMOVE)是环境噪声(窗口/系统动画等), 拦截但不触发提示,
+                # 避免无操作时提示弹窗被频繁重置而一直显示
+                if wparam != WM_MOUSEMOVE:
+                    cb = self.on_block
+                    if cb is not None:
+                        try:
+                            cb()
+                        except Exception:
+                            pass
                 return 1
         return _u32().CallNextHookEx(self.hook, code, wparam, lparam)
 

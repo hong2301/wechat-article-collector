@@ -41,6 +41,27 @@ from core.image_ocr import *
 from core.datastore import *
 from core.win32util import *
 
+# ---------------- 时间设置(可配置主要时间点: 内部名 -> (显示标签, 默认值)) ----------------
+TIME_SETTINGS = {
+    "win_pos":        ("微信窗口就位(秒)", 0.3),
+    "search_bar":     ("点击搜索栏后", 0.3),
+    "type_pause":     ("输入/删除后", 0.15),
+    "result_click":   ("点击搜索结果后", 0.3),
+    "switch_window":  ("切换窗口后", 0.5),
+    "new_win_ready":  ("新窗口就位", 0.8),
+    "search_wait":    ("搜索后等列表", 5.0),
+    "author_timeout": ("作者检测超时", 15.0),
+    "author_poll":    ("作者轮询间隔", 0.1),
+    "article_load":   ("点击文章后等待", 1.0),
+    "clipboard_wait": ("复制链接剪贴板缓冲", 0.5),
+    "clipboard_poll": ("复制链接轮询间隔", 0.1),
+    "scroll_after":   ("文章列表滚动后", 1.0),
+    "close_after":    ("关闭文章后", 0.5),
+    "reply_load":     ("评论二级加载", 0.8),
+    "comment_scroll": ("评论区滚动后", 0.8),
+    "read_load":      ("阅读数加载等待", 2.0),
+}
+
 # ---------------- 时间范围选项 ----------------
 TIME_OPTIONS = (
     ("all", "全部"),
@@ -406,6 +427,69 @@ class PointsDialog(tk.Toplevel):
 
 
 # ================= 主界面 =================
+# ================= 时间设置弹窗(两列多行: 标签 + 数字选择器) =================
+class TimeDialog(tk.Toplevel):
+    FONT = ("Microsoft YaHei UI", 10)
+
+    def __init__(self, master, app=None):
+        super().__init__(master)
+        self.app = app
+        self.title("时间设置")
+        self.geometry("620x640")
+        self.transient(master)
+        self.grab_set()
+        # 当前配置(副本), 确定时才写回到 app 并保存
+        self.cfg = dict(app.time_cfg) if app else {}
+        self.spins = {}
+        wrap = tk.Frame(self)
+        wrap.pack(fill=tk.BOTH, expand=True, padx=12, pady=10)
+        inner = tk.Frame(wrap)
+        inner.pack(fill=tk.BOTH, expand=True)
+        keys = list(TIME_SETTINGS.keys())
+        # 两列: 左列0..N/2, 右列N/2..
+        half = (len(keys) + 1) // 2
+        for col, klist in enumerate((keys[:half], keys[half:])):
+            colf = tk.Frame(inner)
+            colf.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=6)
+            for i, k in enumerate(klist):
+                lab, default = TIME_SETTINGS[k]
+                row = tk.Frame(colf)
+                row.pack(fill=tk.X, pady=3)
+                tk.Label(row, text=lab, font=self.FONT, width=16, anchor="w"
+                         ).pack(side=tk.LEFT)
+                sv = tk.StringVar(value=str(self.cfg.get(k, default)))
+                sp = tk.Spinbox(row, from_=0.0, to=60.0, increment=0.1,
+                                textvariable=sv, width=7, font=self.FONT)
+                sp.pack(side=tk.LEFT, padx=2)
+                self.spins[k] = (sv, sp)
+                tk.Label(row, text="秒", font=("Microsoft YaHei UI", 8),
+                         fg="#888").pack(side=tk.LEFT)
+        bar = tk.Frame(self)
+        bar.pack(fill=tk.X, padx=12, pady=(0, 10))
+        tk.Button(bar, text="恢复默认", width=10, font=self.FONT,
+                  command=self._reset_default).pack(side=tk.LEFT)
+        tk.Button(bar, text="取消", width=8, font=self.FONT,
+                  command=self.destroy).pack(side=tk.RIGHT, padx=4)
+        tk.Button(bar, text="确定", width=8, font=self.FONT,
+                  command=self._save).pack(side=tk.RIGHT, padx=4)
+
+    def _reset_default(self):
+        for k, (_lab, default) in TIME_SETTINGS.items():
+            if k in self.spins:
+                self.spins[k][0].set(str(default))
+
+    def _save(self):
+        for k, (sv, _sp) in self.spins.items():
+            try:
+                self.cfg[k] = float(sv.get())
+            except ValueError:
+                pass
+        if self.app:
+            self.app.time_cfg = dict(self.cfg)
+            self.app._save_timing()   # 保存到 ui_state
+        self.destroy()
+
+
 class StopSignal(BaseException):
     """采集停止信号：按 ESC 时抛出, 由最外层统一捕获结束采集
     继承 BaseException 而非 Exception, 避免被各处 except Exception 误捕获"""
@@ -444,6 +528,13 @@ class App:
         self.busy = False
         self.last_error = ""
         self._quota_error = False   # 豆包无额度标志(确认后停止后续调用)
+        # 时间设置(可配置), 合并默认值
+        self.time_cfg = {}
+        for _k, (_lab, _def) in TIME_SETTINGS.items():
+            try:
+                self.time_cfg[_k] = float(self.ui.get("timing", {}).get(_k, _def))
+            except (TypeError, ValueError):
+                self.time_cfg[_k] = float(_def)
         self._abort_all = False     # 停止全部任务标志(评论采集致命错误)
         self._api_fail_streak = 0   # 豆包连续失败计数
         self._api_disabled = False  # 豆包连续失败3次后本批次禁用
@@ -670,6 +761,10 @@ class App:
                        command=self.toggle_key_show).pack(side=tk.LEFT, padx=(4, 0))
         btn_bar = tk.Frame(ctrl)
         btn_bar.pack(fill=tk.X, padx=10, pady=(4, 6))
+        self.btn_time = tk.Button(btn_bar, text="时间设置", width=10,
+                                   font=("Microsoft YaHei UI", 12),
+                                   command=self.open_time_dialog)
+        self.btn_time.pack(side=tk.RIGHT, padx=(6, 0))
         self.btn_points = tk.Button(btn_bar, text="点位设置", width=10,
                                     font=("Microsoft YaHei UI", 12),
                                     command=self.open_points_dialog)
@@ -713,21 +808,19 @@ class App:
                              font=("Microsoft YaHei UI", 10))
         task.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        # 表格：索引 | 链接 | 公众号名称 | 状态 | 备注 | 操作
-        cols = ("idx", "url", "name", "status", "remark", "op")
+        # 表格：操作(重置/删除) | 公众号名称 | 链接 | 状态 | 备注
+        cols = ("op", "name", "url", "status", "remark")
         self.tree = ttk.Treeview(task, columns=cols, show="headings")
-        self.tree.heading("idx", text="索引")
-        self.tree.heading("url", text="链接")
+        self.tree.heading("op", text="操作")
         self.tree.heading("name", text="公众号名称")
+        self.tree.heading("url", text="链接")
         self.tree.heading("status", text="状态")
         self.tree.heading("remark", text="备注")
-        self.tree.heading("op", text="操作")
-        self.tree.column("idx", width=45, anchor="center", stretch=False)
-        self.tree.column("url", width=220, anchor="w", stretch=True)
+        self.tree.column("op", width=96, anchor="center", stretch=False)
         self.tree.column("name", width=140, anchor="w", stretch=False)
+        self.tree.column("url", width=210, anchor="w", stretch=True)
         self.tree.column("status", width=120, anchor="w", stretch=False)
-        self.tree.column("remark", width=160, anchor="w", stretch=False)
-        self.tree.column("op", width=40, anchor="center", stretch=False)
+        self.tree.column("remark", width=150, anchor="w", stretch=False)
         vsb = ttk.Scrollbar(task, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=vsb.set)
         vsb.pack(side=tk.RIGHT, fill=tk.Y)
@@ -816,7 +909,7 @@ class App:
             elif "error" in st:
                 tag = "error"
             self.tree.insert("", "end", iid=str(pos),
-                             values=(idx, url, name, st, remark, "删除"), tags=(tag,))
+                             values=("重置 删除", name, url, st, remark), tags=(tag,))
         self.tree.tag_configure("pending", background="#fff8e1")
         self.tree.tag_configure("error", background="#ffebee")
 
@@ -834,11 +927,16 @@ class App:
 
     # ---------- 任务区交互：编辑 / 删除 / 重置 / 新增 ----------
     def _on_tree_click(self, event):
-        """单击：命中操作列则删除该行"""
+        """单击：命中操作列 -> 左半=重置, 右半=删除"""
         rowid = self.tree.identify_row(event.y)
         col = self.tree.identify_column(event.x)
-        if not rowid or col == "#6":        # 操作列
-            self._delete_row(rowid)
+        if not rowid or col != "#1":        # 非操作列
+            return
+        bbox = self.tree.bbox(rowid, col)
+        if bbox and event.x < bbox[0] + bbox[2] / 2:
+            self._reset_row(rowid)          # 左半: 重置
+        else:
+            self._delete_row(rowid)         # 右半: 删除
 
     def _on_tree_double_click(self, event):
         """双击：编辑单元格（索引列只读）"""
@@ -847,10 +945,13 @@ class App:
         if not rowid or not col:
             return
         col_idx = int(col.replace("#", "")) - 1
-        if col_idx == 0:                    # 索引只读
-            return
-        if col_idx == 5:                    # 操作列
-            self._delete_row(rowid)
+        if col_idx == 0:                    # 操作列(最左): 左半重置右半删除
+            this_col = self.tree.identify_column(event.x)
+            bb = self.tree.bbox(rowid, this_col)
+            if bb and event.x < bb[0] + bb[2] / 2:
+                self._reset_row(rowid)
+            else:
+                self._delete_row(rowid)
             return
         bbox = self.tree.bbox(rowid, col)
         if not bbox:
@@ -900,6 +1001,23 @@ class App:
         self.rows_all.pop(pos)
         self._save_input(f"已删除: [{idx}] {name}")
 
+    def _reset_row(self, rowid):
+        """单独重置该行: 状态改为 pending
+        有链接 -> pending; 无链接 -> null; 备注重置? 保留"""
+        if not rowid:
+            return
+        pos = int(rowid)
+        if pos >= len(self.rows_all):
+            return
+        idx, url, name, st, remark = self.rows_all[pos]
+        new_st = "pending" if url else "null"
+        if st == new_st:
+            log(f"第 {idx} 行已是 {new_st}，无需重置")
+            self._save_input(f"第 {idx} 行已是 {new_st}")
+            return
+        self.rows_all[pos] = (idx, url, name, new_st, remark)
+        self._save_input(f"已重置: [{idx}] {name} -> {new_st}")
+
     def on_reset(self):
         """重置：把所有行状态改为 pending，然后重新加载 input.csv"""
         if not messagebox.askyesno("重置确认",
@@ -912,12 +1030,12 @@ class App:
         self.reload_input("已重置: 状态改为 pending/null，备注已清空，并重新加载 input.csv")
 
     def on_add(self):
-        """新增：追加一行空记录（双击编辑）"""
+        """新增：在最前面插入一行空记录（双击编辑）"""
         if not self.rows_all:
             new_idx = 0
         else:
-            new_idx = max(r[0] for r in self.rows_all) + 1
-        self.rows_all.append((new_idx, "", "", "null", ""))
+            new_idx = min(r[0] for r in self.rows_all) - 1
+        self.rows_all.insert(0, (new_idx, "", "", "null", ""))
         self._save_input(f"已新增空行 [索引 {new_idx}]，双击链接/名称列填写内容，状态默认 null")
 
     # ---------- 控制区逻辑 ----------
@@ -943,6 +1061,19 @@ class App:
     def open_points_dialog(self):
         """打开点位设置弹窗"""
         PointsDialog(self.root)
+
+    def open_time_dialog(self):
+        """打开时间设置弹窗"""
+        TimeDialog(self.root, self)
+
+    def _save_timing(self):
+        """保存时间设置到 ui_state.json"""
+        try:
+            st = load_ui_state() or {}
+            st["timing"] = {k: str(v) for k, v in self.time_cfg.items()}
+            save_ui_state(st)
+        except Exception as e:
+            log(f"保存时间设置失败: {e}")
 
     def toggle_key_show(self):
         """豆包 API Key 显示/隐藏切换"""
@@ -1311,6 +1442,13 @@ class App:
             log("鼠标/键盘已解锁")
             self.ui_queue.put(("finish", self.stop_event.is_set(), total, done_n))
 
+    def ts(self, name):
+        """读取命名时间配置值(秒); 未知名称/异常返回默认值"""
+        try:
+            return float(self.time_cfg.get(name, TIME_SETTINGS.get(name, (None, 0.3))[1]))
+        except Exception:
+            return 0.3
+
     def _sleep(self, seconds):
         """可中断 sleep：分段检查停止信号。被停止时抛 StopSignal 结束采集"""
         end = time.time() + seconds
@@ -1456,7 +1594,7 @@ class App:
                 ax1, ay1 = int(p19[2]), int(p19[3])
                 ax2, ay2 = int(p20[2]), int(p20[3])
                 log("连续点击作者名称并识别区域 ...")
-                _deadline = time.time() + 15   # 总超时15秒
+                _deadline = time.time() + self.ts("author_timeout")   # 作者检测总超时(可配)
                 _saw_name = False
                 while time.time() < _deadline:
                     self._check_stop()
@@ -1724,7 +1862,7 @@ class App:
                 likes = extract_likes(text)   # 点赞数(-1=未识别到)
                 log(f"点击文章点位 (x=点位12:{p12_x}, y={cy}) 阅读[{reads}] 赞[{likes}] 时间[{art_time}] 日期[{d or '-'}]")
                 mouse_click(p12_x, cy)
-                self._sleep(1)   # 点击文章点位后等待 1 秒
+                self._sleep(self.ts("article_load"))   # 点击文章点位后等待(可配)
                 r = self._collect_article_link(pts, name, click_time, reads, likes, idx)
                 if r is False:
                     log("文章操作失败，任务标记 error")
@@ -1736,7 +1874,7 @@ class App:
 
                 log("Ctrl+W 关闭文章")
                 ctrl_key("W")
-                self._sleep(0.5)
+                self._sleep(self.ts("close_after"))
                 # 每处理完一张卡片检查后台结果（及时写入CSV）
                 if self._check_fetch_results():
                     log("后台任务触发停止条件，退出文章采集循环")
@@ -1757,8 +1895,8 @@ class App:
                 break
             log(f"全部点击完毕，移动鼠标到点位7({p7[2]},{p7[3]}) 向下滚动 {scroll_px}px")
             scroll_down_at(int(p7[2]), int(p7[3]), scroll_px)
-            log("等待 1 秒列表刷新...")
-            self._sleep(1)
+            log("列表滚动后等待刷新...")
+            self._sleep(self.ts("scroll_after"))
         # 等待所有后台抓取任务完成
         self._wait_all_fetches()
         return True
@@ -1939,7 +2077,7 @@ class App:
                     log(f"评论采集第{loop_n}轮: 滚动评论区({_px}px)")
                     scroll_down_at(int(p23_now[2]), int(p23_now[3]), _px)
                 pts = {p[0]: p for p in load_points()}
-                self._sleep(0.8)
+                self._sleep(self.ts("comment_scroll"))   # 评论区滚动后(可配)
                 continue
             same_count = 0
             prev_shot = shot
@@ -2037,7 +2175,7 @@ class App:
                 log(f"评论采集第{loop_n}轮: 滚动评论区({_px}px)")
                 scroll_down_at(int(p23_now[2]), int(p23_now[3]), _px)
             pts = {p[0]: p for p in load_points()}
-            self._sleep(0.8)
+            self._sleep(self.ts("comment_scroll"))   # 评论区滚动后(可配)
 
         # 最终确认: 4指标结果留言=0 → 清理本次误采集
         if interact_future is not None:
@@ -2097,7 +2235,7 @@ class App:
         for x, y, txt in reply_btns:
             self._check_stop()
             mouse_click(x, y)
-            self._sleep(0.8)  # 等二级评论加载
+            self._sleep(self.ts("reply_load"))  # 等二级评论加载(可配)
         # 展开后等稳定
         self._sleep(1.0)
 
@@ -2165,9 +2303,9 @@ class App:
             self._sleep(0.15)
             log("采集阅读数：按回车")
             key_press(VK_RETURN)
-            self._sleep(5)
+            self._sleep(self.ts("search_wait"))   # 搜索后等列表(可配)
             # 等加载 → 截图点位15/16区域(阅读数) → base64
-            self._sleep(READ_LOAD_WAIT)
+            self._sleep(self.ts("read_load"))   # 阅读数加载(可配)
             try:
                 from PIL import ImageGrab as _Grab
                 rbox = self._sub_region(pts, 15, 16)
@@ -2232,11 +2370,17 @@ class App:
                 title, pub_time, original, ip_location = fetched
                 _stem = clean_filename(title or "untitled")
                 _date = (pub_time or "")[:10]
-                _fname = f"{_date}_{_stem}.html" if _date else f"{_stem}.html"
-                save_path = os.path.join(save_dir, _fname)
+                # 每篇文章保存为独立文件夹: <日期>_<题目>/<日期>_<题目>.html + images/
+                _folder = f"{_date}_{_stem}" if _date else _stem
+                _art_dir = os.path.join(save_dir, _folder)
+                os.makedirs(_art_dir, exist_ok=True)
+                save_path = os.path.join(_art_dir, _folder + ".html")
                 fetched2 = fetch_article(link, save_path)
                 if fetched2 is None:
                     return _result(error="HTML 保存失败")
+                # 下载文章图片到本地(images/相对html), 实现离线可看
+                _img_n = localize_article_images(save_path)
+                log(f"文章图片本地化: {_img_n} 张")
             else:
                 fetched = fetch_article(link)
                 if fetched is None:
