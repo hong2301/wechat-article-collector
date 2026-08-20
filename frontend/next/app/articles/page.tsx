@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip } from "antd";
-import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, ScanOutlined, InboxOutlined } from "@ant-design/icons";
 
 const API = "http://127.0.0.1:8000/api/accounts";
 
@@ -98,7 +98,9 @@ export default function ArticlePage() {
         <Typography.Title level={5} style={{ margin: 0 }}>「{name || "..."}」的文章列表</Typography.Title>
       </div>
       <div style={{ maxHeight: "calc(100vh - 205px)", overflowY: "auto", background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px" }}>
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, padding: "0 0 12px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+          <Button type="primary" icon={<InboxOutlined />} onClick={() => message.info("采集选中(开发中)")}>采集选中</Button>
+          <div style={{ flex: 1 }} />
           <Button color="primary" variant="outlined" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>
           <Button icon={<ImportOutlined />} onClick={() => message.info("导入文章(待接后端)")}>导入</Button>
           <Button danger icon={<DeleteOutlined />} onClick={deleteSelected}>删除选中</Button>
@@ -148,7 +150,10 @@ export default function ArticlePage() {
             },
             { title: "操作", dataIndex: "op", align: "center",
               render: (_: unknown, r: Article) => (
-                <Space><Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => del(r)}>删除</Button></Space>
+                <Space>
+                  <Button size="small" type="link" icon={<ScanOutlined />} onClick={() => message.info("采集功能开发中")}>采集</Button>
+                  <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => del(r)}>删除</Button>
+                </Space>
               ) },
           ]}
         />
