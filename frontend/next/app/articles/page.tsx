@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip } from "antd";
+import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress } from "antd";
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined } from "@ant-design/icons";
 
 const API = "http://127.0.0.1:8000/api/accounts";
@@ -33,6 +33,11 @@ export default function ArticlePage() {
   const [addOpen, setAddOpen] = useState(false);
   const [newLink, setNewLink] = useState("");
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importingPct, setImportingPct] = useState(0);
+  const [failedLinks, setFailedLinks] = useState<string[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const b = new URLSearchParams(window.location.search).get("biz") || "";
@@ -53,6 +58,51 @@ export default function ArticlePage() {
 
   const shown = kw ? articles.filter((a) => (a.title || "").includes(kw)) : articles;
   function reload() { if (biz) load(biz); }
+
+  async function importFile(f: File) {
+    setImporting(true); setImportingPct(0); setFailedLinks([]);
+    const fd = new FormData();
+    fd.append("file", f);
+    let total = 0, addedCount = 0;
+    const fails: string[] = [];
+    try {
+      const r = await fetch(`${API}/articles-by-biz/import?biz=${encodeURIComponent(biz)}`, { method: "POST", body: fd });
+      if (!r.body) throw 0;
+      const reader = r.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf("\n\n")) !== -1) {
+          const block = buf.slice(0, idx); buf = buf.slice(idx + 2);
+          const dm = block.match(/^data: (.+)$/m);
+          if (!dm) continue;
+          const d = JSON.parse(dm[1]);
+          if (d.total) total = d.total;
+          if (d.done !== undefined) {
+            setImportingPct(Math.round((d.done / (total || 1)) * 100));
+            if (d.ok) addedCount++; else fails.push(d.name || "(未知)");
+          }
+        }
+      }
+    } catch { setImporting(false); message.error("导入失败"); return; }
+    setImportingPct(100);
+    setFailedLinks(fails);
+    reload();
+    if (fails.length > 0) {
+      message.warning(`导入完成: 新增${addedCount}, 失败/重复${fails.length}`);
+    } else {
+      setTimeout(() => { setImporting(false); message.success(`导入完成: 新增${addedCount}`); }, 1000);
+    }
+  }
+  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (f) importFile(f);
+    e.target.value = "";
+  }
 
   function openAdd() { setNewLink(""); setAddOpen(true); }
 
@@ -97,13 +147,18 @@ export default function ArticlePage() {
         <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/")}>返回</Button>
         <Typography.Title level={5} style={{ margin: 0 }}>「{name || "..."}」的文章列表</Typography.Title>
       </div>
-      <div style={{ maxHeight: "calc(100vh - 205px)", overflowY: "auto", background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px" }}>
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) importFile(f); }}
+        style={{ maxHeight: "calc(100vh - 205px)", overflowY: "auto", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Button type="primary" icon={<InboxOutlined />} onClick={() => message.info("采集选中(开发中)")}>采集选中</Button>
           <div style={{ flex: 1 }} />
           <Button color="primary" variant="outlined" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>
-          <Button icon={<ImportOutlined />} onClick={() => message.info("导入文章(待接后端)")}>导入</Button>
+          <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>
           <Button danger icon={<DeleteOutlined />} onClick={deleteSelected}>删除选中</Button>
+          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.xlsm" style={{ display: "none" }} onChange={onPick} />
         </div>
         <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} scroll={{ x: 1100 }} size="small"
           rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
@@ -161,6 +216,25 @@ export default function ArticlePage() {
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 篇</Typography.Text>
         </div>
       </div>
+      {/* 导入进度/失败弹窗 */}
+      <Modal title={failedLinks.length ? "导入结果" : "正在导入"} open={importing}
+        footer={failedLinks.length ? <Button type="primary" onClick={() => setImporting(false)}>关闭</Button> : null}
+        closable={failedLinks.length > 0} onCancel={() => setImporting(false)} width={460}>
+        {failedLinks.length ? (
+          <div>
+            <Typography.Paragraph strong style={{ color: "#c62828" }}>有 {failedLinks.length} 条链接未能导入（重复或格式不符），需手动处理：</Typography.Paragraph>
+            <Table size="small" rowKey={(r) => r} pagination={false} dataSource={failedLinks}
+              columns={[{ title: "失败链接", dataIndex: 0, render: (v: string) => <a href={v} target="_blank" style={{ fontSize: 12 }}>{v.slice(0, 60)}</a> }]} />
+          </div>
+        ) : (
+          <div style={{ textAlign: "center", padding: "8px 0" }}>
+            <Typography.Title level={5} style={{ marginTop: 0 }}>导入进度</Typography.Title>
+            <Progress percent={importingPct} status={importingPct >= 100 ? "success" : "active"} />
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>解析文件并识别文章链接…</Typography.Text>
+          </div>
+        )}
+      </Modal>
+
       <Modal title="新增文章" open={addOpen} onOk={saveNew} confirmLoading={saving} onCancel={() => setAddOpen(false)}
         okText="保存" cancelText="取消">
         <Space vertical style={{ width: "100%" }}>

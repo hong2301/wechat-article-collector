@@ -139,3 +139,54 @@ def _match_by_feature(rows):
             # 名称列: name 出现最多且不是biz/link
             mapping[i] = role
     return mapping
+
+
+# ---- 文章导入: 提取文章链接 ----
+ART_LINK_RE = re.compile(r"https?://(?:mp\.weixin\.qq\.com|weixin\.qq\.com)/\S+", re.I)
+
+
+def _extract_links(cell):
+    """从一个单元格提取文章链接(正则, 安全过滤)"""
+    v = (cell or "").strip()
+    if not v or len(v) > 2048:
+        return []
+    # 仅接受微信文章域名
+    if not re.search(r"mp\.weixin\.qq\.com", v, re.I):
+        return []
+    found = ART_LINK_RE.findall(v)
+    # 清理尾部标点
+    out = []
+    for f in found:
+        f = f.rstrip("),.;，。）")
+        if f not in out:
+            out.append(f)
+    return out
+
+
+def parse_article_file(filename, raw, max_rows=2000):
+    """解析上传表格, 提取所有文章链接(去重, 保序)
+    返回 [link, ...]; 安全: 仅识别文档表格类型/限定行数/仅微信域名"""
+    ext = (filename or "").lower().rsplit(".", 1)[-1]
+    if ext not in ("csv", "xlsx", "xlsm", "xls"):
+        raise ValueError("仅支持 CSV / Excel 文件")
+    if ext in ("xlsx", "xlsm", "xls"):
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
+        ws = wb.active
+        rows = [list(r) for r in ws.iter_rows(values_only=True)]
+    else:
+        text = raw.decode("utf-8-sig", errors="replace")
+        rows = list(csv.reader(text.splitlines()))
+    links = []
+    seen = set()
+    for r in rows:
+        for c in r:
+            if c is None:
+                continue
+            for lk in _extract_links(c):
+                if lk not in seen:
+                    seen.add(lk)
+                    links.append(lk)
+        if len(links) >= max_rows:
+            break
+    return links

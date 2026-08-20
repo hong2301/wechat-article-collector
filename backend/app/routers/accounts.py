@@ -201,6 +201,56 @@ def create_article(payload: ArticleCreate):
         conn.close()
 
 
+def _article_import_sse(links, biz, name):
+    """按 biz 逐链接入库, SSE 流式进度"""
+    import json as _json
+    total = len(links)
+    yield 'event: start' + chr(10) + 'data: ' + _json.dumps({'total': total}) + chr(10) + chr(10)
+    done = 0
+    dup = 0
+    for link in links:
+        ok = True
+        conn = get_conn()
+        try:
+            # 去重: 同 biz 下已存在该链接则跳过
+            ex = conn.execute("SELECT COUNT(*) c FROM articles WHERE biz=? AND link=?", (biz, link)).fetchone()
+            if ex["c"]:
+                ok, dup = False, dup + 1
+            else:
+                conn.execute(
+                    "INSERT INTO articles(account_id, name, date, title, link, biz) VALUES(?,?,?,?,?,?)",
+                    (None, name, "", link, link, biz))
+                conn.commit()
+        except Exception:
+            ok = False
+        finally:
+            conn.close()
+        done += 1
+        yield 'event: progress' + chr(10) + 'data: ' + _json.dumps({'done': done, 'total': total, 'name': name, 'ok': ok}) + chr(10) + chr(10)
+    yield 'event: done' + chr(10) + 'data: ' + _json.dumps({'dup': dup}) + chr(10) + chr(10)
+
+
+@router.post("/articles-by-biz/import")
+def import_articles(biz: str = "", file: UploadFile = File(...)):
+    """上传表格文件, 提取文章链接, 按 biz 批量入库(SSE)"""
+    if not biz:
+        raise HTTPException(400, "缺少 biz")
+    raw = file.file.read() if hasattr(file, "file") else file.read()
+    from ..services.importer import parse_article_file
+    try:
+        links = parse_article_file(file.filename or "", raw)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    conn = get_conn()
+    try:
+        acc = conn.execute("SELECT name FROM accounts WHERE biz=?", (biz,)).fetchone()
+        name = dict(acc)["name"] if acc else ""
+    finally:
+        conn.close()
+    return StreamingResponse(_article_import_sse(links, biz, name), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache"})
+
+
 @router.get("/calendar/{aid}")
 def account_calendar(aid: int, year: int = None, month: int = None):
     """单个公众号的采集日历; 指定年/月返回该月每日数量, 否则返回全部daily"""
