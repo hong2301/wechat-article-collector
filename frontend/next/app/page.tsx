@@ -1,12 +1,22 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Table, Button, Typography, Tag, Tooltip, Space, Input, message, Modal, Spin } from "antd";
+import { Table, Button, Typography, Tag, Tooltip, Space, Input, message, Modal, Spin, Progress, Empty } from "antd";
 import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined } from "@ant-design/icons";
-import { Progress, Empty } from "antd";
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 const API = "http://127.0.0.1:8000/api/accounts";
 const RESOLVE = "http://127.0.0.1:8000/api/resolve-name";
+
+interface Task {
+  id: number;
+  name: string;
+  biz: string;
+  status: string;
+  remark: string;
+}
 
 const Telescope = () => (
   <svg width="22" height="22" viewBox="0 0 1024 1024" fill="#fff" xmlns="http://www.w3.org/2000/svg"><path d="M934.4 323.84l-42.666667-165.12a128 128 0 0 0-158.293333-90.453333l-82.346667 22.186666a42.666667 42.666667 0 0 0-30.293333 52.48l11.093333 42.666667L178.773333 305.493333a42.666667 42.666667 0 0 0-30.293333 52.053334l11.093333 42.666666-42.666666 11.093334a42.666667 42.666667 0 0 0 10.666666 85.333333 46.506667 46.506667 0 0 0 11.093334 0l42.666666-11.52 11.093334 42.666667a42.666667 42.666667 0 0 0 19.626666 25.6 42.666667 42.666667 0 0 0 21.333334 5.973333 32 32 0 0 0 11.093333 0L384 515.413333v17.92a123.733333 123.733333 0 0 0 12.8 54.613334l-213.333333 213.333333a42.666667 42.666667 0 0 0 60.16 60.586667l213.333333-213.333334 11.946667 4.693334v264.106666a42.666667 42.666667 0 0 0 85.333333 0v-263.68a107.52 107.52 0 0 0 12.373333-5.12l213.333334 213.333334a42.666667 42.666667 0 1 0 60.16-60.586667l-213.333334-213.333333A131.84 131.84 0 0 0 640 533.333333v-85.333333l57.6-15.36 10.666667 42.666667a42.666667 42.666667 0 0 0 42.666666 31.573333h11.093334l82.346666-22.186667a128 128 0 0 0 90.026667-160.853333zM554.666667 533.333333a42.666667 42.666667 0 0 1-11.946667 29.44 42.666667 42.666667 0 0 1-29.44 11.946667 42.666667 42.666667 0 0 1-29.866667-12.373333 42.666667 42.666667 0 0 1-12.373333-29.866667v-42.666667L554.666667 469.333333z m-290.56-74.24l-22.186667-82.346666 412.16-110.506667 11.093333 42.666667 11.093334 42.666666z m583.68-81.066666a42.666667 42.666667 0 0 1-26.026667 20.053333l-42.666667 11.093333-33.28-123.733333L725.333333 203.093333l-11.093333-42.666666 42.666667-11.093334a42.666667 42.666667 0 0 1 52.48 30.293334l42.666666 165.12a42.666667 42.666667 0 0 1-4.266666 33.28z"/></svg>
@@ -16,12 +26,21 @@ const GithubIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.1.1 1.7 1.2 1.7 1.2 1 1.7 2.6 1.2 3.2.9.1-.7.4-1.2.7-1.5-2.4-.3-4.9-1.2-4.9-5.3 0-1.2.4-2.1 1.1-2.9-.1-.3-.5-1.4.1-2.9 0 0 .9-.3 2.9 1.1.8-.2 1.7-.3 2.6-.3s1.8.1 2.6.3c2-1.4 2.9-1.1 2.9-1.1.6 1.5.2 2.6.1 2.9.7.8 1.1 1.7 1.1 2.9 0 4.1-2.5 5-4.9 5.3.4.3.8 1 .8 2.1v3.1c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
 );
 
-interface Task {
-  id: number;
-  name: string;
-  biz: string;
-  status: string;
-  remark: string;
+interface SortableRowProps extends React.HTMLAttributes<HTMLTableRowElement> {
+  "data-row-key": string;
+}
+function SortableRow({ children, ...props }: SortableRowProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props["data-row-key"] });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    ...(isDragging ? { opacity: 0.6, background: "#eef4ff" } : {}),
+  };
+  return (
+    <tr {...props} ref={setNodeRef} style={style} {...attributes} {...listeners}>
+      {children}
+    </tr>
+  );
 }
 
 const statusMap: Record<string, { color: string; text: string }> = {
@@ -39,13 +58,14 @@ export default function Home() {
   const [link, setLink] = useState("");
   const [resolving, setResolving] = useState(false);
   const [saving, setSaving] = useState(false);
-  // 导入
+
   const fileRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [importingPct, setImportingPct] = useState(0);
   const [dragOver, setDragOver] = useState(false);
-  // 动态滚动条宽度(避免遮挡操作列)
+  const [failedRows, setFailedRows] = useState<{ name: string }[]>([]);
   const [sbWidth, setSbWidth] = useState(6);
+
   useEffect(() => {
     const probe = document.createElement("div");
     probe.style.cssText = "width:50px;height:50px;overflow:scroll;visibility:hidden;position:absolute;";
@@ -53,44 +73,6 @@ export default function Home() {
     setSbWidth(probe.offsetWidth - probe.clientWidth);
     probe.remove();
   }, []);
-
-  async function importFile(f: File) {
-    setImporting(true); setImportingPct(0);
-    const fd = new FormData();
-    fd.append("file", f);
-    let total = 0, addedCount = 0, failedCount = 0;
-    try {
-      const r = await fetch("http://127.0.0.1:8000/api/accounts/import", { method: "POST", body: fd });
-      if (!r.body) throw 0;
-      const reader = r.body.getReader();
-      const dec = new TextDecoder();
-      let buf = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += dec.decode(value, { stream: true });
-        let idx;
-        while ((idx = buf.indexOf("\n\n")) !== -1) {
-          const block = buf.slice(0, idx); buf = buf.slice(idx + 2);
-          const dm = block.match(/^data: (.+)$/m);
-          if (!dm) continue;
-          const d = JSON.parse(dm[1]);
-          if (d.total) total = d.total;
-          if (d.done !== undefined) {
-            setImportingPct(Math.round((d.done / (total || 1)) * 100));
-            if (d.ok) addedCount++; else failedCount++;
-          }
-        }
-      }
-    } catch (e) { setImporting(false); message.error("导入失败"); return; }
-    setImportingPct(100);
-    setTimeout(() => { setImporting(false); load(); message.success(`导入完成: 新增${addedCount}, 跳过${failedCount}`); }, 1000);
-  }
-  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0];
-    if (f) importFile(f);
-    e.target.value = "";
-  }
 
   async function load() {
     setLoading(true);
@@ -119,10 +101,55 @@ export default function Home() {
     setSaving(true);
     try {
       await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), link: biz.trim(), status: "pending" }) });
+        body: JSON.stringify({ name: name.trim(), biz: biz.trim(), status: "pending" }) });
       message.success("已保存"); setAddOpen(false); setName(""); setBiz(""); setLink(""); load();
     } catch { message.error("保存失败"); }
     finally { setSaving(false); }
+  }
+
+  async function importFile(f: File) {
+    setImporting(true); setImportingPct(0); setFailedRows([]);
+    const fd = new FormData();
+    fd.append("file", f);
+    let total = 0, addedCount = 0;
+    let fails: { name: string }[] = [];
+    try {
+      const r = await fetch(`${API}/import`, { method: "POST", body: fd });
+      if (!r.body) throw 0;
+      const reader = r.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf("\n\n")) !== -1) {
+          const block = buf.slice(0, idx); buf = buf.slice(idx + 2);
+          const dm = block.match(/^data: (.+)$/m);
+          if (!dm) continue;
+          const d = JSON.parse(dm[1]);
+          if (d.total) total = d.total;
+          if (d.done !== undefined) {
+            setImportingPct(Math.round((d.done / (total || 1)) * 100));
+            if (d.ok) addedCount++; else fails.push({ name: d.name || "(未知)" });
+          }
+        }
+      }
+    } catch { setImporting(false); message.error("导入失败"); return; }
+    setImportingPct(100);
+    setFailedRows(fails);
+    load();
+    if (fails.length > 0) {
+      message.warning(`导入完成: 新增${addedCount}, 失败${fails.length}`);
+    } else {
+      setTimeout(() => { setImporting(false); message.success(`导入完成: 新增${addedCount}`); }, 1000);
+    }
+  }
+  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (f) importFile(f);
+    e.target.value = "";
   }
 
   async function reset(row: Task) {
@@ -130,17 +157,33 @@ export default function Home() {
     load();
   }
   async function del(row: Task) {
-    Modal.confirm({ title: "删除确认", content: `确定删除「${row.name}」？`,
+    Modal.confirm({ title: "删除确认", content: `确定删除「${row.name}」？`, okText: "确认", cancelText: "取消",
       onOk: async () => { await fetch(`${API}/${row.id}`, { method: "DELETE" }); load(); } });
   }
   async function clearAll() {
-    Modal.confirm({ title: "清空确认", content: "确定清空全部公众号？此操作不可恢复",
+    Modal.confirm({ title: "清空确认", content: "确定清空全部公众号？此操作不可恢复", okText: "确认", cancelText: "取消",
       okButtonProps: { danger: true },
       onOk: async () => { await fetch(`${API}/clear`, { method: "DELETE" }); load(); message.success("已清空"); } });
   }
 
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  async function onDragEnd(event: DragEndEvent) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = tasks.findIndex((t) => String(t.id) === active.id);
+    const newIndex = tasks.findIndex((t) => String(t.id) === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const next = arrayMove(tasks, oldIndex, newIndex);
+    setTasks(next);
+    try {
+      await fetch(`${API}/sort`, { method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: next.map((t) => t.id) }) });
+    } catch { /* 忽略 */ }
+  }
+
   return (
     <div style={{ height: "100vh", boxSizing: "border-box", overflow: "hidden", display: "flex", flexDirection: "column", background: "#f5f6f8", padding: "0 20px 14px" }}>
+      {/* 顶栏 */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 2px 16px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 34, height: 34, borderRadius: 9, background: "#1565c0", display: "flex", alignItems: "center", justifyContent: "center" }}><Telescope /></div>
@@ -158,48 +201,66 @@ export default function Home() {
         </Tooltip>
       </div>
 
-      <div className="dropzone" onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+      {/* 列表卡片 */}
+      <div className="dropzone"
+           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
            onDragLeave={() => setDragOver(false)}
            onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) importFile(f); }}
            style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px 16px 10px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>新增</Button>
-          <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()} style={{ position: "relative" }}>文件导入</Button>
+          <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>文件导入</Button>
           <Button danger type="text" icon={<DeleteOutlined />} onClick={clearAll}>清空</Button>
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }} onChange={onPick} />
           <div style={{ flex: 1 }} />
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>当前 {tasks.length} 个公众号</Typography.Text>
         </div>
 
-        <Table rowKey="id" dataSource={tasks} loading={loading} pagination={false} scroll={{ y: "calc(100vh - 235px)" }} 
-          locale={{ emptyText: <Empty description="请添加一个公众号" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
-          style={{ paddingRight: 8 }}
-          columns={[
-            { title: "公众号名称", dataIndex: "name", width: 160 },
-            { title: "biz 代码", dataIndex: "biz", render: (v: string) => <Typography.Text code style={{ fontSize: 12 }}>{v || "—"}</Typography.Text> },
-            { title: "状态", dataIndex: "status", width: 100, render: (s: string) => <Tag color={statusMap[s]?.color || "default"}>{statusMap[s]?.text || s}</Tag> },
-            {
-              title: "操作", dataIndex: "op", width: 130,
-              render: (_: unknown, row: Task) => (
-                <Space style={{ marginRight: sbWidth + 22 }}>
-                  <Button size="small" type="link" icon={<ReloadOutlined />} onClick={() => reset(row)}>重置</Button>
-                  <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => del(row)}>删除</Button>
-                </Space>
-              ),
-            },
-          ]}
-        />
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <SortableContext items={tasks.map((t) => String(t.id))} strategy={verticalListSortingStrategy}>
+            <Table rowKey="id" dataSource={tasks} loading={loading} pagination={false} scroll={{ y: "calc(100vh - 235px)" }}
+              locale={{ emptyText: <Empty description="请添加一个公众号" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+              components={{ body: { row: SortableRow } }}
+              columns={[
+                { title: "公众号名称", dataIndex: "name", width: 160 },
+                { title: "biz 代码", dataIndex: "biz", render: (v: string) => <Typography.Text code style={{ fontSize: 12 }}>{v || "—"}</Typography.Text> },
+                { title: "状态", dataIndex: "status", width: 100, render: (s: string) => <Tag color={statusMap[s]?.color || "default"}>{statusMap[s]?.text || s}</Tag> },
+                {
+                  title: "操作", dataIndex: "op", width: 130,
+                  render: (_: unknown, row: Task) => (
+                    <Space style={{ marginRight: sbWidth + 22 }}>
+                      <Button size="small" type="link" icon={<ReloadOutlined />} onClick={() => reset(row)}>重置</Button>
+                      <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => del(row)}>删除</Button>
+                    </Space>
+                  ),
+                },
+              ]}
+            />
+          </SortableContext>
+        </DndContext>
       </div>
 
-      <Modal title="正在导入" open={importing} footer={null} closable={false} width={360}>
-        <div style={{ textAlign: "center", padding: "8px 0" }}>
-          <Typography.Title level={5} style={{ marginTop: 0 }}>导入进度</Typography.Title>
-          <Progress percent={importingPct} status={importingPct >= 100 ? "success" : "active"} />
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>解析文件并识别公众号名称…</Typography.Text>
-        </div>
+      {/* 导入进度/失败弹窗 */}
+      <Modal title={failedRows.length ? "导入结果" : "正在导入"} open={importing}
+        footer={failedRows.length ? <Button type="primary" onClick={() => setImporting(false)}>关闭</Button> : null}
+        closable={failedRows.length > 0} onCancel={() => setImporting(false)} width={420}>
+        {failedRows.length ? (
+          <div>
+            <Typography.Paragraph strong style={{ color: "#c62828" }}>有 {failedRows.length} 行导入失败（无法识别公众号），需手动处理：</Typography.Paragraph>
+            <Table size="small" rowKey={(r) => r.name} pagination={false} dataSource={failedRows}
+              columns={[{ title: "失败项", dataIndex: "name" }]} />
+          </div>
+        ) : (
+          <div style={{ textAlign: "center", padding: "8px 0" }}>
+            <Typography.Title level={5} style={{ marginTop: 0 }}>导入进度</Typography.Title>
+            <Progress percent={importingPct} status={importingPct >= 100 ? "success" : "active"} />
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>解析文件并识别公众号名称…</Typography.Text>
+          </div>
+        )}
       </Modal>
-      <Modal title="新增公众号" open={addOpen}
-        onOk={save} okText="保存" confirmLoading={saving}
+
+      {/* 新增弹窗 */}
+      <Modal title="新增公众号" open={addOpen} onOk={save} okText="保存" confirmLoading={saving}
         onCancel={() => setAddOpen(false)} cancelText="取消">
         <Space direction="vertical" style={{ width: "100%" }} size="middle">
           <Space direction="vertical" style={{ width: "100%" }}>

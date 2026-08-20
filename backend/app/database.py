@@ -23,9 +23,14 @@ def init_db():
         CREATE TABLE IF NOT EXISTS accounts (
             id      INTEGER PRIMARY KEY AUTOINCREMENT,
             name    TEXT NOT NULL,
-            biz     TEXT DEFAULT '',            -- biz 代码
-            status  TEXT DEFAULT 'pending',     -- pending / done / error
+            biz     TEXT DEFAULT '',
+            status  TEXT DEFAULT 'pending',
             remark  TEXT DEFAULT ''
+        );
+        CREATE TABLE IF NOT EXISTS sort_config (
+            record_id   INTEGER PRIMARY KEY,
+            sort_order  INTEGER NOT NULL,
+            UNIQUE(sort_order)
         );
         """)
         conn.commit()

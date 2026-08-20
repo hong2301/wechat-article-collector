@@ -19,7 +19,10 @@ def _row_to_dict(row):
 def list_accounts():
     conn = get_conn()
     try:
-        rows = conn.execute("SELECT * FROM accounts ORDER BY id DESC").fetchall()
+        rows = conn.execute(
+            "SELECT a.* FROM accounts a "
+            "LEFT JOIN sort_config s ON a.id = s.record_id "
+            "ORDER BY COALESCE(s.sort_order, 999999999), a.id ASC").fetchall()
         return [_row_to_dict(r) for r in rows]
     finally:
         conn.close()
@@ -36,20 +39,27 @@ def _import_stream(rows):
         name = (item.get("name") or "").strip()
         biz = (item.get("biz") or "").strip()
         link = (item.get("link") or "").strip()
-        # 缺名称 或 缺biz 且有链接 -> 用文章链接补全(名称+biz)
-        if (not name or not biz) and link:
+        need_full = (not name or not biz) and link   # 需要补全
+        full_ok = True
+        if need_full:
             r = resolve_account(link)
             if r:
                 if not name and r.get("name"):
                     name = r["name"]
                 if not biz and r.get("biz"):
                     biz = r["biz"]
+                full_ok = True
+            else:
+                full_ok = False   # 需要补全但识别失败
         ok = True
         if not name:
             ok = False
+        elif need_full and not full_ok:
+            ok = False   # 需要补全但补全失败 -> 判定失败
         else:
             conn = get_conn()
             try:
+                # 导入分配到末尾(最大id+1), 保持文件顺序
                 conn.execute(
                     "INSERT INTO accounts(name, biz, status, remark) VALUES(?,?,?,?)",
                     (name, biz, "pending", ""))
@@ -86,8 +96,10 @@ def create_account(payload: AccountCreate):
         cur = conn.execute(
             "INSERT INTO accounts(name, biz, status, remark) VALUES(?,?,?,?)",
             (payload.name, payload.biz, payload.status, payload.remark))
+        new_id = cur.lastrowid
         conn.commit()
-        row = conn.execute("SELECT * FROM accounts WHERE id=?", (cur.lastrowid,)).fetchone()
+        row = conn.execute(
+            "SELECT a.* FROM accounts a WHERE a.id=?", (new_id,)).fetchone()
         return dict(row)
     finally:
         conn.close()
@@ -113,6 +125,30 @@ def update_account(aid: int, payload: AccountUpdate):
 
 
 
+
+from typing import List
+from pydantic import BaseModel
+
+class SortPayload(BaseModel):
+    ids: List[int]
+
+@router.put("/sort")
+def sort_accounts(payload: SortPayload):
+    """按拖拽后的 id 顺序重写 sort_config, 持久化排序"""
+    conn = get_conn()
+    try:
+        # 先删掉这些 id 的旧排序, 再按顺序写入
+        marks = ",".join("?" * len(payload.ids))
+        if payload.ids:
+            conn.execute(f"DELETE FROM sort_config WHERE record_id IN ({marks})", payload.ids)
+            conn.executemany(
+                "INSERT OR REPLACE INTO sort_config(record_id, sort_order) VALUES(?,?)",
+                [(rid, i + 1) for i, rid in enumerate(payload.ids)])
+        conn.commit()
+        return {"ok": True, "count": len(payload.ids)}
+    finally:
+        conn.close()
+
 @router.delete("/clear", status_code=200)
 def clear_accounts():
     """清空所有公众号"""
@@ -130,6 +166,7 @@ def delete_account(aid: int):
     conn = get_conn()
     try:
         cur = conn.execute("DELETE FROM accounts WHERE id=?", (aid,))
+        conn.execute("DELETE FROM sort_config WHERE record_id=?", (aid,))
         conn.commit()
         if cur.rowcount == 0:
             raise HTTPException(404, "账号不存在")
