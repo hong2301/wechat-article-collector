@@ -222,7 +222,7 @@ export default function ArticlePage() {
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) importFile(f); }}
-        style={{ maxHeight: "calc(100vh - 205px)", overflowY: "auto", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
+        style={{ maxHeight: "calc(100vh - 205px)", overflow: "auto", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Button type="primary" icon={<InboxOutlined />} onClick={() => message.info("采集选中(开发中)")}>采集选中</Button>
           <div style={{ flex: 1 }} />
@@ -231,7 +231,7 @@ export default function ArticlePage() {
           <Button danger icon={<DeleteOutlined />} onClick={deleteSelected}>删除选中</Button>
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.xlsm" style={{ display: "none" }} onChange={onPick} />
         </div>
-        <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} scroll={{ x: 1100 }} size="small"
+        <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} size="small" style={{ minWidth: 1500 }}
           onChange={(_p: any, _f: any, sorter: any) => {
             const s = Array.isArray(sorter) ? sorter[0] : sorter;
             const key = s?.columnKey;
