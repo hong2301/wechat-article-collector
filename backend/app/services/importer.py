@@ -269,3 +269,20 @@ def parse_article_rows(filename, raw, max_rows=2000):
         if item.get("link"):
             rows.append(item)
     return rows
+
+
+# ---- 文章id(art_biz)提取: 从完整链接取末端一段 ----
+ART_BIZ_RE = re.compile(r"/s/([A-Za-z0-9_\-]+)")
+
+
+def extract_art_biz(link):
+    """从文章链接提取文章id(art_biz): 取 /s/ 后那段; 兜底取链接末段"""
+    link = (link or "").strip()
+    if not link:
+        return ""
+    m = ART_BIZ_RE.search(link)
+    if m:
+        return m.group(1)
+    # 兜底: 链接末尾一段(去query/hash)
+    seg = link.split("?")[0].split("#")[0].rstrip("/")
+    return seg.rsplit("/", 1)[-1]

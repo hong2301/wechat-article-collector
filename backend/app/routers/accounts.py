@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 from ..database import get_conn
 from ..models import Account, AccountCreate, AccountUpdate
 from fastapi import UploadFile, File, Form
-from ..services.importer import parse_file
+from ..services.importer import parse_file, extract_art_biz
 from ..services.resolve import resolve_account
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
@@ -171,7 +171,7 @@ def account_articles_by_biz(biz: str):
     finally:
         conn.close()
     name = dict(acc)["name"] if acc else ""
-    arts = [{"id": d["id"], "title": d["title"], "date": d["date"], "link": d["link"],
+    arts = [{"id": d["id"], "title": d["title"], "date": d["date"], "art_biz": d["art_biz"],
              "reads": d["reads"], "likes": d["likes"], "forwards": d["forwards"],
              "favorites": d["favorites"], "comments": d["comments"], "write_time": d["write_time"],
              "original": d["original"], "ip": d["ip"]} for d in rows]
@@ -193,7 +193,7 @@ def delete_article_by_biz(artid: int, biz: str):
 
 class ArticleSave(BaseModel):
     biz: str
-    link: str
+    art_biz: str
     title: str = ""
     date: str = ""
     reads: str = ""
@@ -209,9 +209,9 @@ class ArticleSave(BaseModel):
 def save_article(payload: ArticleSave):
     """用导入文件的数据覆盖/补充某biz+link的已有记录(仅更新文件里非空字段)"""
     p = payload.model_dump()
-    link = (p.get("link") or "").strip()
-    if not link:
-        raise HTTPException(400, "缺少链接")
+    art = (p.get("art_biz") or "").strip()
+    if not art:
+        raise HTTPException(400, "缺少文章id")
     sets = []
     vals = []
     for f in ("title", "date", "reads", "likes", "forwards", "favorites", "comments", "original", "ip"):
@@ -223,10 +223,10 @@ def save_article(payload: ArticleSave):
         return {"ok": True, "updated": 0}
     sets.append("name=(SELECT name FROM accounts WHERE biz=?)")
     vals.append(p["biz"])
-    vals.extend([p["biz"], link])
+    vals.extend([p["biz"], art])
     conn = get_conn()
     try:
-        cur = conn.execute(f"UPDATE articles SET {', '.join(sets)} WHERE biz=? AND link=?", vals)
+        cur = conn.execute(f"UPDATE articles SET {', '.join(sets)} WHERE biz=? AND art_biz=?", vals)
         conn.commit()
         return {"ok": True, "updated": cur.rowcount}
     finally:
@@ -241,25 +241,25 @@ class ArticleCreate(BaseModel):
 
 @router.post("/articles-by-biz", status_code=201)
 def create_article(payload: ArticleCreate):
-    """按 biz 新增一篇文章; 无标题时用链接占位"""
+    """按 biz 新增一篇文章; 输入链接, 存文章id(art_biz)"""
     link = payload.link.strip()
     if not link:
         raise HTTPException(400, "文章链接不能为空")
-    title = payload.title.strip() or link
+    art = extract_art_biz(link)
+    title = payload.title.strip() or art
     conn = get_conn()
     try:
-        # 关联公众号名称与 account_id
         acc = conn.execute("SELECT id, name FROM accounts WHERE biz=?", (payload.biz,)).fetchone()
         name = dict(acc)["name"] if acc else ""
         account_id = acc["id"] if acc else None
         cur = conn.execute(
-            "INSERT INTO articles (account_id, name, date, title, link, biz) VALUES (?,?,?,?,?,?)",
-            (account_id, name, "", title, link, payload.biz),
+            "INSERT INTO articles (account_id, name, date, title, art_biz, biz) VALUES (?,?,?,?,?,?)",
+            (account_id, name, "", title, art, payload.biz),
         )
         conn.commit()
-        return {"id": cur.lastrowid, "title": title, "link": link, "biz": payload.biz}
+        return {"id": cur.lastrowid, "title": title, "art_biz": art, "biz": payload.biz}
     except sqlite3.IntegrityError:
-        raise HTTPException(400, "该文章链接已存在，不能重复添加")
+        raise HTTPException(400, "该文章已存在，不能重复添加")
     finally:
         conn.close()
 
@@ -276,23 +276,23 @@ def _article_import_sse(rows, default_biz):
         ok = True
         is_dup = False
         row_biz = default_biz   # 归属当前页 biz, 忽略表格biz列
-        link = (item.get("link") or "").strip()
-        title = (item.get("title") or "").strip() or link
+        art = extract_art_biz(item.get("link") or "")
+        title = (item.get("title") or "").strip() or art
         date = (item.get("date") or "").strip()
         conn = get_conn()
         try:
             acc = conn.execute("SELECT id, name FROM accounts WHERE biz=?", (row_biz,)).fetchone()
             acc_name = dict(acc)["name"] if acc else ""
             account_id = dict(acc)["id"] if acc else None
-            ex = conn.execute("SELECT COUNT(*) c FROM articles WHERE biz=? AND link=?", (row_biz, link)).fetchone()
+            ex = conn.execute("SELECT COUNT(*) c FROM articles WHERE biz=? AND art_biz=?", (row_biz, art)).fetchone()
             if ex["c"]:
                 ok, is_dup, skipped = False, True, skipped + 1
-                dups_data.append({**item, "biz": row_biz})
+                dups_data.append({**item, "biz": row_biz, "art_biz": art})
             else:
                 conn.execute(
-                    "INSERT INTO articles(account_id, name, date, title, link, biz, reads, likes, forwards, favorites, comments, original, ip) "
+                    "INSERT INTO articles(account_id, name, date, title, art_biz, biz, reads, likes, forwards, favorites, comments, original, ip) "
                     "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (account_id, acc_name, date, title, link, row_biz,
+                    (account_id, acc_name, date, title, art, row_biz,
                      item.get("reads"), item.get("likes"), item.get("forwards"),
                      item.get("favorites"), item.get("comments"), item.get("original"), item.get("ip")))
                 conn.commit()
@@ -363,7 +363,7 @@ def account_articles(aid: int):
         d = dict(row)
         arts.append({
             "id": d.get("id"), "title": d.get("title"), "date": d.get("date"),
-            "link": d.get("link"), "reads": d.get("reads"), "likes": d.get("likes"),
+            "art_biz": d.get("art_biz"), "reads": d.get("reads"), "likes": d.get("likes"),
             "original": d.get("original"), "ip": d.get("ip"),
         })
     return {"id": aid, "name": r["name"], "articles": arts}

@@ -7,6 +7,7 @@ import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, To
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined } from "@ant-design/icons";
 
 const API = "http://127.0.0.1:8000/api/accounts";
+const ART_PREFIX = "https://mp.weixin.qq.com/s/";
 
 // 合并「起~止」为一体范围输入框
 function NumRange({ value, onChange }: {
@@ -30,7 +31,7 @@ interface Article {
   id: number;
   title: string;
   date: string;
-  link: string;
+  art_biz: string;
   reads: string;
   likes: string;
   forwards: string;
@@ -49,7 +50,7 @@ export default function ArticlePage() {
   const [sortInfo, setSortInfo] = useState<{ key: string; order: "ascend" | "descend" }>({ key: "date", order: "descend" });
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
   const [quickActive, setQuickActive] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const NUM_FIELDS = [
     { key: "reads", label: "阅读" },
     { key: "likes", label: "点赞" },
@@ -72,6 +73,8 @@ export default function ArticlePage() {
   const [dupRows, setDupRows] = useState<any[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const tableWrapRef = useRef<HTMLDivElement>(null);
+  const [tableH, setTableH] = useState(400);
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
@@ -80,6 +83,17 @@ export default function ArticlePage() {
     setBiz(b);
     if (n) setName(n);   // 立即显示公众号名, 不等接口
     if (b) load(b);
+  }, []);
+
+  // 测量表格容器高度 -> 行区滚动且底栏固定
+  useEffect(() => {
+    const el = tableWrapRef.current;
+    if (!el) return;
+    const upd = () => setTableH(el.clientHeight);
+    upd();
+    const ro = new ResizeObserver(upd);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
   // 无日期的(新增)排最前(按id倒序), 有日期的按日期倒序
@@ -217,10 +231,10 @@ export default function ArticlePage() {
   async function replaceDup(row: any) {
     try {
       const r = await fetch(`${API}/articles-by-biz/save`, { method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ biz: row.biz || biz, link: row.link, title: row.title, date: row.date, reads: row.reads,
+        body: JSON.stringify({ biz: row.biz || biz, art_biz: row.art_biz, title: row.title, date: row.date, reads: row.reads,
           likes: row.likes, forwards: row.forwards, favorites: row.favorites, comments: row.comments, original: row.original, ip: row.ip }) });
       if (!r.ok) { message.error("替换失败"); return; }
-      message.success("已替换"); setDupRows((prev) => prev.filter((d) => d.link !== row.link)); reload();
+      message.success("已替换"); setDupRows((prev) => prev.filter((d) => d.art_biz !== row.art_biz)); reload();
     } catch { message.error("替换失败"); }
   }
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -318,7 +332,7 @@ export default function ArticlePage() {
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) importFile(f); }}
-        style={{ position: "relative", display: "flex", flexDirection: "column", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
+        style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Button type="primary" icon={<InboxOutlined />} onClick={() => message.info("采集选中(开发中)")}>采集选中</Button>
           <div style={{ flex: 1 }} />
@@ -327,7 +341,8 @@ export default function ArticlePage() {
           <Button danger icon={<DeleteOutlined />} onClick={deleteSelected}>删除选中</Button>
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.xlsm" style={{ display: "none" }} onChange={onPick} />
         </div>
-        <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" scroll={{ x: 1500, y: "calc(100vh - 340px)" }}
+        <div ref={tableWrapRef} style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden" }}>
+        <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" scroll={{ x: 1500, y: Math.max(100, tableH - 48) }}
           onChange={(_p: any, _f: any, sorter: any) => {
             const s = Array.isArray(sorter) ? sorter[0] : sorter;
             const key = s?.columnKey;
@@ -347,7 +362,7 @@ export default function ArticlePage() {
                   <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                     {r.original === "原创" ? <Tag color="green" style={{ margin: 0, flexShrink: 0 }}>原创</Tag> : null}
                     <Tooltip title={text}>
-                      {r.link ? <a href={r.link} target="_blank" style={ellStyle}>{text}</a> : <span style={ellStyle}>{text}</span>}
+                      {r.art_biz ? <a href={ART_PREFIX + r.art_biz} target="_blank" style={ellStyle}>{text}</a> : <span style={ellStyle}>{text}</span>}
                     </Tooltip>
                   </div>
                 );
@@ -363,11 +378,11 @@ export default function ArticlePage() {
                 return <Tooltip title={t}><span style={{ cursor: "default" }}>{short}</span></Tooltip>;
               },
             },
+            { title: "评论", dataIndex: "comments", width: 80, sorter: true, sortOrder: sortInfo.key === "comments" ? sortInfo.order : null },
             { title: "阅读", dataIndex: "reads", width: 80, sorter: true, sortOrder: sortInfo.key === "reads" ? sortInfo.order : null },
             { title: "点赞", dataIndex: "likes", width: 80, sorter: true, sortOrder: sortInfo.key === "likes" ? sortInfo.order : null },
             { title: "转发", dataIndex: "forwards", width: 80, sorter: true, sortOrder: sortInfo.key === "forwards" ? sortInfo.order : null },
             { title: "喜欢", dataIndex: "favorites", width: 80, sorter: true, sortOrder: sortInfo.key === "favorites" ? sortInfo.order : null },
-            { title: "评论", dataIndex: "comments", width: 80, sorter: true, sortOrder: sortInfo.key === "comments" ? sortInfo.order : null },
             { title: "IP", dataIndex: "ip", width: 120 },
             {
               title: "写入时间", dataIndex: "write_time", width: 110, sorter: true,
@@ -379,7 +394,7 @@ export default function ArticlePage() {
                 return <Tooltip title={t}><span style={{ cursor: "default" }}>{short}</span></Tooltip>;
               },
             },
-            { title: "操作", dataIndex: "op", align: "center",
+            { title: "操作", dataIndex: "op", width: 130, align: "center", fixed: "right",
               render: (_: unknown, r: Article) => (
                 <Space>
                   <Button size="small" type="link" icon={<InboxOutlined />} onClick={() => message.info("采集功能开发中")}>采集</Button>
@@ -388,9 +403,6 @@ export default function ArticlePage() {
               ) },
           ]}
         />
-        <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 10 }}>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 篇</Typography.Text>
-        </div>
         {loading ? (
           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,.6)", zIndex: 2, borderRadius: 14 }}>
             <Space vertical size={10} style={{ alignItems: "center" }}>
@@ -399,6 +411,10 @@ export default function ArticlePage() {
             </Space>
           </div>
         ) : null}
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 10 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 篇</Typography.Text>
+        </div>
       </div>
       {/* 导入进度/失败弹窗 */}
       <Modal title={failedLinks.length || dupRows.length ? "导入结果" : "正在导入"} open={importing}
@@ -409,9 +425,9 @@ export default function ArticlePage() {
             {dupRows.length > 0 ? (
               <div style={{ marginBottom: 14 }}>
                 <Typography.Paragraph strong>有 {dupRows.length} 条重复（未覆盖）。如文件数据更全，可点击替换更新已有记录：</Typography.Paragraph>
-                <Table size="small" rowKey={(r) => r.link} pagination={false} dataSource={dupRows}
+                <Table size="small" rowKey={(r) => r.art_biz} pagination={false} dataSource={dupRows}
                   columns={[
-                    { title: "标题", dataIndex: "title", render: (v: string, r: any) => <a href={r.link} target="_blank" style={{ fontSize: 12 }}>{(v || r.link).slice(0, 24)}</a> },
+                    { title: "标题", dataIndex: "title", render: (v: string, r: any) => <a href={ART_PREFIX + r.art_biz} target="_blank" style={{ fontSize: 12 }}>{(v || r.art_biz).slice(0, 24)}</a> },
                     { title: "日期", dataIndex: "date", width: 90, render: (v: string) => <span style={{ fontSize: 12 }}>{v || "—"}</span> },
                     { title: "操作", width: 70, align: "center",
                       render: (_: unknown, r: any) => <Button size="small" type="link" onClick={() => replaceDup(r)}>替换</Button> },

@@ -39,7 +39,7 @@ def init_db():
             name         TEXT DEFAULT '',
             date         TEXT DEFAULT '',
             title        TEXT DEFAULT '',
-            link         TEXT DEFAULT '',
+            art_biz      TEXT DEFAULT '',
             reads        TEXT DEFAULT '',
             likes        TEXT DEFAULT '',
             forwards     TEXT DEFAULT '',
@@ -70,5 +70,22 @@ def init_db():
             conn.execute("ALTER TABLE accounts RENAME COLUMN link TO biz")
             conn.commit()
             print("migrate: accounts.link -> biz")
+        # 迁移: articles.link -> art_biz (文章id, 清空旧数据)
+        _newacols = [r[1] for r in conn.execute("PRAGMA table_info(articles)").fetchall()]
+        if "link" in _newacols and "art_biz" not in _newacols:
+            conn.execute("DELETE FROM articles")   # 清空文章表(用户要求)
+            try:
+                conn.execute("DROP INDEX IF EXISTS idx_articles_biz_link")
+            except Exception:
+                pass
+            conn.execute("ALTER TABLE articles RENAME COLUMN link TO art_biz")
+            conn.commit()
+            print("migrate: articles.link -> art_biz (清空)")
+        # 文章唯一: 同biz下 art_biz(文章id) 唯一
+        try:
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_biz_art ON articles(biz, art_biz) WHERE art_biz IS NOT NULL AND art_biz<>''")
+            conn.commit()
+        except Exception as e:
+            print("articles unique index:", e)
     finally:
         conn.close()
