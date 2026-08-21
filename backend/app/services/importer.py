@@ -147,7 +147,7 @@ ART_LINK_RE = re.compile(r"https?://(?:mp\.weixin\.qq\.com|weixin\.qq\.com)/\S+"
 
 def _extract_links(cell):
     """从一个单元格提取文章链接(正则, 安全过滤)"""
-    v = (cell or "").strip()
+    v = "" if cell is None else str(cell).strip()
     if not v or len(v) > 2048:
         return []
     # 仅接受微信文章域名
