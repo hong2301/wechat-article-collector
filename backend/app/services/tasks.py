@@ -269,6 +269,50 @@ def search_window_init(window_split=False):
     return False, "; ".join(logs)
 
 
+def search_query(link=""):
+    """搜一搜窗口查询。
+    前提: 搜一搜窗口初始化(search_window_init)成功。
+    参数:
+      link 要搜索/输入的链接
+    步骤:
+      1) 检查可见 WeChatAppEx 窗口是否在左半屏; 不在/无则返回 False
+      2) 点击点位14(查询输入框) → 等0.1s → 输入链接 → 等0.1s → 回车
+    返回: (成功?, 说明文本)
+    """
+    import ctypes
+    from ctypes import wintypes as wt
+    logs = []
+
+    # 1) 检查可见 WeChatAppEx 在左半屏
+    appex = pc.find_windows(exe=WECHAT_APPEX, visible_only=True)
+    if not appex:
+        logs.append("未找到可见 WeChatAppEx 窗口")
+        return False, "; ".join(logs)
+    u32_sm = pc._u32()
+    sw = u32_sm.GetSystemMetrics(pc.SM_CXSCREEN)
+    r = wt.RECT()
+    pc._u32().GetWindowRect(appex[0][0], ctypes.byref(r))
+    if abs(r.left) > 2 or abs((r.right - r.left) - sw // 2) > 0:
+        logs.append("WeChatAppEx 不在左半屏")
+        return False, "; ".join(logs)
+    logs.append("WeChatAppEx 已在左半屏")
+
+    # 2) 点击点位14 → 输入链接 → 回车
+    p14 = _read_point(14)
+    if not p14:
+        logs.append("缺少点位14")
+        return False, "; ".join(logs)
+    pc.mouse_click(p14[0], p14[1])
+    logs.append(f"点击点位14({p14[0]},{p14[1]})")
+    time.sleep(0.1)
+    pc.type_text(link)
+    logs.append(f"输入链接: {link[:40]}" if len(link) > 40 else f"输入链接: {link}")
+    time.sleep(0.1)
+    pc.key_press(pc.VK_RETURN)
+    logs.append("按回车")
+    return True, "; ".join(logs)
+
+
 def init_app_window():
     """采集器窗口初始化: 确保前端窗口(微信公众号采集器)在右半屏。
     前提: 调用本函数前窗口已被唤起(本函数不负责唤起)。
@@ -311,4 +355,4 @@ def init_app_window():
     return True, "; ".join(logs)
 
 
-__all__ = ["init_wechat_window", "search_window_init", "init_app_window"]
+__all__ = ["init_wechat_window", "search_window_init", "search_query", "init_app_window"]
