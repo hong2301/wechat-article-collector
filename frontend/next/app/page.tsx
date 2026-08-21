@@ -126,6 +126,10 @@ export default function Home() {
   const [calData, setCalData] = useState<CalData | null>(null);
   const [pointsOpen, setPointsOpen] = useState(false);
   const [scrollsOpen, setScrollsOpen] = useState(false);
+  // 日期范围(采集用), 默认当天
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([
+    dayjs(), dayjs(),
+  ]);
 
   useEffect(() => {
     const probe = document.createElement("div");
@@ -337,9 +341,25 @@ export default function Home() {
   return (
       <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column", background: "#f5f6f8", padding: 14, gap: 12 }}>
       {/* 采集设置模块(在公众号列表上方) */}
-      <div style={{ display: "flex", gap: 8, background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px" }}>
-        <Button icon={<ProfileOutlined />} onClick={() => setPointsOpen(true)}>点位设置</Button>
-        <Button icon={<SwapOutlined />} onClick={() => setScrollsOpen(true)}>滚动设置</Button>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px" }}>
+        {/* 日期选择栏: 日期范围选择器 + 快捷按钮 */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <DatePicker.RangePicker
+            value={dateRange}
+            onChange={(v) => { if (v && v[0] && v[1]) setDateRange([v[0], v[1]]); }}
+            style={{ width: 260 }}
+            allowClear={false}
+          />
+          <Button size="small" onClick={() => setDateRange([dayjs().subtract(2, "day"), dayjs()])}>近3天</Button>
+          <Button size="small" onClick={() => setDateRange([dayjs().subtract(6, "day"), dayjs()])}>近一周</Button>
+          <Button size="small" onClick={() => setDateRange([dayjs().subtract(29, "day"), dayjs()])}>近一月</Button>
+          <Button size="small" onClick={() => setDateRange([dayjs().subtract(364, "day"), dayjs()])}>近一年</Button>
+        </div>
+        {/* 设置按钮行 */}
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button icon={<ProfileOutlined />} onClick={() => setPointsOpen(true)}>点位设置</Button>
+          <Button icon={<SwapOutlined />} onClick={() => setScrollsOpen(true)}>滚动设置</Button>
+        </div>
       </div>
       <PointsDialog open={pointsOpen} onClose={() => setPointsOpen(false)} />
       <ScrollsDialog open={scrollsOpen} onClose={() => setScrollsOpen(false)} />
