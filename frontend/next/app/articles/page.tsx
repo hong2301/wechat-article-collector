@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import dayjs from "dayjs";
-import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber } from "antd";
-import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined } from "@ant-design/icons";
+import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber, Spin } from "antd";
+import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined } from "@ant-design/icons";
 
 const API = "http://127.0.0.1:8000/api/accounts";
 
@@ -49,6 +49,7 @@ export default function ArticlePage() {
   const [sortInfo, setSortInfo] = useState<{ key: string; order: "ascend" | "descend" }>({ key: "date", order: "descend" });
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
   const [quickActive, setQuickActive] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
   const NUM_FIELDS = [
     { key: "reads", label: "阅读" },
     { key: "likes", label: "点赞" },
@@ -73,8 +74,11 @@ export default function ArticlePage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const b = new URLSearchParams(window.location.search).get("biz") || "";
+    const q = new URLSearchParams(window.location.search);
+    const b = q.get("biz") || "";
+    const n = q.get("name") || "";
     setBiz(b);
+    if (n) setName(n);   // 立即显示公众号名, 不等接口
     if (b) load(b);
   }, []);
 
@@ -285,29 +289,36 @@ export default function ArticlePage() {
             <Button size="small" type={quickActive === "30" ? "primary" : "default"} onClick={() => toggleQuick(30, "30")}>近一月</Button>
             <Button size="small" type={quickActive === "365" ? "primary" : "default"} onClick={() => toggleQuick(365, "365")}>近一年</Button>
           </Space>
-          <Input allowClear prefix={<SearchOutlined style={{ color: "#bfc7cf" }} />}
-            placeholder="输入文章标题"
-            value={kw} onChange={(e) => setKw(e.target.value)}
-            style={{ width: 220 }} />
-          {NUM_FIELDS.map((f) => (
+          {!collapsed && (
+            <Input allowClear prefix={<SearchOutlined style={{ color: "#bfc7cf" }} />}
+              placeholder="输入文章标题"
+              value={kw} onChange={(e) => setKw(e.target.value)}
+              style={{ width: 220 }} />
+          )}
+          {!collapsed && NUM_FIELDS.map((f) => (
             <Space key={f.key} size={6}>
               <Typography.Text style={{ fontSize: 13, whiteSpace: "nowrap" }}>{f.label}</Typography.Text>
               <NumRange value={ranges[f.key]}
                 onChange={(v) => setRanges((prev) => ({ ...prev, [f.key]: v }))} />
             </Space>
           ))}
+          <div style={{ flex: 1 }} />
+          <Tooltip title={collapsed ? "展开筛选" : "收起筛选"}>
+            <Button size="small" type="text" icon={collapsed ? <DownOutlined /> : <UpOutlined />}
+              onClick={() => setCollapsed((c) => !c)} />
+          </Tooltip>
         </div>
-        {hasFilter ? (
-          <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 8 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 8 }}>
+          {hasFilter ? (
             <Button size="small" type="link" onClick={clearFilter}><ClearOutlined /> 清除筛选</Button>
-          </div>
-        ) : null}
+          ) : null}
+        </div>
       </div>
       <div
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) importFile(f); }}
-        style={{ maxHeight: "calc(100vh - 205px)", overflow: "auto", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
+        style={{ position: "relative", display: "flex", flexDirection: "column", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Button type="primary" icon={<InboxOutlined />} onClick={() => message.info("采集选中(开发中)")}>采集选中</Button>
           <div style={{ flex: 1 }} />
@@ -316,7 +327,7 @@ export default function ArticlePage() {
           <Button danger icon={<DeleteOutlined />} onClick={deleteSelected}>删除选中</Button>
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.xlsm" style={{ display: "none" }} onChange={onPick} />
         </div>
-        <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} size="small" style={{ minWidth: 1500 }}
+        <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" scroll={{ x: 1500, y: "calc(100vh - 340px)" }}
           onChange={(_p: any, _f: any, sorter: any) => {
             const s = Array.isArray(sorter) ? sorter[0] : sorter;
             const key = s?.columnKey;
@@ -328,17 +339,17 @@ export default function ArticlePage() {
           locale={{ emptyText: <Empty description="暂无文章" /> }}
           columns={[
             {
-              title: "标题", dataIndex: "title", width: 220,
+              title: "标题", dataIndex: "title", width: 220, ellipsis: false,
               render: (v: string, r: Article) => {
                 const text = v || "";
-                const shown = text.length > 8 ? text.slice(0, 8) + "…" : text;
+                const ellStyle = { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
                 return (
-                  <Space size={6}>
-                    {r.original === "原创" ? <Tag color="green" style={{ margin: 0 }}>原创</Tag> : null}
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                    {r.original === "原创" ? <Tag color="green" style={{ margin: 0, flexShrink: 0 }}>原创</Tag> : null}
                     <Tooltip title={text}>
-                      {r.link ? <a href={r.link} target="_blank" style={{ display: "inline-block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shown}</a> : <span>{shown}</span>}
+                      {r.link ? <a href={r.link} target="_blank" style={ellStyle}>{text}</a> : <span style={ellStyle}>{text}</span>}
                     </Tooltip>
-                  </Space>
+                  </div>
                 );
               },
             },
@@ -380,6 +391,14 @@ export default function ArticlePage() {
         <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 10 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 篇</Typography.Text>
         </div>
+        {loading ? (
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,.6)", zIndex: 2, borderRadius: 14 }}>
+            <Space vertical size={10} style={{ alignItems: "center" }}>
+              <Spin size="large" />
+              <Typography.Text type="secondary" style={{ fontSize: 13 }}>正在加载文章…</Typography.Text>
+            </Space>
+          </div>
+        ) : null}
       </div>
       {/* 导入进度/失败弹窗 */}
       <Modal title={failedLinks.length || dupRows.length ? "导入结果" : "正在导入"} open={importing}
