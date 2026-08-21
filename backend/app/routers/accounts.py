@@ -24,13 +24,12 @@ def list_accounts():
             "SELECT a.* FROM accounts a "
             "LEFT JOIN sort_config s ON a.id = s.record_id "
             "ORDER BY COALESCE(s.sort_order, 999999999), a.id ASC").fetchall()
-        # 附文章采集统计
-        from ..services.stats import get_account_collect
+        # 附文章采集统计: 实时统计 articles 表每 biz 的文章数(增删即时反映)
+        cnt = dict(conn.execute("SELECT biz, COUNT(*) n FROM articles GROUP BY biz").fetchall())
         result = []
         for r in rows:
             d = _row_to_dict(r)
-            st = get_account_collect(biz=d.get("biz") or "", name=d.get("name") or "")
-            d["collected_count"] = st["count"]
+            d["collected_count"] = cnt.get(d.get("biz") or "", 0)
             result.append(d)
         return result
     finally:

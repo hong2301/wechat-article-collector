@@ -3,10 +3,28 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import dayjs from "dayjs";
-import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker } from "antd";
-import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined } from "@ant-design/icons";
+import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber } from "antd";
+import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined } from "@ant-design/icons";
 
 const API = "http://127.0.0.1:8000/api/accounts";
+
+// 合并「起~止」为一体范围输入框
+function NumRange({ value, onChange }: {
+  value: [number | null, number | null];
+  onChange: (v: [number | null, number | null]) => void;
+}) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", border: "1px solid #d9d9d9", borderRadius: 6, backgroundColor: "#fff", height: 22, padding: "0 2px" }}>
+      <InputNumber size="small" variant="borderless" controls={false} min={0} placeholder="起"
+        value={value[0] === null ? undefined : value[0]}
+        onChange={(v) => onChange([v ?? null, value[1]])} style={{ width: 40 }} />
+      <span style={{ color: "#bfc7cf", fontSize: 12, margin: "0 1px" }}>~</span>
+      <InputNumber size="small" variant="borderless" controls={false} min={0} placeholder="止"
+        value={value[1] === null ? undefined : value[1]}
+        onChange={(v) => onChange([value[0], v ?? null])} style={{ width: 40 }} />
+    </div>
+  );
+}
 
 interface Article {
   id: number;
@@ -30,6 +48,17 @@ export default function ArticlePage() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [sortInfo, setSortInfo] = useState<{ key: string; order: "ascend" | "descend" }>({ key: "date", order: "descend" });
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
+  const [quickActive, setQuickActive] = useState<string | null>(null);
+  const NUM_FIELDS = [
+    { key: "reads", label: "阅读" },
+    { key: "likes", label: "点赞" },
+    { key: "forwards", label: "转发" },
+    { key: "favorites", label: "喜欢" },
+    { key: "comments", label: "评论" },
+  ];
+  const [ranges, setRanges] = useState<Record<string, [number | null, number | null]>>(
+    Object.fromEntries(NUM_FIELDS.map((f) => [f.key, [null, null]]))
+  );
   const [loading, setLoading] = useState(false);
   const [kw, setKw] = useState("");
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -93,15 +122,48 @@ export default function ArticlePage() {
   }, [articles, sortInfo]);
 
   const shown = useMemo(() => {
-    if (!dateRange) return sorted;
-    const [s, e] = dateRange;
-    const sT = s.startOf("day").valueOf(), eT = e.endOf("day").valueOf();
     return sorted.filter((a) => {
-      if (!a.date) return false;
-      const t = dayjs(a.date.replace?.(/-/g, "/") || a.date).valueOf();
-      return Number.isFinite(t) && t >= sT && t <= eT;
+      // 日期范围
+      if (dateRange) {
+        const [s, e] = dateRange;
+        const sT = s.startOf("day").valueOf(), eT = e.endOf("day").valueOf();
+        if (!a.date) return false;
+        const t = dayjs(a.date.replace?.(/-/g, "/") || a.date).valueOf();
+        if (!Number.isFinite(t) || t < sT || t > eT) return false;
+      }
+      // 数值范围
+      for (const f of NUM_FIELDS) {
+        const [lo, hi] = ranges[f.key];
+        if (lo === null && hi === null) continue;
+        const v = Number(String((a as any)[f.key] || "").replace(/[^0-9.]/g, ""));
+        if (!Number.isFinite(v)) return false;
+        if (lo !== null && v < lo) return false;
+        if (hi !== null && v > hi) return false;
+      }
+      // 标题查询
+      const q = kw.trim().toLowerCase();
+      if (q && !(a.title || "").toLowerCase().includes(q)) return false;
+      return true;
     });
-  }, [sorted, dateRange]);
+  }, [sorted, dateRange, ranges, kw]);
+  // 日期快捷范围
+  function toggleQuick(days: number, key: string) {
+    if (quickActive === key) {
+      setDateRange(null); setQuickActive(null);
+    } else {
+      const end = dayjs();
+      const start = end.subtract(Math.max(0, days - 1), "day");
+      setDateRange([start.startOf("day"), end.endOf("day")]);
+      setQuickActive(key);
+    }
+  }
+  const hasFilter = useMemo(() => {
+    return !!(dateRange || kw.trim() || Object.values(ranges).some(([a, b]) => a != null || b != null));
+  }, [dateRange, kw, ranges]);
+  function clearFilter() {
+    setDateRange(null); setQuickActive(null); setKw("");
+    setRanges(Object.fromEntries(NUM_FIELDS.map((f) => [f.key, [null, null]])));
+  }
   function reload() { if (biz) load(biz); }
 
   async function importFile(f: File) {
@@ -207,16 +269,39 @@ export default function ArticlePage() {
         <Typography.Title level={5} style={{ margin: 0 }}>「{name || "..."}」的文章列表</Typography.Title>
       </div>
       {/* 筛选面板 */}
-      <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px", margin: "0 0 12px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <Typography.Text strong style={{ fontSize: 13 }}>筛选</Typography.Text>
-        <DatePicker.RangePicker
-          value={dateRange}
-          onChange={(v) => setDateRange(v as any)}
-          placeholder={["开始日期", "结束日期"]}
-          allowClear
-          style={{ width: 280 }}
-        />
-        {dateRange ? <Button size="small" type="link" onClick={() => setDateRange(null)}>清除筛选</Button> : null}
+      <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "14px 18px", margin: "0 0 12px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+          <DatePicker.RangePicker
+            value={dateRange}
+            onChange={(v) => { setDateRange(v as any); setQuickActive(null); }}
+            placeholder={["开始日期", "结束日期"]}
+            allowClear
+            style={{ width: 280 }}
+          />
+          <Space size={4} wrap>
+            <Button size="small" type={quickActive === "1" ? "primary" : "default"} onClick={() => toggleQuick(1, "1")}>今天</Button>
+            <Button size="small" type={quickActive === "3" ? "primary" : "default"} onClick={() => toggleQuick(3, "3")}>近三天</Button>
+            <Button size="small" type={quickActive === "7" ? "primary" : "default"} onClick={() => toggleQuick(7, "7")}>近一周</Button>
+            <Button size="small" type={quickActive === "30" ? "primary" : "default"} onClick={() => toggleQuick(30, "30")}>近一月</Button>
+            <Button size="small" type={quickActive === "365" ? "primary" : "default"} onClick={() => toggleQuick(365, "365")}>近一年</Button>
+          </Space>
+          <Input allowClear prefix={<SearchOutlined style={{ color: "#bfc7cf" }} />}
+            placeholder="输入文章标题"
+            value={kw} onChange={(e) => setKw(e.target.value)}
+            style={{ width: 220 }} />
+          {NUM_FIELDS.map((f) => (
+            <Space key={f.key} size={6}>
+              <Typography.Text style={{ fontSize: 13, whiteSpace: "nowrap" }}>{f.label}</Typography.Text>
+              <NumRange value={ranges[f.key]}
+                onChange={(v) => setRanges((prev) => ({ ...prev, [f.key]: v }))} />
+            </Space>
+          ))}
+        </div>
+        {hasFilter ? (
+          <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 8 }}>
+            <Button size="small" type="link" onClick={clearFilter}><ClearOutlined /> 清除筛选</Button>
+          </div>
+        ) : null}
       </div>
       <div
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
