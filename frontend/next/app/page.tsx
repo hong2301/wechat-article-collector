@@ -331,22 +331,26 @@ export default function Home() {
 
 
   return (
-      <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column", background: "#f5f6f8" }}>
+      <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column", background: "#f5f6f8", padding: 14, gap: 12 }}>
+      {/* 采集设置模块(在公众号列表上方) */}
+      <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px" }}>
+        <Button icon={<ProfileOutlined />} onClick={() => { message.info("点位设置（待接入）"); }}>点位设置</Button>
+      </div>
       <div className="dropzone"
            onDragOver={(e) => { e.preventDefault(); if (Array.from(e.dataTransfer.types || []).includes("Files")) setDragOver(true); }}
            onDragLeave={() => setDragOver(false)}
            onDrop={(e) => { e.preventDefault(); setDragOver(false); if (Array.from(e.dataTransfer.types || []).includes("Files")) { const f = e.dataTransfer.files?.[0]; if (f) importFile(f); } }}
            style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <Button type="primary" icon={<InboxOutlined />} onClick={collectSelected}>采集选中</Button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <Button type="primary" icon={<InboxOutlined />} onClick={collectSelected} style={{ flexShrink: 0 }}>采集选中</Button>
           <Input allowClear prefix={<SearchOutlined style={{ color: "#bfc7cf" }} />}
             placeholder="输入公众号名称或biz代码查询"
             value={query} onChange={(e) => setQuery(e.target.value)}
-            style={{ flex: "2 1 200px", minWidth: 150, maxWidth: 420 }} />
+            style={{ flex: "1 1 auto", minWidth: 80 }} />
           <div style={{ flex: 1 }} />
-          <Button color="primary" variant="outlined" icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>新增</Button>
-          <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>文件导入</Button>
-          <Button danger icon={<DeleteOutlined />} onClick={clearAll}>删除选中</Button>
+          <Button color="primary" variant="outlined" icon={<PlusOutlined />} onClick={() => setAddOpen(true)} style={{ flexShrink: 0 }}>新增</Button>
+          <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()} style={{ flexShrink: 0 }}>文件导入</Button>
+          <Button danger icon={<DeleteOutlined />} onClick={clearAll} style={{ flexShrink: 0 }}>删除选中</Button>
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }} onChange={onPick} />
         </div>
 
