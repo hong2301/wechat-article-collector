@@ -687,6 +687,33 @@ def read_clipboard_text():
         u32.CloseClipboard()
 
 
+def set_clipboard_text(text):
+    """把文本写入剪贴板（Win32，线程安全）；成功返回 True"""
+    u32 = _u32()
+    k32 = _k32()
+    if not u32.OpenClipboard(None):
+        return False
+    try:
+        u32.EmptyClipboard()
+        data = (str(text) + "\x00").encode("utf-16-le")
+        GMEM_MOVEABLE = 0x0002
+        GMEM_ZEROINIT = 0x0040
+        h = k32.GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, len(data))
+        if not h:
+            return False
+        p = k32.GlobalLock(h)
+        if not p:
+            return False
+        try:
+            ctypes.memmove(p, data, len(data))
+        finally:
+            k32.GlobalUnlock(h)
+        u32.SetClipboardData(CF_UNICODETEXT, h)
+        return True
+    finally:
+        u32.CloseClipboard()
+
+
 def clear_clipboard():
     """清空剪贴板；成功返回 True"""
     u32 = _u32()
@@ -754,7 +781,7 @@ __all__ = [
     # 键盘
     "type_text", "ctrl_key", "ctrl_shift_key", "key_press",
     # 剪贴板
-    "read_clipboard_text", "clear_clipboard",
+    "read_clipboard_text", "set_clipboard_text", "clear_clipboard",
     # 截图
     "screenshot",
 ]

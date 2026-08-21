@@ -297,7 +297,7 @@ def search_query(link=""):
         return False, "; ".join(logs)
     logs.append("WeChatAppEx 已在左半屏")
 
-    # 2) 点击点位14 → 输入链接 → 回车
+    # 2) 点击点位14 → 剪贴板粘贴链接 → 回车
     p14 = _read_point(14)
     if not p14:
         logs.append("缺少点位14")
@@ -305,9 +305,12 @@ def search_query(link=""):
     pc.mouse_click(p14[0], p14[1])
     logs.append(f"点击点位14({p14[0]},{p14[1]})")
     time.sleep(0.1)
-    pc.type_text(link)
-    logs.append(f"输入链接: {link[:40]}" if len(link) > 40 else f"输入链接: {link}")
-    time.sleep(0.1)
+    if not pc.set_clipboard_text(link):
+        logs.append("剪贴板写入失败")
+        return False, "; ".join(logs)
+    pc.ctrl_key("V")       # 粘贴
+    logs.append("剪贴板粘贴链接")
+    time.sleep(0.3)
     pc.key_press(pc.VK_RETURN)
     logs.append("按回车")
     return True, "; ".join(logs)
