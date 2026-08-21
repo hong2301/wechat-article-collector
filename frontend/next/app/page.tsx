@@ -124,6 +124,13 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [calOpen, setCalOpen] = useState(false);
   const [calData, setCalData] = useState<CalData | null>(null);
+  // 采集弹窗: 确认阶段 / 进行中阶段
+  const [collectOpen, setCollectOpen] = useState(false);
+  const [collectTask, setCollectTask] = useState<Task | null>(null);
+  const [collectStarted, setCollectStarted] = useState(false);  // true=确认后进行中
+  const [collectStartTime, setCollectStartTime] = useState<string>("");
+  const [collectCount, setCollectCount] = useState(0);
+  const [collectLogs, setCollectLogs] = useState<string[]>([]);
   const [pointsOpen, setPointsOpen] = useState(false);
   const [scrollsOpen, setScrollsOpen] = useState(false);
   // 日期范围(采集用), 默认当天
@@ -235,7 +242,19 @@ export default function Home() {
     message.info(`准备采集 ${selectedKeys.length} 个公众号（功能待接后端）`);
   }
   function collectRow(row: Task) {
-    message.info(`开始采集「${row.name}」（功能待接后端）`);
+    // 打开确认弹窗: 显示当前采集设置(日期范围)
+    setCollectTask(row);
+    setCollectStarted(false);
+    setCollectCount(0);
+    setCollectLogs([]);
+    setCollectOpen(true);
+  }
+  // 确认采集: 进入采集进行中(暂未接后端流程, 先更新 UI 状态)
+  function confirmCollect() {
+    setCollectStarted(true);
+    setCollectStartTime(new Date().toLocaleTimeString("zh-CN", { hour12: false }));
+    setCollectLogs((p) => [...p, `开始采集「${collectTask?.name || ""}」`]);
+    // TODO: 待接入后端采集流程(SSE 推送日志/进度)
   }
   const [calMonthKey, setCalMonthKey] = useState<string>("");
   async function loadCalendar(id: number, monthKey: string) {
@@ -479,6 +498,58 @@ export default function Home() {
       <Modal title={calData ? `${calData.name} · 采集日历` : "采集日历"} open={calOpen}
         footer={null} onCancel={() => setCalOpen(false)} width={760} style={{ maxHeight: "80vh", overflow: "auto" }}>
         {calData && <CollectCalendar daily={calData.daily} monthKey={calMonthKey} onMonthChange={(m) => loadCalendar(calData.id, m)} />}
+      </Modal>
+
+      {/* 采集弹窗: 确认阶段 -> 采集进行中 */}
+      <Modal
+        open={collectOpen}
+        title={collectStarted ? `正在处理: ${collectTask?.name || ""} · 任务数 0/1` : "确认采集设置"}
+        onCancel={() => setCollectOpen(false)}
+        footer={collectStarted ? null : (
+          <>
+            <Button onClick={() => setCollectOpen(false)}>取消</Button>
+            <Button type="primary" onClick={confirmCollect}>确认</Button>
+          </>
+        )}
+        width={560}
+      >
+        {/* 采集条件卡片 */}
+        <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px", marginBottom: 10 }}>
+          <Typography.Text strong style={{ fontSize: 13 }}>采集条件</Typography.Text>
+          <div style={{ marginTop: 8, fontSize: 13, color: "#555" }}>
+            时间范围: {dateRange[0].format("YYYY-MM-DD")} ~ {dateRange[1].format("YYYY-MM-DD")}
+          </div>
+        </div>
+
+        {/* 采集情况统计卡片(仅进行中显示) */}
+        {collectStarted && (
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px", marginBottom: 10 }}>
+            <Typography.Text strong style={{ fontSize: 13 }}>采集情况</Typography.Text>
+            <div style={{ display: "flex", gap: 24, marginTop: 8, fontSize: 13, color: "#555" }}>
+              <span>开始时间: {collectStartTime}</span>
+              <span>已采集文章: {collectCount} 篇</span>
+              <span>采集速度: 0 篇/分</span>
+            </div>
+          </div>
+        )}
+
+        {/* 日志区(仅进行中显示) */}
+        {collectStarted && (
+          <div style={{ background: "#fafafa", border: "1px solid #eee", borderRadius: 8, padding: "10px 12px" }}>
+            <Typography.Text strong style={{ fontSize: 13 }}>日志</Typography.Text>
+            <div style={{
+              marginTop: 8, height: 200, overflow: "auto",
+              background: "#1e1e1e", borderRadius: 6, padding: 8,
+              fontFamily: "Consolas, monospace", fontSize: 12, color: "#d4d4d4", whiteSpace: "pre-wrap",
+            }}>
+              {collectLogs.length === 0 ? (
+                <span style={{ color: "#888" }}>(暂无日志)</span>
+              ) : (
+                collectLogs.map((l, i) => <div key={i}>{l}</div>)
+              )}
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* 新增弹窗 */}
