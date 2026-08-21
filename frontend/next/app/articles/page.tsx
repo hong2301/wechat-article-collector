@@ -45,13 +45,20 @@ export default function ArticlePage() {
     if (b) load(b);
   }, []);
 
+  // 无日期的(新增)排最前(按id倒序), 有日期的按日期倒序
+  function sortArticles(list: Article[]) {
+    const noDate = list.filter((a) => !a.date).sort((a, b) => b.id - a.id);
+    const hasDate = list.filter((a) => a.date).sort((a, b) => (new Date(b.date).getTime() - new Date(a.date).getTime()) || (b.id - a.id));
+    return [...noDate, ...hasDate];
+  }
+
   async function load(b: string) {
     setLoading(true);
     try {
       const r = await fetch(`${API}/articles-by-biz?biz=${encodeURIComponent(b)}`);
       const d = await r.json();
       setName(d.name || "");
-      setArticles(d.articles || []);
+      setArticles(sortArticles(d.articles || []));
     } catch { message.error("加载失败"); }
     finally { setLoading(false); }
   }
@@ -171,7 +178,7 @@ export default function ArticlePage() {
                 const shown = text.length > 8 ? text.slice(0, 8) + "…" : text;
                 return (
                   <Space size={6}>
-                    <Tag color={r.original === "原创" ? "green" : "default"} style={{ margin: 0 }}>{r.original || "非原创"}</Tag>
+                    {r.original === "原创" ? <Tag color="green" style={{ margin: 0 }}>原创</Tag> : null}
                     <Tooltip title={text}>
                       {r.link ? <a href={r.link} target="_blank" style={{ display: "inline-block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shown}</a> : <span>{shown}</span>}
                     </Tooltip>
