@@ -76,6 +76,22 @@ class BatchDelete(BaseModel):
     ids: List[int]
 
 
+class PreviewPayload(BaseModel):
+    x: float
+    y: float
+    duration: float = 1.0
+
+
+@router.post("/preview")
+def preview_point(payload: PreviewPayload):
+    """在屏幕坐标 (x,y) 亮红点预览 duration 秒(默认1)
+    返回: {"ok": true}"""
+    from ..services import computer as pc
+    pc.enable_dpi_awareness()
+    pc.preview_point(payload.x, payload.y, duration=payload.duration or 1.0)
+    return {"ok": True}
+
+
 @router.post("/capture")
 def capture_point():
     """阻塞采集屏幕坐标: 前端遮罩期间调用;

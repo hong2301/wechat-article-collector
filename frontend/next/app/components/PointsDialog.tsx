@@ -42,8 +42,6 @@ export default function PointsDialog({
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
-  // 预览红点(全屏覆盖)
-  const [preview, setPreview] = useState<{ x: number; y: number } | null>(null);
   // 编辑弹窗
   const [edit, setEdit] = useState<EditState>({
     open: false, isNew: false, id: null, name: "", x: "", y: "", remark: "",
@@ -168,17 +166,27 @@ export default function PointsDialog({
     });
   }
 
-  // ---------- 预览(全屏红点 0.5 秒) ----------
-  function previewPoint(p: Point) {
+  // ---------- 预览(调后端在真实屏幕坐标亮红点) ----------
+  async function previewPoint(p: Point) {
     const x = Number(p.x), y = Number(p.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
       message.warning("坐标无效，请先填写 x/y");
       return;
     }
-    setPreview({ x, y });
-    setTimeout(() => setPreview(null), 500);
+    try {
+      const r = await fetch(`${API}/preview`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ x, y, duration: 1 }),
+      });
+      if (r.ok) {
+        message.success(`${p.name || "点位"} (${x}, ${y}) 预览成功`);
+      } else {
+        message.error("预览失败");
+      }
+    } catch {
+      message.error("预览失败");
+    }
   }
-
   // ---------- 导入 ----------
   async function importFile(f: File) {
     const fd = new FormData();
