@@ -315,6 +315,38 @@ def close_window(hwnd):
     return True
 
 
+def move_window(hwnd, x, y, width=None, height=None):
+    """【窗口移动】把窗口移到指定位置/大小并前置。
+    参数:
+      hwnd         窗口句柄
+      x, y         目标左上角坐标
+      width,height 目标宽高；None 表示保持当前尺寸
+    返回 True（若想返回是否发生移动可忽略）
+    """
+    u32 = _u32()
+    u32.ShowWindow(hwnd, SW_RESTORE)
+    time.sleep(0.1)
+    x, y = int(x), int(y)
+    if width is None or height is None:
+        rect = wt.RECT()
+        u32.GetWindowRect(hwnd, ctypes.byref(rect))
+        width = width if width is not None else (rect.right - rect.left)
+        height = height if height is not None else (rect.bottom - rect.top)
+    # 移动并调整尺寸（保留大小不变时传当前宽高）
+    u32.SetWindowPos(hwnd, HWND_TOP, x, y, int(width), int(height),
+                     SWP_SHOWWINDOW | SWP_NOACTIVATE)
+    time.sleep(0.2)
+    # 复查：若未生效再设置一次（部分窗口会拒绝首次移动）
+    rect = wt.RECT()
+    u32.GetWindowRect(hwnd, ctypes.byref(rect))
+    if (abs(rect.left - x) > 2 or abs(rect.top - y) > 2):
+        u32.SetWindowPos(hwnd, HWND_TOP, x, y, int(width), int(height),
+                         SWP_SHOWWINDOW | SWP_NOACTIVATE)
+        time.sleep(0.2)
+    _force_foreground(hwnd)
+    return True
+
+
 # ===========================================================================
 # 鼠标：移动 / 左键单击 / 滚动
 # ===========================================================================
@@ -547,7 +579,7 @@ __all__ = [
     # 基础
     "enable_dpi_awareness",
     # 窗口
-    "find_windows", "show_window", "close_window",
+    "find_windows", "show_window", "close_window", "move_window",
     # 鼠标
     "mouse_click", "scroll",
     # 键盘
