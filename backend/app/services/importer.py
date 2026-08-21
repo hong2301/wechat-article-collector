@@ -286,3 +286,71 @@ def extract_art_biz(link):
     # 兜底: 链接末尾一段(去query/hash)
     seg = link.split("?")[0].split("#")[0].rstrip("/")
     return seg.rsplit("/", 1)[-1]
+
+
+# ---- 评论导入: 识别表头各列 ----
+COMMENT_COL_ALIASES = {
+    "author": {"评论作者", "作者", "author", "昵称"},
+    "content": {"评论内容", "内容", "content", "评论"},
+    "time": {"评论时间", "时间", "time", "发布时间"},
+    "likes": {"点赞", "点赞数量", "点赞数", "likes"},
+    "ip": {"ip", "IP", "IP属地", "属地"},
+    "is_author": {"是否作者", "作者标志", "is_author"},
+    "is_top": {"是否置顶", "置顶", "is_top"},
+    "is_first": {"是否首评", "首评", "is_first"},
+    "is_author_reply": {"是否作者回复", "作者回复", "is_author_reply"},
+    "is_author_like": {"是否作者点赞", "作者点赞", "is_author_like"},
+    "level": {"层级", "level", "楼层"},
+    "comment_biz": {"评论biz", "评论id", "comment_biz", "评论ID"},
+    "parent_comment_biz": {"父级biz", "父级评论biz", "父级评论id", "parent_comment_biz"},
+}
+COMMENT_ALIAS_TO_FIELD = {}
+for _f, _as in COMMENT_COL_ALIASES.items():
+    for _a in _as:
+        COMMENT_ALIAS_TO_FIELD[_a.lower()] = _f
+
+_BOOL_WORDS = {"是", "true", "1", "yes"}
+
+
+def _to_flag(v):
+    s = (v or "").strip().lower()
+    return 1 if s in _BOOL_WORDS else 0
+
+
+def parse_comment_rows(filename, raw, max_rows=5000):
+    """识别评论表头各列, 返回行dict列表"""
+    ext = (filename or "").lower().rsplit(".", 1)[-1]
+    if ext not in ("csv", "xlsx", "xlsm", "xls"):
+        raise ValueError("仅支持 CSV / Excel 文件")
+    if ext in ("xlsx", "xlsm", "xls"):
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
+        ws = wb.active
+        grid = [[("" if c is None else str(c)) for c in row] for row in ws.iter_rows(values_only=True)]
+    else:
+        text = raw.decode("utf-8-sig", errors="replace")
+        grid = [list(r) for r in csv.reader(text.splitlines())]
+    grid = [r for r in grid if any(x.strip() for x in r)]
+    if not grid:
+        return []
+    head = grid[0]
+    colmap = {}
+    for i, h in enumerate(head):
+        f = COMMENT_ALIAS_TO_FIELD.get(str(h).strip().lower())
+        if f:
+            colmap[i] = f
+    body = grid[1:] if colmap else grid
+    rows = []
+    for r in body[:max_rows]:
+        item = {k: "" for k in COMMENT_COL_ALIASES}
+        for i, field in colmap.items():
+            if i < len(r):
+                v = r[i].strip()
+                if v:
+                    item[field] = v
+        # 是/否列转 0/1
+        for f in ("is_author", "is_top", "is_first", "is_author_reply", "is_author_like"):
+            item[f] = _to_flag(item[f])
+        if item.get("content") or item.get("comment_biz"):
+            rows.append(item)
+    return rows

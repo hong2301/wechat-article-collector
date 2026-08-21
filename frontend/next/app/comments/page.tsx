@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Tooltip, Spin, DatePicker, InputNumber, Input, Checkbox } from "antd";
+import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Tooltip, Spin, DatePicker, InputNumber, Input, Checkbox, Progress } from "antd";
 import { ArrowLeftOutlined, InboxOutlined, PlusOutlined, ImportOutlined, DeleteOutlined, SearchOutlined, ClearOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 
@@ -57,6 +57,9 @@ export default function CommentsPage() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
+  const [importing, setImporting] = useState(false);
+  const [importingPct, setImportingPct] = useState(0);
+  const [dragOver, setDragOver] = useState(false);
   const [kw, setKw] = useState("");
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
   const [likesRange, setLikesRange] = useState<[number | null, number | null]>([null, null]);
@@ -125,6 +128,40 @@ export default function CommentsPage() {
     });
   }, [comments, dateRange, likesRange, kw]);
 
+  async function importFile(f: File) {
+    setImporting(true); setImportingPct(0);
+    const fd = new FormData();
+    fd.append("file", f);
+    let total = 0, added = 0, fail = 0;
+    try {
+      const r = await fetch(`${API}/comments/import?art_biz=${encodeURIComponent(artBiz)}`, { method: "POST", body: fd });
+      if (!r.body) throw 0;
+      const reader = r.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf("\n\n")) !== -1) {
+          const block = buf.slice(0, idx); buf = buf.slice(idx + 2);
+          const dm = block.match(/^data: (.+)$/m);
+          if (!dm) continue;
+          const d = JSON.parse(dm[1]);
+          if (d.total) total = d.total;
+          if (d.done !== undefined) {
+            setImportingPct(Math.round((d.done / (total || 1)) * 100));
+            if (d.ok) added++; else if (!d.dup) fail++;
+          }
+        }
+      }
+      setImportingPct(100);
+      reload();
+      message.success(`评论导入完成: 新增${added}${fail ? `, 失败${fail}` : ""}`);
+      setTimeout(() => setImporting(false), 800);
+    } catch { setImporting(false); message.error("导入失败"); }
+  }
   // 删除选中
   function deleteSelected() {
     if (selectedKeys.length === 0) { Modal.warning({ title: "未选择", content: "请先勾选要删除的评论", okText: "知道了" }); return; }
@@ -173,14 +210,18 @@ export default function CommentsPage() {
         </div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, minHeight: shown.length ? 0 : undefined, background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px" }}>
+      <div
+        onDragOver={(e) => { e.preventDefault(); if (Array.from(e.dataTransfer.types || []).includes("Files")) setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); if (Array.from(e.dataTransfer.types || []).includes("Files")) { const f = e.dataTransfer.files?.[0]; if (f) importFile(f); } }}
+        style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, minHeight: shown.length ? 0 : undefined, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Button type="primary" icon={<InboxOutlined />} onClick={() => message.info("评论采集(开发中)")}>采集选中</Button>
           <div style={{ flex: 1 }} />
           <Button color="primary" variant="outlined" icon={<PlusOutlined />} onClick={() => message.info("新增评论(开发中)")}>新增</Button>
           <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>
           <Button danger icon={<DeleteOutlined />} onClick={deleteSelected}>删除选中</Button>
-          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.xlsm" style={{ display: "none" }} onChange={() => message.info("评论导入(开发中)")} />
+          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.xlsm" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) importFile(f); e.target.value = ""; }} />
         </div>
         {loading ? (
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -235,6 +276,15 @@ export default function CommentsPage() {
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 条评论</Typography.Text>
         </div>
       </div>
+      {/* 导入进度弹窗 */}
+      <Modal title="正在导入" open={importing} footer={null} closable={false} width={400}>
+        <div style={{ textAlign: "center", padding: "8px 0" }}>
+          <Typography.Title level={5} style={{ marginTop: 0 }}>导入进度</Typography.Title>
+          <Spin size="large" />
+          <div style={{ margin: "10px 0" }}><Typography.Text type="secondary" style={{ fontSize: 12 }}>正在导入评论…</Typography.Text></div>
+          <Progress percent={importingPct} status={importingPct >= 100 ? "success" : "active"} />
+        </div>
+      </Modal>
     </div>
   );
 }

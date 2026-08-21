@@ -341,6 +341,55 @@ def import_articles(biz: str = "", file: UploadFile = File(...)):
                              headers={"Cache-Control": "no-cache"})
 
 
+def _comment_import_sse(rows, art_biz):
+    """逐行入库评论, SSE 进度"""
+    import json as _json
+    total = len(rows)
+    yield 'event: start' + chr(10) + 'data: ' + _json.dumps({'total': total}) + chr(10) + chr(10)
+    done = 0
+    dup = 0
+    for item in rows:
+        ok = True
+        is_dup = False
+        conn = get_conn()
+        try:
+            cb = (item.get("comment_biz") or "").strip()
+            if cb:
+                ex = conn.execute("SELECT COUNT(*) c FROM comments WHERE art_biz=? AND comment_biz=?", (art_biz, cb)).fetchone()
+                if ex["c"]:
+                    ok, is_dup, dup = False, True, dup + 1
+            if ok:
+                conn.execute(
+                    "INSERT INTO comments(comment_biz, parent_comment_biz, art_biz, author, content, time, likes, ip, "
+                    "is_author, is_top, is_first, is_author_reply, is_author_like, level) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (item.get("comment_biz"), item.get("parent_comment_biz"), art_biz, item.get("author"), item.get("content"),
+                     item.get("time"), item.get("likes"), item.get("ip"), item.get("is_author"), item.get("is_top"),
+                     item.get("is_first"), item.get("is_author_reply"), item.get("is_author_like"), item.get("level")))
+                conn.commit()
+        except Exception:
+            ok = False
+        finally:
+            conn.close()
+        done += 1
+        yield 'event: progress' + chr(10) + 'data: ' + _json.dumps({'done': done, 'total': total, 'name': item.get("author") or "", 'ok': ok, 'dup': is_dup}) + chr(10) + chr(10)
+    yield 'event: done' + chr(10) + 'data: ' + _json.dumps({'dup': dup}) + chr(10) + chr(10)
+
+
+@router.post("/comments/import")
+def import_comments(art_biz: str = "", file: UploadFile = File(...)):
+    """上传表格, 识别评论各列入库(SSE)"""
+    if not art_biz:
+        raise HTTPException(400, "缺少 art_biz")
+    raw = file.file.read() if hasattr(file, "file") else file.read()
+    from ..services.importer import parse_comment_rows
+    try:
+        rows = parse_comment_rows(file.filename or "", raw)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return StreamingResponse(_comment_import_sse(rows, art_biz), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache"})
+
+
 @router.delete("/comments")
 def delete_comments(ids: str = "", art_biz: str = ""):
     """按 id 批量删除评论(可选限定art_biz)"""
