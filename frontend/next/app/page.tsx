@@ -109,12 +109,17 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
+  const dropBeforeRef = useRef(false);
+  const hoverRef = useRef<{ id: number | null; before: boolean }>({ id: null, before: false });
   const [importing, setImporting] = useState(false);
   const [importingPct, setImportingPct] = useState(0);
   const [dragOver, setDragOver] = useState(false);
   const [failedRows, setFailedRows] = useState<{ name: string }[]>([]);
   const [sbWidth, setSbWidth] = useState(6);
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
+  const [dragRowId, setDragRowId] = useState<number | null>(null);
+  const [overRowId, setOverRowId] = useState<number | null>(null);
+  const [dropBefore, setDropBefore] = useState(false);
   const [calOpen, setCalOpen] = useState(false);
   const [calData, setCalData] = useState<CalData | null>(null);
 
@@ -241,19 +246,23 @@ export default function Home() {
     await loadCalendar(row.id, mk);
     setCalOpen(true);
   }
-  async function moveRow(dragId: number, targetId: number) {
+  function moveRow(dragId: number, targetId: number, before: boolean) {
     if (dragId === targetId) return;
-    const oldIndex = tasks.findIndex((t) => t.id === dragId);
-    const newIndex = tasks.findIndex((t) => t.id === targetId);
-    if (oldIndex < 0 || newIndex < 0) return;
+    // 乐观更新: 视觉立即移动, 不等待后端
     const next = [...tasks];
+    const oldIndex = next.findIndex((t) => t.id === dragId);
+    if (oldIndex < 0) return;
     const [moved] = next.splice(oldIndex, 1);
-    next.splice(newIndex, 0, moved);
+    let insert = next.findIndex((t) => t.id === targetId);
+    if (insert < 0) return;
+    if (!before) insert += 1;
+    next.splice(insert, 0, moved);
     setTasks(next);
-    try {
-      await fetch(`${API}/sort`, { method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: next.map((t) => t.id) }) });
-    } catch { /* 忽略 */ }
+    // 保存延后到渲染之后, 失败静默忽略(刷新会恢复)
+    setTimeout(() => {
+      fetch(`${API}/sort`, { method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: next.map((t) => t.id) }) }).catch(() => {});
+    }, 0);
   }
   function toggleSelect(id: number, checked: boolean) {
     setSelectedKeys((prev) => checked ? [...prev, id] : prev.filter((k) => k !== id));
@@ -301,9 +310,45 @@ export default function Home() {
               locale={{ emptyText: <Empty description="请添加一个公众号" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
               onRow={(record) => ({
                 draggable: true,
-                onDragStart: (e) => { e.stopPropagation(); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(record.id)); },
-                onDragOver: (e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; },
-                onDrop: (e) => { e.preventDefault(); e.stopPropagation(); const id = e.dataTransfer.getData("text/plain"); if (id) moveRow(Number(id), record.id); },
+                className: [
+                  dragRowId === record.id ? "drag-source" : "",
+                  hoverRef.current.id === record.id && dragRowId !== record.id ? (hoverRef.current.before ? "drop-before" : "drop-after") : "",
+                ].join(" "),
+                onDragStart: (e) => {
+                  e.stopPropagation(); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(record.id));
+                  setDragRowId(record.id); hoverRef.current = { id: null, before: false }; dropBeforeRef.current = false;
+                  const ghost = document.createElement("div");
+                  ghost.style.width = "10px"; ghost.style.height = "10px";
+                  ghost.style.background = "#1677ff"; ghost.style.borderRadius = "50%";
+                  ghost.style.boxShadow = "0 0 0 3px rgba(22,119,255,.3)";
+                  document.body.appendChild(ghost);
+                  e.dataTransfer.setDragImage(ghost, 5, 5);
+                  requestAnimationFrame(() => ghost.remove());
+                },
+                onDragOver: (e) => {
+                  e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move";
+                  if (record.id === dragRowId) return;
+                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  const before = e.clientY < rect.top + rect.height / 2;
+                  dropBeforeRef.current = before;
+                  const h = hoverRef.current;
+                  if (h.id !== record.id || h.before !== before) {
+                    hoverRef.current = { id: record.id, before };
+                    setOverRowId(prev => {
+                      if (prev === record.id) return prev;
+                      return record.id;
+                    });
+                    setDropBefore(before);
+                  }
+                },
+                onDragLeave: () => {},
+                onDrop: (e) => {
+                  e.preventDefault(); e.stopPropagation();
+                  const id = e.dataTransfer.getData("text/plain");
+                  if (id) moveRow(Number(id), record.id, dropBeforeRef.current);
+                  setDragRowId(null); hoverRef.current = { id: null, before: false }; setOverRowId(null);
+                },
+                onDragEnd: () => { setDragRowId(null); hoverRef.current = { id: null, before: false }; setOverRowId(null); },
               })}
               columns={[
                 {
