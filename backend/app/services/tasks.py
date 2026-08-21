@@ -17,6 +17,10 @@ from . import computer as pc
 WECHAT_MAIN = "Weixin.exe"          # 微信主界面进程
 WECHAT_APPEX = "WeChatAppEx.exe"    # 微信小程序/外部App容器进程
 
+# 采集器(前端)相关
+APP_TITLE = "微信公众号采集器"      # 前端窗口标题(打包后名称)
+APP_EXE = "electron.exe"           # 前端壳进程
+
 
 def init_wechat_window():
     """微信窗口初始化: 确保 WeChatAppEx 被关闭、Weixin 存在且在左半屏。
@@ -76,4 +80,46 @@ def init_wechat_window():
     return True, "; ".join(logs)
 
 
-__all__ = ["init_wechat_window"]
+def init_app_window():
+    """采集器窗口初始化: 确保前端窗口(微信公众号采集器)在右半屏。
+    前提: 调用本函数前窗口已被唤起(本函数不负责唤起)。
+    步骤:
+      1) 查找"微信公众号采集器"窗口；找不到则返回 False
+      2) 检测是否在屏幕右半边；是则返回 True
+      3) 否则移动到右半边，返回 True
+    失败(找不到窗口/移动异常)返回 False。
+    返回: (成功?, 说明文本)。
+    """
+    import ctypes
+    from ctypes import wintypes as wt
+    logs = []
+
+    # 1) 查找前端窗口(按标题, 可能是 electron 或其它壳进程)
+    wins = pc.find_windows(title=APP_TITLE, visible_only=True)
+    if not wins:
+        # 兜底: 按 electron 进程找
+        wins = pc.find_windows(exe=APP_EXE, visible_only=True)
+    if not wins:
+        logs.append("未找到采集器窗口")
+        return False, "; ".join(logs)
+
+    hwnd = wins[0][0]
+    u32 = pc._u32()
+    sw = u32.GetSystemMetrics(pc.SM_CXSCREEN)
+    sh = u32.GetSystemMetrics(pc.SM_CYSCREEN)
+    half = sw // 2
+
+    # 2) 检测是否已在右半边(左边缘≈半屏且宽度≈半屏)
+    r = wt.RECT()
+    u32.GetWindowRect(hwnd, ctypes.byref(r))
+    if abs(r.left - half) <= 2 and abs((r.right - r.left) - half) <= 0:
+        logs.append("采集器窗口已在右半屏")
+        return True, "; ".join(logs)
+
+    # 3) 移动到右半边
+    pc.move_window(hwnd, half, 0, half, sh)
+    logs.append("采集器窗口已移到右半屏")
+    return True, "; ".join(logs)
+
+
+__all__ = ["init_wechat_window", "init_app_window"]
