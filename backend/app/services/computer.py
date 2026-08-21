@@ -748,23 +748,7 @@ def screenshot(x1, y1, x2, y2, img_format="png", as_base64=False):
     import tempfile
     from PIL import Image, ImageGrab
     try:
-        # 截图前: 若鼠标在截图区域内, 先移到区域正下方(绝不入镜)
-        try:
-            u32 = _u32()
-            pt = wt.POINT()
-            u32.GetCursorPos(ctypes.byref(pt))
-            if (int(x1) <= pt.x <= int(x2)) and (int(y1) <= pt.y <= int(y2)):
-                sx = u32.GetSystemMetrics(SM_CXSCREEN)
-                sy = u32.GetSystemMetrics(SM_CYSCREEN)
-                # 优先移到区域右下方外; 若超出屏幕则移到左上外
-                tx, ty = int(x2) + 30, int(y2) + 30
-                if tx >= sx - 10 or ty >= sy - 10:
-                    tx, ty = max(10, int(x1) - 30), max(10, int(y1) - 30)
-                u32.SetCursorPos(tx, ty)
-                time.sleep(0.05)
-        except Exception:
-            pass
-        # 截图前隐藏鼠标(避免光标出现在截图内), 完成后恢复
+        # 截图前隐藏鼠标(可靠: 光标从屏幕消失, 避免入镜), 完成后恢复
         try:
             _u32().ShowCursor(False)
         except Exception:
