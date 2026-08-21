@@ -22,17 +22,20 @@ APP_TITLE = "微信公众号采集器"      # 前端窗口标题(打包后名称
 APP_EXE = "electron.exe"           # 前端壳进程
 
 
-def init_wechat_window():
+def init_wechat_window(window_split=False):
     """微信窗口初始化: 确保 WeChatAppEx 被关闭、Weixin 存在且在左半屏。
+    参数:
+      window_split 是否窗口分离(默认否); 仅在 True 时允许"宽度不合法→点击点位9重跑"
     步骤:
       1) 找 WeChatAppEx.exe 窗口, 有则直接关闭, 无则跳过
       2) 找 Weixin.exe 窗口, 无则唤出
       3) 保证已有 Weixin.exe 窗口
       4) 移动到屏幕左半边, 并校验是否就位
-      5) 若宽度/位置不合法, 点击点位9(触发窗口布局)后重跑一次
+      5) 若宽度/位置不合法: window_split=True 时点击点位9(触发窗口布局)后重跑;
+         否则直接返回 False
     返回: (成功?, 说明文本)。
       成功(Weixin 在左半边)返回 (True, 文本);
-      重试后仍不合法/失败返回 (False, 文本), 交由后续流程处理。
+      失败返回 (False, 文本), 交由后续流程处理。
     """
     import ctypes
     from ctypes import wintypes as wt
@@ -83,7 +86,10 @@ def init_wechat_window():
     if ok:
         return True, "; ".join(logs)
 
-    # 不合法: 点击点位9后重跑一次
+    # 宽度/位置不合法: 仅 window_split=True 时才点击点位9后重跑, 否则直接 Fail
+    if not window_split:
+        return False, "; ".join(logs)
+
     try:
         from ..database import get_conn
         conn = get_conn()
