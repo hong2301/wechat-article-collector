@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { DndProvider, useDrag, useDrop } from "react-dnd";
+import { HTML5Backend } from "react-dnd-html5-backend";
 import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, message, Modal, Spin, Progress, Empty } from "antd";
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
@@ -109,17 +111,13 @@ export default function Home() {
   const [saving, setSaving] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
-  const dropBeforeRef = useRef(false);
-  const hoverRef = useRef<{ id: number | null; before: boolean }>({ id: null, before: false });
+  const tasksRef = useRef<Task[]>([]);
   const [importing, setImporting] = useState(false);
   const [importingPct, setImportingPct] = useState(0);
   const [dragOver, setDragOver] = useState(false);
   const [failedRows, setFailedRows] = useState<{ name: string }[]>([]);
   const [sbWidth, setSbWidth] = useState(6);
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
-  const [dragRowId, setDragRowId] = useState<number | null>(null);
-  const [overRowId, setOverRowId] = useState<number | null>(null);
-  const [dropBefore, setDropBefore] = useState(false);
   const [calOpen, setCalOpen] = useState(false);
   const [calData, setCalData] = useState<CalData | null>(null);
 
@@ -246,24 +244,59 @@ export default function Home() {
     await loadCalendar(row.id, mk);
     setCalOpen(true);
   }
-  function moveRow(dragId: number, targetId: number, before: boolean) {
-    if (dragId === targetId) return;
-    // 乐观更新: 视觉立即移动, 不等待后端
-    const next = [...tasks];
+  // 视觉移动(hover时实时调用, 不保存)
+  function moveOrder(dragId: number, overId: number) {
+    const next = [...tasksRef.current];
     const oldIndex = next.findIndex((t) => t.id === dragId);
-    if (oldIndex < 0) return;
+    const newIndex = next.findIndex((t) => t.id === overId);
+    if (oldIndex < 0 || newIndex < 0 || oldIndex === newIndex) return;
     const [moved] = next.splice(oldIndex, 1);
-    let insert = next.findIndex((t) => t.id === targetId);
-    if (insert < 0) return;
-    if (!before) insert += 1;
-    next.splice(insert, 0, moved);
+    next.splice(newIndex, 0, moved);
+    tasksRef.current = next;
     setTasks(next);
-    // 保存延后到渲染之后, 失败静默忽略(刷新会恢复)
+  }
+  // 保存最终顺序(拖拽结束调用)
+  function saveOrder() {
+    const ids = tasksRef.current.map((t) => t.id);
     setTimeout(() => {
       fetch(`${API}/sort`, { method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: next.map((t) => t.id) }) }).catch(() => {});
+        body: JSON.stringify({ ids }) }).catch(() => {});
     }, 0);
   }
+  // 每个数据行: useDrag + useDrop 实现拖动排序
+  const DndRow = useMemo(() => {
+    return function DndRow({ children, "data-row-key": rk, ...props }: React.HTMLAttributes<HTMLTableRowElement> & { "data-row-key": string }) {
+      const [{ isDragging }, drag] = useDrag(() => ({
+        type: "ACCOUNT_ROW", item: { id: Number(rk) },
+        collect: (m) => ({ isDragging: m.isDragging() }),
+        end: () => { saveOrder(); },
+      }), []);
+      const [, drop] = useDrop(() => ({
+        accept: "ACCOUNT_ROW",
+        hover(item: { id: number }) {
+          if (item.id !== Number(rk)) moveOrder(item.id, Number(rk));
+        },
+      }), []);
+      return (
+        <tr {...props} ref={(node) => { drag(drop(node)); }}
+          onDragOver={(e) => {
+            // 边缘自动滚动: 靠近表格可视区顶部/底部时滚动滚动容器
+            const body = (e.currentTarget as HTMLElement).closest(".ant-table-body") as HTMLElement | null;
+            if (!body) return;
+            const r = body.getBoundingClientRect();
+            const edge = 56;
+            if (e.clientY < r.top + edge) body.scrollTop -= 16;
+            else if (e.clientY > r.bottom - edge) body.scrollTop += 16;
+          }}
+          style={{ ...(props.style || {}), ...(isDragging ? { opacity: 0.35, background: "#f0f6ff" } : {}) }}>
+          {children}
+        </tr>
+      );
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // 保持 tasksRef 与 tasks 同步
+  useEffect(() => { tasksRef.current = tasks; }, [tasks]);
   function toggleSelect(id: number, checked: boolean) {
     setSelectedKeys((prev) => checked ? [...prev, id] : prev.filter((k) => k !== id));
   }
@@ -306,58 +339,10 @@ export default function Home() {
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }} onChange={onPick} />
         </div>
 
+            <DndProvider backend={HTML5Backend}>
             <Table className="home-table" rowKey="id" dataSource={tasks} loading={loading} pagination={false} bordered scroll={{ y: "calc(100vh - 255px)" }}
               locale={{ emptyText: <Empty description="请添加一个公众号" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
-              onRow={(record) => ({
-                draggable: true,
-                className: [
-                  dragRowId === record.id ? "drag-source" : "",
-                  hoverRef.current.id === record.id && dragRowId !== record.id ? (hoverRef.current.before ? "drop-before" : "drop-after") : "",
-                ].join(" "),
-                onDragStart: (e) => {
-                  e.stopPropagation(); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(record.id));
-                  setDragRowId(record.id); hoverRef.current = { id: null, before: false }; dropBeforeRef.current = false;
-                  const ghost = document.createElement("div");
-                  ghost.style.width = "10px"; ghost.style.height = "10px";
-                  ghost.style.background = "#1677ff"; ghost.style.borderRadius = "50%";
-                  ghost.style.boxShadow = "0 0 0 3px rgba(22,119,255,.3)";
-                  document.body.appendChild(ghost);
-                  e.dataTransfer.setDragImage(ghost, 5, 5);
-                  requestAnimationFrame(() => ghost.remove());
-                },
-                onDragOver: (e) => {
-                  e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move";
-                  if (record.id === dragRowId) return;
-                  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                  const before = e.clientY < rect.top + rect.height / 2;
-                  dropBeforeRef.current = before;
-                  const h = hoverRef.current;
-                  if (h.id !== record.id || h.before !== before) {
-                    hoverRef.current = { id: record.id, before };
-                    setOverRowId(prev => {
-                      if (prev === record.id) return prev;
-                      return record.id;
-                    });
-                    setDropBefore(before);
-                  }
-                  // 边缘自动滚动: 靠近表格可视区顶部/底部时滚动滚动容器
-                  const body = (e.currentTarget as HTMLElement).closest(".ant-table-body") as HTMLElement | null;
-                  if (body) {
-                    const r = body.getBoundingClientRect();
-                    const edge = 56;
-                    if (e.clientY < r.top + edge) body.scrollTop -= 18;
-                    else if (e.clientY > r.bottom - edge) body.scrollTop += 18;
-                  }
-                },
-                onDragLeave: () => {},
-                onDrop: (e) => {
-                  e.preventDefault(); e.stopPropagation();
-                  const id = e.dataTransfer.getData("text/plain");
-                  if (id) moveRow(Number(id), record.id, dropBeforeRef.current);
-                  setDragRowId(null); hoverRef.current = { id: null, before: false }; setOverRowId(null);
-                },
-                onDragEnd: () => { setDragRowId(null); hoverRef.current = { id: null, before: false }; setOverRowId(null); },
-              })}
+              components={{ body: { row: DndRow } }}
               columns={[
                 {
                   title: "", dataIndex: "drag", width: 40, align: "center",
@@ -409,6 +394,7 @@ export default function Home() {
                 },
               ]}
             />
+            </DndProvider>
 
         <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 10 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>当前 {tasks.length} 个公众号</Typography.Text>
