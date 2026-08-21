@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress } from "antd";
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined } from "@ant-design/icons";
@@ -27,6 +27,7 @@ export default function ArticlePage() {
   const [biz, setBiz] = useState("");
   const [name, setName] = useState("");
   const [articles, setArticles] = useState<Article[]>([]);
+  const [sortInfo, setSortInfo] = useState<{ key: string; order: "ascend" | "descend" }>({ key: "date", order: "descend" });
   const [loading, setLoading] = useState(false);
   const [kw, setKw] = useState("");
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -63,7 +64,32 @@ export default function ArticlePage() {
     finally { setLoading(false); }
   }
 
-  const shown = kw ? articles.filter((a) => (a.title || "").includes(kw)) : articles;
+  // 取列值(空值恒最前)
+  function colVal(a: Article, key: string): string | number {
+    const v = (a as any)[key] ?? "";
+    if (key === "date" || key === "write_time") return typeof v === "string" ? v.trim() : String(v);
+    return v;
+  }
+  const sorted = useMemo(() => {
+    const key = sortInfo.key;
+    const dir = sortInfo.order === "descend" ? -1 : 1;
+    const arr = [...articles];
+    arr.sort((a, b) => {
+      const av = colVal(a, key), bv = colVal(b, key);
+      const aEmpty = av === "" || av == null, bEmpty = bv === "" || bv == null;
+      if (aEmpty || bEmpty) { if (aEmpty && bEmpty) return 0; return aEmpty ? -1 : 1; }
+      if (key === "date" || key === "write_time") {
+        const at = new Date(String(av)).getTime(), bt = new Date(String(bv)).getTime();
+        return (at - bt) * dir;
+      }
+      const an = Number(av), bn = Number(bv);
+      const r = (Number.isFinite(an) && Number.isFinite(bn)) ? an - bn : String(av).localeCompare(String(bv), "zh");
+      return r * dir;
+    });
+    return arr;
+  }, [articles, sortInfo]);
+
+  const shown = sorted;
   function reload() { if (biz) load(biz); }
 
   async function importFile(f: File) {
@@ -168,6 +194,13 @@ export default function ArticlePage() {
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.xlsm" style={{ display: "none" }} onChange={onPick} />
         </div>
         <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} scroll={{ x: 1100 }} size="small"
+          onChange={(_p: any, _f: any, sorter: any) => {
+            const s = Array.isArray(sorter) ? sorter[0] : sorter;
+            const key = s?.columnKey;
+            const order = s?.order;
+            if (key && (order === "ascend" || order === "descend")) setSortInfo({ key, order });
+            else setSortInfo({ key: "date", order: "descend" });
+          }}
           rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
           locale={{ emptyText: <Empty description="暂无文章" /> }}
           columns={[
@@ -187,7 +220,8 @@ export default function ArticlePage() {
               },
             },
             {
-              title: "日期", dataIndex: "date", width: 110,
+              title: "日期", dataIndex: "date", width: 110, sorter: true,
+              sortOrder: sortInfo.key === "date" ? sortInfo.order : null,
               render: (v: string) => {
                 const t = v || "";
                 const m = t.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
@@ -195,14 +229,15 @@ export default function ArticlePage() {
                 return <Tooltip title={t}><span style={{ cursor: "default" }}>{short}</span></Tooltip>;
               },
             },
-            { title: "阅读", dataIndex: "reads", width: 80 },
-            { title: "点赞", dataIndex: "likes", width: 80 },
-            { title: "转发", dataIndex: "forwards", width: 80 },
-            { title: "喜欢", dataIndex: "favorites", width: 80 },
-            { title: "评论", dataIndex: "comments", width: 80 },
+            { title: "阅读", dataIndex: "reads", width: 80, sorter: true, sortOrder: sortInfo.key === "reads" ? sortInfo.order : null },
+            { title: "点赞", dataIndex: "likes", width: 80, sorter: true, sortOrder: sortInfo.key === "likes" ? sortInfo.order : null },
+            { title: "转发", dataIndex: "forwards", width: 80, sorter: true, sortOrder: sortInfo.key === "forwards" ? sortInfo.order : null },
+            { title: "喜欢", dataIndex: "favorites", width: 80, sorter: true, sortOrder: sortInfo.key === "favorites" ? sortInfo.order : null },
+            { title: "评论", dataIndex: "comments", width: 80, sorter: true, sortOrder: sortInfo.key === "comments" ? sortInfo.order : null },
             { title: "IP", dataIndex: "ip", width: 120 },
             {
-              title: "写入时间", dataIndex: "write_time", width: 110,
+              title: "写入时间", dataIndex: "write_time", width: 110, sorter: true,
+              sortOrder: sortInfo.key === "write_time" ? sortInfo.order : null,
               render: (v: string) => {
                 const t = v || "";
                 const m = t.match(/(\d{4})-(\d{1,2})-(\d{1,2})/);

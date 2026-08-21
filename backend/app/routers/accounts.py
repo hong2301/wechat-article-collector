@@ -217,6 +217,8 @@ def create_article(payload: ArticleCreate):
         )
         conn.commit()
         return {"id": cur.lastrowid, "title": title, "link": link, "biz": payload.biz}
+    except sqlite3.IntegrityError:
+        raise HTTPException(400, "该文章链接已存在，不能重复添加")
     finally:
         conn.close()
 
