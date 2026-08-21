@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """公众号(accounts) CRUD 路由"""
+import sqlite3
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from ..database import get_conn
@@ -109,6 +110,8 @@ def create_account(payload: AccountCreate):
         row = conn.execute(
             "SELECT a.* FROM accounts a WHERE a.id=?", (new_id,)).fetchone()
         return dict(row)
+    except sqlite3.IntegrityError:
+        raise HTTPException(400, "biz 代码已存在，不能重复添加")
     finally:
         conn.close()
 
@@ -121,6 +124,10 @@ def update_account(aid: int, payload: AccountUpdate):
         if not row:
             raise HTTPException(404, "账号不存在")
         fields = payload.model_dump(exclude_unset=True)
+        if "biz" in fields and fields["biz"]:
+            dup = conn.execute("SELECT id FROM accounts WHERE biz=? AND id<>?", (fields["biz"], aid)).fetchone()
+            if dup:
+                raise HTTPException(400, "biz 代码已存在，不能重复")
         if fields:
             sets = ", ".join(f"{k}=?" for k in fields)
             conn.execute(f"UPDATE accounts SET {sets} WHERE id=?",
