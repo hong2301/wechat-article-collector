@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import dayjs from "dayjs";
-import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber, Spin } from "antd";
+import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber } from "antd";
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined } from "@ant-design/icons";
 
 const API = "http://127.0.0.1:8000/api/accounts";
@@ -369,7 +369,7 @@ export default function ArticlePage() {
               },
             },
             {
-              title: "日期", dataIndex: "date", width: 90, sorter: true,
+              title: "日期", dataIndex: "date", width: 70, sorter: true,
               sortOrder: sortInfo.key === "date" ? sortInfo.order : null,
               render: (v: string) => {
                 const t = v || "";
@@ -379,7 +379,7 @@ export default function ArticlePage() {
               },
             },
             {
-              title: "评论", dataIndex: "comments", width: 130,
+              title: "评论", dataIndex: "comments", width: 70,
               sorter: true, sortOrder: sortInfo.key === "comments" ? sortInfo.order : null,
               render: (v: string, r: Article) => (
                 <Space size={4}>
@@ -395,7 +395,7 @@ export default function ArticlePage() {
             { title: "喜欢", dataIndex: "favorites", width: 80, sorter: true, sortOrder: sortInfo.key === "favorites" ? sortInfo.order : null },
             { title: "IP", dataIndex: "ip", width: 80 },
             {
-              title: "写入时间", dataIndex: "write_time", width: 90, sorter: true,
+              title: "写入时间", dataIndex: "write_time", width: 70, sorter: true,
               sortOrder: sortInfo.key === "write_time" ? sortInfo.order : null,
               render: (v: string) => {
                 const t = v || "";
@@ -413,14 +413,6 @@ export default function ArticlePage() {
               ) },
           ]}
         />
-        {loading ? (
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,.6)", zIndex: 2, borderRadius: 14 }}>
-            <Space vertical size={10} style={{ alignItems: "center" }}>
-              <Spin size="large" />
-              <Typography.Text type="secondary" style={{ fontSize: 13 }}>正在加载文章…</Typography.Text>
-            </Space>
-          </div>
-        ) : null}
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 10 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 篇</Typography.Text>
