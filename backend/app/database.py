@@ -75,6 +75,14 @@ def init_db():
             y       TEXT DEFAULT '',
             remark  TEXT DEFAULT ''
         );
+        CREATE TABLE IF NOT EXISTS scrolls (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            name        TEXT DEFAULT '',
+            distance    TEXT DEFAULT '',
+            point_id    INTEGER DEFAULT 0,
+            direction   TEXT DEFAULT 'down',
+            remark      TEXT DEFAULT ''
+        );
         """)
         # biz 唯一(同 biz 不允许重复公众号)
         try:

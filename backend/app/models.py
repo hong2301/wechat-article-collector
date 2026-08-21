@@ -47,3 +47,27 @@ class PointUpdate(BaseModel):
 
 class Point(PointBase):
     id: int
+
+
+class ScrollBase(BaseModel):
+    name: str = ""
+    distance: str = ""
+    point_id: int = 0
+    direction: str = "down"
+    remark: str = ""
+
+
+class ScrollCreate(ScrollBase):
+    pass
+
+
+class ScrollUpdate(BaseModel):
+    name: Optional[str] = None
+    distance: Optional[str] = None
+    point_id: Optional[int] = None
+    direction: Optional[str] = None
+    remark: Optional[str] = None
+
+
+class Scroll(ScrollBase):
+    id: int

@@ -222,8 +222,8 @@ export default function PointsDialog({
           onChange={(e) => toggleOne(r.id, e.target.checked)} />
       ),
     },
-    { title: "点位id", dataIndex: "id", width: 80, align: "center" as const },
-    { title: "点位名称", dataIndex: "name", render: (_: unknown, p: Point) => p.name },
+    { title: "id", dataIndex: "id", width: 80, align: "center" as const },
+    { title: "名称", dataIndex: "name", render: (_: unknown, p: Point) => p.name },
     { title: "x", dataIndex: "x", width: 90, align: "center" as const, render: (_: unknown, p: Point) => p.x || "—" },
     { title: "y", dataIndex: "y", width: 90, align: "center" as const, render: (_: unknown, p: Point) => p.y || "—" },
     { title: "备注", dataIndex: "remark", render: (_: unknown, p: Point) => p.remark || "" },
@@ -283,7 +283,7 @@ export default function PointsDialog({
         cancelText="取消"
       >
         <Space vertical style={{ width: "100%" }}>
-          <Input placeholder="点位名称" value={edit.name}
+          <Input placeholder="名称" value={edit.name}
             onChange={(e) => setEdit({ ...edit, name: e.target.value })} />
           <div style={{ display: "flex", gap: 8 }}>
             <Input placeholder="x 坐标" value={edit.x} style={{ width: 90 }}

@@ -567,7 +567,7 @@ def _flash_red_dot(x, y, radius=10, duration=0.5):
 
 
 def scroll(x, y, pixels, direction="down", wait_before=0, wait_after=0,
-           show_feedback=True):
+           show_feedback=True, duration=0.2):
     """【滚轮滚动】（滚轮不分左右键，只分方向）
     参数:
       x, y          滚动时鼠标停靠坐标
@@ -576,6 +576,7 @@ def scroll(x, y, pixels, direction="down", wait_before=0, wait_after=0,
       wait_before   滚动前等待秒数(默认 0)
       wait_after    滚动后等待秒数(默认 0)
       show_feedback 是否在坐标点显示红色反馈点 0.5 秒(默认 True)
+      duration      滚动完成时长(秒, 默认0.2): 整个滚动在此时间内完成
     """
     if wait_before:
         time.sleep(wait_before)
@@ -584,9 +585,12 @@ def scroll(x, y, pixels, direction="down", wait_before=0, wait_after=0,
     time.sleep(0.05)                    # 移动到位后的微小停顿
     sign = -1 if direction == "down" else 1   # 负值=向下, 正值=向上
     ticks = max(1, int(pixels / WHEEL_DELTA)) if pixels else 0
+    # 每格间隔 = 总时长 / 格数(整个滚动在 duration 秒内完成; 至少给 0.005 保证生效)
+    step = max(0.005, (duration or 0.5) / ticks) if ticks else 0
     for _ in range(ticks):
         u32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, sign * WHEEL_DELTA, None)
-        time.sleep(0.05)
+        if step:
+            time.sleep(step)
     if show_feedback:
         _flash_red_dot(x, y)            # 滚动完成后显示红点(不阻塞/不抢滚动焦点)
     if wait_after:
