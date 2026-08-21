@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress } from "antd";
+import dayjs from "dayjs";
+import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker } from "antd";
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined } from "@ant-design/icons";
 
 const API = "http://127.0.0.1:8000/api/accounts";
@@ -28,6 +29,7 @@ export default function ArticlePage() {
   const [name, setName] = useState("");
   const [articles, setArticles] = useState<Article[]>([]);
   const [sortInfo, setSortInfo] = useState<{ key: string; order: "ascend" | "descend" }>({ key: "date", order: "descend" });
+  const [dateRange, setDateRange] = useState<[any, any] | null>(null);
   const [loading, setLoading] = useState(false);
   const [kw, setKw] = useState("");
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -37,6 +39,7 @@ export default function ArticlePage() {
   const [importing, setImporting] = useState(false);
   const [importingPct, setImportingPct] = useState(0);
   const [failedLinks, setFailedLinks] = useState<string[]>([]);
+  const [dupRows, setDupRows] = useState<any[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -89,11 +92,20 @@ export default function ArticlePage() {
     return arr;
   }, [articles, sortInfo]);
 
-  const shown = sorted;
+  const shown = useMemo(() => {
+    if (!dateRange) return sorted;
+    const [s, e] = dateRange;
+    const sT = s.startOf("day").valueOf(), eT = e.endOf("day").valueOf();
+    return sorted.filter((a) => {
+      if (!a.date) return false;
+      const t = dayjs(a.date.replace?.(/-/g, "/") || a.date).valueOf();
+      return Number.isFinite(t) && t >= sT && t <= eT;
+    });
+  }, [sorted, dateRange]);
   function reload() { if (biz) load(biz); }
 
   async function importFile(f: File) {
-    setImporting(true); setImportingPct(0); setFailedLinks([]);
+    setImporting(true); setImportingPct(0); setFailedLinks([]); setDupRows([]);
     const fd = new FormData();
     fd.append("file", f);
     let total = 0, addedCount = 0;
@@ -115,9 +127,12 @@ export default function ArticlePage() {
           if (!dm) continue;
           const d = JSON.parse(dm[1]);
           if (d.total) total = d.total;
+          if (d.dups) setDupRows(d.dups);
           if (d.done !== undefined) {
             setImportingPct(Math.round((d.done / (total || 1)) * 100));
-            if (d.ok) addedCount++; else fails.push(d.name || "(未知)");
+            if (d.ok) addedCount++;
+            else if (d.dup) { /* 重复跳过, 不视为失败 */ }
+            else fails.push(d.name || "(未知)");
           }
         }
       }
@@ -125,11 +140,22 @@ export default function ArticlePage() {
     setImportingPct(100);
     setFailedLinks(fails);
     reload();
-    if (fails.length > 0) {
-      message.warning(`导入完成: 新增${addedCount}, 失败/重复${fails.length}`);
+    const hasFail = fails.length > 0, hasDup = dupRows.length > 0;
+    if (hasFail || hasDup) {
+      message.warning(`导入完成: 新增${addedCount}${hasDup ? `, 重复${dupRows.length}` : ""}${hasFail ? `, 失败${fails.length}` : ""}`);
     } else {
       setTimeout(() => { setImporting(false); message.success(`导入完成: 新增${addedCount}`); }, 1000);
     }
+  }
+  // 用导入文件数据覆盖已有重复记录
+  async function replaceDup(row: any) {
+    try {
+      const r = await fetch(`${API}/articles-by-biz/save`, { method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ biz: row.biz || biz, link: row.link, title: row.title, date: row.date, reads: row.reads,
+          likes: row.likes, forwards: row.forwards, favorites: row.favorites, comments: row.comments, original: row.original, ip: row.ip }) });
+      if (!r.ok) { message.error("替换失败"); return; }
+      message.success("已替换"); setDupRows((prev) => prev.filter((d) => d.link !== row.link)); reload();
+    } catch { message.error("替换失败"); }
   }
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -179,6 +205,18 @@ export default function ArticlePage() {
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 0 8px" }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/")}>返回</Button>
         <Typography.Title level={5} style={{ margin: 0 }}>「{name || "..."}」的文章列表</Typography.Title>
+      </div>
+      {/* 筛选面板 */}
+      <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px", margin: "0 0 12px", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <Typography.Text strong style={{ fontSize: 13 }}>筛选</Typography.Text>
+        <DatePicker.RangePicker
+          value={dateRange}
+          onChange={(v) => setDateRange(v as any)}
+          placeholder={["开始日期", "结束日期"]}
+          allowClear
+          style={{ width: 280 }}
+        />
+        {dateRange ? <Button size="small" type="link" onClick={() => setDateRange(null)}>清除筛选</Button> : null}
       </div>
       <div
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -259,14 +297,30 @@ export default function ArticlePage() {
         </div>
       </div>
       {/* 导入进度/失败弹窗 */}
-      <Modal title={failedLinks.length ? "导入结果" : "正在导入"} open={importing}
-        footer={failedLinks.length ? <Button type="primary" onClick={() => setImporting(false)}>关闭</Button> : null}
-        closable={failedLinks.length > 0} onCancel={() => setImporting(false)} width={460}>
-        {failedLinks.length ? (
+      <Modal title={failedLinks.length || dupRows.length ? "导入结果" : "正在导入"} open={importing}
+        footer={(failedLinks.length || dupRows.length) ? <Button type="primary" onClick={() => setImporting(false)}>关闭</Button> : null}
+        closable={(failedLinks.length || dupRows.length) > 0} onCancel={() => setImporting(false)} width={520}>
+        {(failedLinks.length || dupRows.length) ? (
           <div>
-            <Typography.Paragraph strong style={{ color: "#c62828" }}>有 {failedLinks.length} 条链接未能导入（重复或格式不符），需手动处理：</Typography.Paragraph>
-            <Table size="small" rowKey={(r) => r} pagination={false} dataSource={failedLinks}
-              columns={[{ title: "失败链接", dataIndex: 0, render: (v: string) => <a href={v} target="_blank" style={{ fontSize: 12 }}>{v.slice(0, 60)}</a> }]} />
+            {dupRows.length > 0 ? (
+              <div style={{ marginBottom: 14 }}>
+                <Typography.Paragraph strong>有 {dupRows.length} 条重复（未覆盖）。如文件数据更全，可点击替换更新已有记录：</Typography.Paragraph>
+                <Table size="small" rowKey={(r) => r.link} pagination={false} dataSource={dupRows}
+                  columns={[
+                    { title: "标题", dataIndex: "title", render: (v: string, r: any) => <a href={r.link} target="_blank" style={{ fontSize: 12 }}>{(v || r.link).slice(0, 24)}</a> },
+                    { title: "日期", dataIndex: "date", width: 90, render: (v: string) => <span style={{ fontSize: 12 }}>{v || "—"}</span> },
+                    { title: "操作", width: 70, align: "center",
+                      render: (_: unknown, r: any) => <Button size="small" type="link" onClick={() => replaceDup(r)}>替换</Button> },
+                  ]} />
+              </div>
+            ) : null}
+            {failedLinks.length > 0 ? (
+              <div>
+                <Typography.Paragraph strong style={{ color: "#c62828" }}>有 {failedLinks.length} 条链接导入失败，需手动处理：</Typography.Paragraph>
+                <Table size="small" rowKey={(r) => r} pagination={false} dataSource={failedLinks}
+                  columns={[{ title: "失败链接", dataIndex: 0, render: (v: string) => <a href={v} target="_blank" style={{ fontSize: 12 }}>{v.slice(0, 60)}</a> }]} />
+              </div>
+            ) : null}
           </div>
         ) : (
           <div style={{ textAlign: "center", padding: "8px 0" }}>

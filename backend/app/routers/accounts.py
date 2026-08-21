@@ -192,6 +192,48 @@ def delete_article_by_biz(artid: int, biz: str):
         conn.close()
 
 
+class ArticleSave(BaseModel):
+    biz: str
+    link: str
+    title: str = ""
+    date: str = ""
+    reads: str = ""
+    likes: str = ""
+    forwards: str = ""
+    favorites: str = ""
+    comments: str = ""
+    original: str = ""
+    ip: str = ""
+
+
+@router.put("/articles-by-biz/save")
+def save_article(payload: ArticleSave):
+    """用导入文件的数据覆盖/补充某biz+link的已有记录(仅更新文件里非空字段)"""
+    p = payload.model_dump()
+    link = (p.get("link") or "").strip()
+    if not link:
+        raise HTTPException(400, "缺少链接")
+    sets = []
+    vals = []
+    for f in ("title", "date", "reads", "likes", "forwards", "favorites", "comments", "original", "ip"):
+        v = (p.get(f) or "").strip()
+        if v:
+            sets.append(f"{f}=?")
+            vals.append(v)
+    if not sets:
+        return {"ok": True, "updated": 0}
+    sets.append("name=(SELECT name FROM accounts WHERE biz=?)")
+    vals.append(p["biz"])
+    vals.extend([p["biz"], link])
+    conn = get_conn()
+    try:
+        cur = conn.execute(f"UPDATE articles SET {', '.join(sets)} WHERE biz=? AND link=?", vals)
+        conn.commit()
+        return {"ok": True, "updated": cur.rowcount}
+    finally:
+        conn.close()
+
+
 class ArticleCreate(BaseModel):
     biz: str
     link: str
@@ -223,33 +265,45 @@ def create_article(payload: ArticleCreate):
         conn.close()
 
 
-def _article_import_sse(links, biz, name):
-    """按 biz 逐链接入库, SSE 流式进度"""
+def _article_import_sse(rows, default_biz):
+    """逐行全字段入库, SSE 流式进度"""
     import json as _json
-    total = len(links)
+    total = len(rows)
     yield 'event: start' + chr(10) + 'data: ' + _json.dumps({'total': total}) + chr(10) + chr(10)
     done = 0
-    dup = 0
-    for link in links:
+    skipped = 0
+    dups_data = []
+    for item in rows:
         ok = True
+        is_dup = False
+        row_biz = (item.get("biz") or "").strip() or default_biz
+        link = (item.get("link") or "").strip()
+        title = (item.get("title") or "").strip() or link
+        date = (item.get("date") or "").strip()
         conn = get_conn()
         try:
-            # 去重: 同 biz 下已存在该链接则跳过
-            ex = conn.execute("SELECT COUNT(*) c FROM articles WHERE biz=? AND link=?", (biz, link)).fetchone()
+            acc = conn.execute("SELECT id, name FROM accounts WHERE biz=?", (row_biz,)).fetchone()
+            acc_name = dict(acc)["name"] if acc else ""
+            account_id = dict(acc)["id"] if acc else None
+            ex = conn.execute("SELECT COUNT(*) c FROM articles WHERE biz=? AND link=?", (row_biz, link)).fetchone()
             if ex["c"]:
-                ok, dup = False, dup + 1
+                ok, is_dup, skipped = False, True, skipped + 1
+                dups_data.append({**item, "biz": row_biz})
             else:
                 conn.execute(
-                    "INSERT INTO articles(account_id, name, date, title, link, biz) VALUES(?,?,?,?,?,?)",
-                    (None, name, "", link, link, biz))
+                    "INSERT INTO articles(account_id, name, date, title, link, biz, reads, likes, forwards, favorites, comments, original, ip) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (account_id, acc_name, date, title, link, row_biz,
+                     item.get("reads"), item.get("likes"), item.get("forwards"),
+                     item.get("favorites"), item.get("comments"), item.get("original"), item.get("ip")))
                 conn.commit()
         except Exception:
-            ok = False
+            ok = False   # 真正失败(入库异常)
         finally:
             conn.close()
         done += 1
-        yield 'event: progress' + chr(10) + 'data: ' + _json.dumps({'done': done, 'total': total, 'name': name, 'ok': ok}) + chr(10) + chr(10)
-    yield 'event: done' + chr(10) + 'data: ' + _json.dumps({'dup': dup}) + chr(10) + chr(10)
+        yield 'event: progress' + chr(10) + 'data: ' + _json.dumps({'done': done, 'total': total, 'name': title, 'ok': ok, 'dup': is_dup}) + chr(10) + chr(10)
+    yield 'event: done' + chr(10) + 'data: ' + _json.dumps({'skipped': skipped, 'dups': dups_data}) + chr(10) + chr(10)
 
 
 @router.post("/articles-by-biz/import")
@@ -258,18 +312,12 @@ def import_articles(biz: str = "", file: UploadFile = File(...)):
     if not biz:
         raise HTTPException(400, "缺少 biz")
     raw = file.file.read() if hasattr(file, "file") else file.read()
-    from ..services.importer import parse_article_file
+    from ..services.importer import parse_article_rows
     try:
-        links = parse_article_file(file.filename or "", raw)
+        rows = parse_article_rows(file.filename or "", raw)
     except ValueError as e:
         raise HTTPException(400, str(e))
-    conn = get_conn()
-    try:
-        acc = conn.execute("SELECT name FROM accounts WHERE biz=?", (biz,)).fetchone()
-        name = dict(acc)["name"] if acc else ""
-    finally:
-        conn.close()
-    return StreamingResponse(_article_import_sse(links, biz, name), media_type="text/event-stream",
+    return StreamingResponse(_article_import_sse(rows, biz), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache"})
 
 

@@ -190,3 +190,82 @@ def parse_article_file(filename, raw, max_rows=2000):
         if len(links) >= max_rows:
             break
     return links
+
+
+# ---- 文章多列导入: 识别表头映射各列字段 ----
+ART_COLUMN_ALIASES = {
+    "title": {"标题", "title", "文章标题", "名称", "标题名"},
+    "date": {"日期", "date", "发布时间", "时间", "发布日期"},
+    "link": {"链接", "link", "url", "文章链接", "地址", "文章url"},
+    "biz": {"biz", "biz代码", "biz_code", "公众号id", "公众号ID", "公众号biz", "bizid"},
+    "reads": {"阅读", "阅读量", "reads", "阅读数"},
+    "likes": {"点赞", "点赞量", "likes", "赞"},
+    "forwards": {"转发", "转发量", "forwards", "转发数"},
+    "favorites": {"喜欢", "喜欢量", "favorites", "在看", "在看数"},
+    "comments": {"评论", "评论量", "comments", "评论数"},
+    "original": {"原创", "是否原创", "原创标识", "original"},
+    "ip": {"ip", "IP", "IP属地", "属地"},
+}
+
+# 反向: 规范化别名 -> 字段
+ALIAS_TO_FIELD = {}
+for _field, _aliases in ART_COLUMN_ALIASES.items():
+    for _a in _aliases:
+        ALIAS_TO_FIELD[_a.lower()] = _field
+
+
+def _norm_date(v):
+    v = (v or "").strip()
+    m = re.match(r"^(\d{4})[-/](\d{1,2})[-/](\d{1,2})", v)
+    if m:
+        return f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    return v
+
+
+def parse_article_rows(filename, raw, max_rows=2000):
+    """识别表头多列(标题/日期/链接/阅读/点赞等), 返回行dict列表
+    返回 [{"title","date","link","biz","reads","likes","forwards","favorites","comments","original","ip"}, ...]"""
+    ext = (filename or "").lower().rsplit(".", 1)[-1]
+    if ext not in ("csv", "xlsx", "xlsm", "xls"):
+        raise ValueError("仅支持 CSV / Excel 文件")
+    if ext in ("xlsx", "xlsm", "xls"):
+        import openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
+        ws = wb.active
+        grid = [[("" if c is None else str(c)) for c in row] for row in ws.iter_rows(values_only=True)]
+    else:
+        text = raw.decode("utf-8-sig", errors="replace")
+        grid = [list(r) for r in csv.reader(text.splitlines())]
+    grid = [r for r in grid if any(x.strip() for x in r)]
+    if not grid:
+        return []
+    # 第一行识别表头
+    head = grid[0]
+    colmap = {}   # 列index -> 字段
+    for i, h in enumerate(head):
+        f = ALIAS_TO_FIELD.get(str(h).strip().lower())
+        if f:
+            colmap[i] = f
+    # 无表头时通过链接正则识别链接列
+    body = grid[1:] if colmap else grid
+    if not colmap:
+        for i, r in enumerate(body):
+            for j, c in enumerate(r):
+                if _is_link(c) and "link" not in colmap.values():
+                    colmap[j] = "link"
+    # 按列index排序字段, 便于读取
+    col_items = sorted(colmap.items())
+    rows = []
+    for r in body[:max_rows]:
+        item = {k: "" for k in ART_COLUMN_ALIASES}
+        for i, field in col_items:
+            if i < len(r):
+                v = r[i].strip()
+                if field == "date":
+                    v = _norm_date(v)
+                if v:
+                    item[field] = v
+        # 至少有链接才视为有效行
+        if item.get("link"):
+            rows.append(item)
+    return rows
