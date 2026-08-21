@@ -276,7 +276,7 @@ def _article_import_sse(rows, default_biz):
     for item in rows:
         ok = True
         is_dup = False
-        row_biz = (item.get("biz") or "").strip() or default_biz
+        row_biz = default_biz   # 归属当前页 biz, 忽略表格biz列
         link = (item.get("link") or "").strip()
         title = (item.get("title") or "").strip() or link
         date = (item.get("date") or "").strip()
