@@ -411,21 +411,28 @@ def article_list_wait_stable():
     # while 循环(死循环占位, 结束条件后续补)
     prev_classified = None   # 上一轮的 classified(用于截断借时间)
     loop_n = 0
+    def echo(msg):
+        """本轮日志: 存 logs 并实时打印(便于观察死循环运行)"""
+        logs.append(msg)
+        try:
+            print(msg, flush=True)
+        except Exception:
+            pass
     while True:
         loop_n += 1
-        logs.append(f"--- 列表循环 {loop_n} ---")
+        echo(f"--- 列表循环 {loop_n} ---")
 
         # 每次循环第一步: 页面稳定判断(失败不退出, 有兜底)
         ok, info = wait_page_stable(x1, y1, x2, y2)
         if ok:
-            logs.append(f"第{loop_n}轮页面稳定: {info}")
+            echo(f"第{loop_n}轮页面稳定: {info}")
         else:
-            logs.append(f"第{loop_n}轮页面未稳定(继续, 用兜底): {info}")
+            echo(f"第{loop_n}轮页面未稳定(继续, 用兜底): {info} ")
 
         # 截图 -> OCR 识别 -> 分类(不管稳定与否都执行, 用新截的图)
         shot_path, _b64 = pc.screenshot(x1, y1, x2, y2, img_format="png")
         if not shot_path:
-            logs.append(f"第{loop_n}轮截图失败")
+            echo(f"第{loop_n}轮截图失败")
             break
         try:
             from PIL import Image
@@ -434,7 +441,7 @@ def article_list_wait_stable():
             items = ocr_service.ocr(img)
             classified = ocr_service.classify_items(items, box=(x1, y1))
         except Exception as e:
-            logs.append(f"第{loop_n}轮OCR失败: {e}")
+            echo(f"第{loop_n}轮OCR失败: {e}")
             break
 
         # 截断处理: 本轮第一个点位不是时间点位 -> 向上一轮末尾借时间点位(序号0)
@@ -449,21 +456,39 @@ def article_list_wait_stable():
                 # 把借来的时间点位以序号0插入本轮顶部
                 borrowed_item = (0, borrowed[1], borrowed[2], borrowed[3], borrowed[4])
                 classified.insert(0, borrowed_item)
-                logs.append("截断: 从上一轮借时间点位插入本轮顶部(序号0)")
+                echo("截断: 从上一轮借时间点位插入本轮顶部(序号0)")
 
         # 日志输出本轮点位详细
         n_time = sum(1 for p in classified if p[1] == "time")
         n_article = sum(1 for p in classified if p[1] == "article")
-        logs.append(f"第{loop_n}轮识别点位 {len(classified)} 个"
-                    f"(时间{n_time}/文章{n_article})")
+        echo(f"第{loop_n}轮识别点位 {len(classified)} 个"
+             f"(时间{n_time}/文章{n_article})")
         for seq, ptyp, ptxt, _pbox, pdata in classified:
             if ptyp == "time":
-                logs.append(f"  时间点位[{seq}] {ptxt!r} 日期={pdata.get('time')}")
+                echo(f"  时间点位[{seq}] {ptxt!r} 日期={pdata.get('time')}")
             else:
-                logs.append(f"  文章点位[{seq}] {ptxt!r}"
-                            f" 阅读={pdata.get('reads')} 赞={pdata.get('likes')}")
+                echo(f"  文章点位[{seq}] {ptxt!r}"
+                     f" 阅读={pdata.get('reads')} 赞={pdata.get('likes')}")
 
         prev_classified = classified
+
+        # 滚动: 鼠标移到点位15, 触发滚动配置 id=3(向下)
+        try:
+            from ..database import get_conn
+            conn = get_conn()
+            try:
+                row = conn.execute("SELECT distance, direction FROM scrolls WHERE id=3").fetchone()
+            finally:
+                conn.close()
+            s_dist = int(float(row["distance"])) if row else 0
+            s_dir = row["direction"] if row else "down"
+        except Exception:
+            s_dist, s_dir = 0, "down"
+        if s_dist > 0:
+            pc.scroll(x1, y1, s_dist, direction=s_dir)
+            echo(f"第{loop_n}轮末尾: 在点位15({x1},{y1})向下滚动 {s_dist}px")
+        else:
+            echo("滚动配置3无效, 跳过滚动")
 
     return True, "; ".join(logs)
 
