@@ -183,10 +183,11 @@ def _read_point(pid):
 
 def search_window_init(window_split=False):
     """搜一搜窗口初始化(坐标采集流程)。
-    前提: 已运行微信窗口初始化 + 采集器窗口初始化(本函数不判定, 但依赖其完成)。
+    前提: 必须满足微信窗口初始化 + 采集器窗口初始化成功的结果
     参数:
       window_split 是否窗口分离(默认否); 为真时点击点位12后插入: 等0.3s → 点击点位13
     步骤:
+      0) 前置判定: Weixin可见且在左半屏 + 采集器可见且在右半屏; 不符合直接返回 False
       1) 点击点位11(搜索框) → 等0.2s → 输入1 → 等0.1s → 全选删除 → 等0.2s
       2) 点击点位12(搜索网络) → 等0.5s
       2b)(window_split) 等0.3s → 点击点位13(窗口分离按钮)
@@ -200,6 +201,35 @@ def search_window_init(window_split=False):
     import ctypes
     from ctypes import wintypes as wt
     logs = []
+
+    # 0) 前置判定: 微信初始化(Weixin左半屏) + 采集器初始化(采集器右半屏)必须已满足
+    u32_sm = pc._u32()
+    sw = u32_sm.GetSystemMetrics(pc.SM_CXSCREEN)
+    sh = u32_sm.GetSystemMetrics(pc.SM_CYSCREEN)
+    half = sw // 2
+
+    weixin = pc.find_windows(exe=WECHAT_MAIN, visible_only=True)
+    if not weixin:
+        logs.append("前置不满足: 无可见 Weixin 窗口(微信窗口初始化未完成)")
+        return False, "; ".join(logs)
+    r = wt.RECT()
+    pc._u32().GetWindowRect(weixin[0][0], ctypes.byref(r))
+    if abs(r.left) > 2 or abs((r.right - r.left) - half) > 0:
+        logs.append("前置不满足: Weixin 不在左半屏(微信窗口初始化未完成)")
+        return False, "; ".join(logs)
+
+    appwin = pc.find_windows(title=APP_TITLE, visible_only=True)
+    if not appwin:
+        appwin = pc.find_windows(exe=APP_EXE, visible_only=True)
+    if not appwin:
+        logs.append("前置不满足: 未找到采集器窗口(采集器窗口初始化未完成)")
+        return False, "; ".join(logs)
+    r2 = wt.RECT()
+    pc._u32().GetWindowRect(appwin[0][0], ctypes.byref(r2))
+    if abs(r2.left - half) > 2 or abs((r2.right - r2.left) - half) > 0:
+        logs.append("前置不满足: 采集器不在右半屏(采集器窗口初始化未完成)")
+        return False, "; ".join(logs)
+    logs.append("前置满足: 微信左半屏 + 采集器右半屏")
 
     # 1) 点位11: 点击 → 输入1 → 全选删除
     p11 = _read_point(11)
