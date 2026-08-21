@@ -346,6 +346,55 @@ def search_query(link=""):
     return True, "; ".join(logs)
 
 
+def article_list_wait_stable():
+    """文章列表识别循环: 等待文章列表页面加载稳定。
+    前提: 搜一搜查询(search_query)已加载出公众号链接(本函数不判定, 但依赖其结果)。
+    逻辑:
+      对点位15-16区域截图(webp), 每次间隔0.1秒;
+      连续15次图片完全相同 → 页面稳定, 进入下一步;
+      最多30次机会, 超时仍不稳定 → 失败返回 False。
+    返回: (成功?, 说明文本)
+    """
+    import hashlib
+    logs = []
+
+    p15 = _read_point(15)
+    p16 = _read_point(16)
+    if not p15 or not p16:
+        logs.append("缺少点位15/16")
+        return False, "; ".join(logs)
+    x1, y1 = p15
+    x2, y2 = p16
+    logs.append(f"列表区域({x1},{y1})-({x2},{y2})")
+
+    same_streak = 0       # 连续相同次数
+    prev_hash = None
+    deadline = 30         # 最多30次机会
+    for i in range(1, deadline + 1):
+        path, _b64 = pc.screenshot(x1, y1, x2, y2, img_format="webp")
+        if not path:
+            logs.append(f"截图失败(第{i}次)")
+            return False, "; ".join(logs)
+        try:
+            with open(path, "rb") as f:
+                cur_hash = hashlib.md5(f.read()).hexdigest()
+        except Exception:
+            logs.append(f"读取截图失败(第{i}次)")
+            return False, "; ".join(logs)
+        if prev_hash is not None and cur_hash == prev_hash:
+            same_streak += 1
+            if same_streak >= 15:
+                logs.append(f"页面稳定: 连续{i}次截图相同")
+                return True, "; ".join(logs)
+        else:
+            same_streak = 0
+        prev_hash = cur_hash
+        time.sleep(0.1)
+
+    logs.append("页面未稳定: 30次机会用完")
+    return False, "; ".join(logs)
+
+
 def init_app_window():
     """采集器窗口初始化: 确保前端窗口(微信公众号采集器)在右半屏。
     前提: 调用本函数前窗口已被唤起(本函数不负责唤起)。
@@ -388,4 +437,5 @@ def init_app_window():
     return True, "; ".join(logs)
 
 
-__all__ = ["init_wechat_window", "search_window_init", "search_query", "init_app_window"]
+__all__ = ["init_wechat_window", "search_window_init", "search_query",
+           "article_list_wait_stable", "init_app_window"]
