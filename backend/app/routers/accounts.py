@@ -44,6 +44,13 @@ def _import_stream(rows):
     each: {"done": 处理数, "total": 总数, "name": 名称, "ok": 是否成功}"""
     total = len(rows)
     done = 0
+    # 新增(导入)排最前: 从当前最前 order 往前递减分配
+    conn0 = get_conn()
+    try:
+        m = conn0.execute("SELECT MIN(sort_order) m FROM sort_config").fetchone()["m"]
+    finally:
+        conn0.close()
+    new_order = (m if m is not None else 0) - 1
     for item in rows:
         name = (item.get("name") or "").strip()
         biz = (item.get("biz") or "").strip()
@@ -68,10 +75,12 @@ def _import_stream(rows):
         else:
             conn = get_conn()
             try:
-                # 导入分配到末尾(最大id+1), 保持文件顺序
-                conn.execute(
+                cur = conn.execute(
                     "INSERT INTO accounts(name, biz, status, remark) VALUES(?,?,?,?)",
                     (name, biz, "pending", ""))
+                new_id = cur.lastrowid
+                conn.execute("INSERT OR REPLACE INTO sort_config(record_id, sort_order) VALUES(?,?)", (new_id, new_order))
+                new_order -= 1   # 下一条再往前一位
                 conn.commit()
             except Exception:
                 ok = False
@@ -106,6 +115,10 @@ def create_account(payload: AccountCreate):
             "INSERT INTO accounts(name, biz, status, remark) VALUES(?,?,?,?)",
             (payload.name, payload.biz, payload.status, payload.remark))
         new_id = cur.lastrowid
+        # 新增排最前
+        m = conn.execute("SELECT MIN(sort_order) m FROM sort_config").fetchone()["m"]
+        new_order = (m if m is not None else 0) - 1
+        conn.execute("INSERT OR REPLACE INTO sort_config(record_id, sort_order) VALUES(?,?)", (new_id, new_order))
         conn.commit()
         row = conn.execute(
             "SELECT a.* FROM accounts a WHERE a.id=?", (new_id,)).fetchone()
