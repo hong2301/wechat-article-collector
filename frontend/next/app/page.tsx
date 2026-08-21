@@ -7,7 +7,7 @@ import { HTML5Backend } from "react-dnd-html5-backend";
 import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, message, Modal, Spin, Progress, Empty } from "antd";
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
-import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined } from "@ant-design/icons";
+import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined } from "@ant-design/icons";
 
 const API = "http://127.0.0.1:8000/api/accounts";
 const RESOLVE = "http://127.0.0.1:8000/api/resolve-name";
@@ -118,6 +118,7 @@ export default function Home() {
   const [failedRows, setFailedRows] = useState<{ name: string }[]>([]);
   const [sbWidth, setSbWidth] = useState(6);
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
+  const [query, setQuery] = useState("");
   const [calOpen, setCalOpen] = useState(false);
   const [calData, setCalData] = useState<CalData | null>(null);
 
@@ -264,6 +265,11 @@ export default function Home() {
     }, 0);
   }
   // 每个数据行: useDrag + useDrop 实现拖动排序
+  const shown = tasks.filter((t) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return true;
+    return (t.name || "").toLowerCase().includes(q) || (t.biz || "").toLowerCase().includes(q);
+  });
   const DndRow = useMemo(() => {
     return function DndRow({ children, "data-row-key": rk, ...props }: React.HTMLAttributes<HTMLTableRowElement> & { "data-row-key": string }) {
       const [{ isDragging }, drag] = useDrag(() => ({
@@ -301,7 +307,7 @@ export default function Home() {
     setSelectedKeys((prev) => checked ? [...prev, id] : prev.filter((k) => k !== id));
   }
   function toggleSelectAll(checked: boolean) {
-    setSelectedKeys(checked ? tasks.map((t) => t.id) : []);
+    setSelectedKeys(checked ? shown.map((t) => t.id) : []);
   }
   function copyBiz(row: Task) {
     if (!row.biz) return;
@@ -332,6 +338,10 @@ export default function Home() {
            style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Button type="primary" icon={<InboxOutlined />} onClick={collectSelected}>采集选中</Button>
+          <Input allowClear prefix={<SearchOutlined style={{ color: "#bfc7cf" }} />}
+            placeholder="输入公众号名称或biz代码查询"
+            value={query} onChange={(e) => setQuery(e.target.value)}
+            style={{ flex: "2 1 200px", minWidth: 150, maxWidth: 420 }} />
           <div style={{ flex: 1 }} />
           <Button color="primary" variant="outlined" icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>新增</Button>
           <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>文件导入</Button>
@@ -340,7 +350,7 @@ export default function Home() {
         </div>
 
             <DndProvider backend={HTML5Backend}>
-            <Table className="home-table" rowKey="id" dataSource={tasks} loading={loading} pagination={false} bordered scroll={{ y: "calc(100vh - 255px)" }}
+            <Table className="home-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} bordered scroll={{ y: "calc(100vh - 255px)" }}
               locale={{ emptyText: <Empty description="请添加一个公众号" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
               components={{ body: { row: DndRow } }}
               columns={[
@@ -349,8 +359,8 @@ export default function Home() {
                   render: () => <HolderOutlined style={{ color: "#bfc7cf", cursor: "grab" }} />,
                 },
                 {
-                  title: <Checkbox indeterminate={selectedKeys.length > 0 && selectedKeys.length < tasks.length}
-                    checked={selectedKeys.length === tasks.length && tasks.length > 0}
+                  title: <Checkbox indeterminate={selectedKeys.length > 0 && selectedKeys.length < shown.length}
+                    checked={selectedKeys.length === shown.length && shown.length > 0}
                     onChange={(e) => toggleSelectAll(e.target.checked)} />,
                   dataIndex: "select", width: 40, align: "center",
                   render: (_: unknown, r: Task) => (
@@ -397,7 +407,7 @@ export default function Home() {
             </DndProvider>
 
         <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 10 }}>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>当前 {tasks.length} 个公众号</Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 个公众号</Typography.Text>
         </div>
       </div>
 
