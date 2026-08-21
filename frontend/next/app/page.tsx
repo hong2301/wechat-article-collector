@@ -102,7 +102,8 @@ function CollectCalendar({ daily, monthKey, onMonthChange }: {
 export default function Home() {
   const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [name, setName] = useState("");
   const [biz, setBiz] = useState("");
@@ -132,8 +133,8 @@ export default function Home() {
 
   async function load() {
     setLoading(true);
-    try { setTasks(await (await fetch(API)).json()); }
-    catch { message.error("无法连接后端"); }
+    try { setTasks(await (await fetch(API)).json()); setLoadErr(false); }
+    catch { message.error("无法连接后端"); setLoadErr(true); }
     finally { setLoading(false); }
   }
   useEffect(() => { load(); }, []);
@@ -349,9 +350,17 @@ export default function Home() {
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }} onChange={onPick} />
         </div>
 
+            {loading ? (
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <Space vertical size={10} style={{ alignItems: "center" }}>
+                <Spin size="large" />
+                <Typography.Text type="secondary" style={{ fontSize: 13 }}>正在加载…</Typography.Text>
+              </Space>
+            </div>
+            ) : shown.length > 0 ? (
             <DndProvider backend={HTML5Backend}>
             <Table className="home-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} bordered scroll={{ y: "calc(100vh - 255px)" }}
-              locale={{ emptyText: <Empty description="请添加一个公众号" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+              locale={{ emptyText: <Empty description={loadErr ? "加载失败，请重试" : "请添加一个公众号"} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
               components={{ body: { row: DndRow } }}
               columns={[
                 {
@@ -405,6 +414,11 @@ export default function Home() {
               ]}
             />
             </DndProvider>
+            ) : (
+            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 0" }}>
+              <Empty description={loadErr ? "加载失败，请重试" : "请添加一个公众号"} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            </div>
+            )}
 
         <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 10 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 个公众号</Typography.Text>

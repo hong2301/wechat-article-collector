@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Tooltip, Spin, DatePicker, InputNumber, Input, Checkbox } from "antd";
-import { ArrowLeftOutlined, InboxOutlined, PlusOutlined, ImportOutlined, DeleteOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, InboxOutlined, PlusOutlined, ImportOutlined, DeleteOutlined, SearchOutlined, ClearOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 
 const API = "http://127.0.0.1:8000/api/accounts";
@@ -46,9 +46,12 @@ function NumRange({ value, onChange }: {
 export default function CommentsPage() {
   const router = useRouter();
   const [artBiz, setArtBiz] = useState("");
+  const [biz, setBiz] = useState("");
   const [title, setTitle] = useState("");
+  const [name, setName] = useState("");
   const [comments, setComments] = useState<CommentRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState(false);
   const tableWrapRef = useRef<HTMLDivElement>(null);
   const [tableH, setTableH] = useState(400);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -56,19 +59,20 @@ export default function CommentsPage() {
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [kw, setKw] = useState("");
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
-  const [quickActive, setQuickActive] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState(true);
   const [likesRange, setLikesRange] = useState<[number | null, number | null]>([null, null]);
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
     const a = q.get("art_biz") || "";
     setArtBiz(a);
+    setBiz(q.get("biz") || "");
     setTitle(q.get("title") || "");
+    setName(q.get("name") || "");
     if (a) load(a);
   }, []);
 
   useEffect(() => {
+    if (loading) return;   // 表格尚未渲染, 等加载完成后测
     const el = tableWrapRef.current;
     if (!el) return;
     const upd = () => setTableH(el.clientHeight);
@@ -76,7 +80,7 @@ export default function CommentsPage() {
     const ro = new ResizeObserver(upd);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [loading]);
 
   async function load(a: string) {
     setLoading(true);
@@ -84,28 +88,19 @@ export default function CommentsPage() {
       const r = await fetch(`${API}/comments?art_biz=${encodeURIComponent(a)}`);
       const d = await r.json();
       setComments(d.comments || []);
-    } catch { message.error("加载失败"); }
+      setLoadErr(false);
+    } catch { message.error("加载失败"); setLoadErr(true); }
     finally { setLoading(false); }
   }
   function reload() { if (artBiz) load(artBiz); }
 
-  // 日期快捷
-  function toggleQuick(days: number, key: string) {
-    if (quickActive === key) { setDateRange(null); setQuickActive(null); }
-    else {
-      const end = dayjs();
-      const start = end.subtract(Math.max(0, days - 1), "day");
-      setDateRange([start.startOf("day"), end.endOf("day")]);
-      setQuickActive(key);
-    }
-  }
 
   const hasFilter = useMemo(() => {
     return !!(dateRange || kw.trim() || likesRange[0] != null || likesRange[1] != null);
   }, [dateRange, kw, likesRange]);
 
   function clearFilter() {
-    setDateRange(null); setQuickActive(null); setKw(""); setLikesRange([null, null]);
+    setDateRange(null); setKw(""); setLikesRange([null, null]);
   }
 
   // 过滤
@@ -151,7 +146,7 @@ export default function CommentsPage() {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 0 8px" }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/")}>返回</Button>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => router.push(`/articles?biz=${encodeURIComponent(biz)}&name=${encodeURIComponent(name)}`)}>返回</Button>
         <Typography.Title level={5} style={{ margin: 0 }}>「{title || "..."}」的评论列表</Typography.Title>
       </div>
       {/* 筛选面板 */}
@@ -159,42 +154,26 @@ export default function CommentsPage() {
         <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", width: "100%" }}>
           <DatePicker.RangePicker
             value={dateRange}
-            onChange={(v) => { setDateRange(v as any); setQuickActive(null); }}
+            onChange={(v) => setDateRange(v as any)}
             placeholder={["开始日期", "结束日期"]}
             allowClear
             style={{ width: 280 }}
           />
-          <Space size={4} wrap>
-            <Button size="small" type={quickActive === "1" ? "primary" : "default"} onClick={() => toggleQuick(1, "1")}>今天</Button>
-            <Button size="small" type={quickActive === "3" ? "primary" : "default"} onClick={() => toggleQuick(3, "3")}>近三天</Button>
-            <Button size="small" type={quickActive === "7" ? "primary" : "default"} onClick={() => toggleQuick(7, "7")}>近一周</Button>
-            <Button size="small" type={quickActive === "30" ? "primary" : "default"} onClick={() => toggleQuick(30, "30")}>近一月</Button>
-            <Button size="small" type={quickActive === "365" ? "primary" : "default"} onClick={() => toggleQuick(365, "365")}>近一年</Button>
+          <Input allowClear prefix={<SearchOutlined style={{ color: "#bfc7cf" }} />}
+            placeholder="查询作者或评论内容"
+            value={kw} onChange={(e) => setKw(e.target.value)}
+            style={{ flex: 1, minWidth: 180 }} />
+          <Space size={6}>
+            <Typography.Text style={{ fontSize: 13, whiteSpace: "nowrap" }}>点赞</Typography.Text>
+            <NumRange value={likesRange} onChange={setLikesRange} />
           </Space>
-          {!collapsed && (
-            <Input allowClear prefix={<SearchOutlined style={{ color: "#bfc7cf" }} />}
-              placeholder="输入作者或评论内容"
-              value={kw} onChange={(e) => setKw(e.target.value)}
-              style={{ width: 220 }} />
-          )}
-          {!collapsed && (
-            <Space size={6}>
-              <Typography.Text style={{ fontSize: 13, whiteSpace: "nowrap" }}>点赞</Typography.Text>
-              <NumRange value={likesRange} onChange={setLikesRange} />
-            </Space>
-          )}
-          <div style={{ flex: 1 }} />
-          <Tooltip title={collapsed ? "展开筛选" : "收起筛选"}>
-            <Button size="small" type="text" icon={collapsed ? <DownOutlined /> : <UpOutlined />}
-              onClick={() => setCollapsed((c) => !c)} />
-          </Tooltip>
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 8 }}>
           {hasFilter ? <Button size="small" type="link" onClick={clearFilter}><ClearOutlined /> 清除筛选</Button> : null}
         </div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px" }}>
+      <div style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, minHeight: shown.length ? 0 : undefined, background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Button type="primary" icon={<InboxOutlined />} onClick={() => message.info("评论采集(开发中)")}>采集选中</Button>
           <div style={{ flex: 1 }} />
@@ -203,40 +182,55 @@ export default function CommentsPage() {
           <Button danger icon={<DeleteOutlined />} onClick={deleteSelected}>删除选中</Button>
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.xlsm" style={{ display: "none" }} onChange={() => message.info("评论导入(开发中)")} />
         </div>
+        {loading ? (
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Space vertical size={10} style={{ alignItems: "center" }}>
+            <Spin size="large" />
+            <Typography.Text type="secondary" style={{ fontSize: 13 }}>正在加载评论…</Typography.Text>
+          </Space>
+        </div>
+        ) : shown.length > 0 ? (
         <div ref={tableWrapRef} style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden" }}>
-          <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" scroll={{ x: 1500, y: Math.max(100, tableH - 48) }}
+          <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" scroll={{ x: 1200, y: Math.max(100, tableH - 48) }}
             rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
-            locale={{ emptyText: <Empty description="暂无评论" /> }}
+            locale={{ emptyText: <Empty description={loadErr ? "加载失败，请重试" : "暂无评论"} /> }}
             columns={[
               { title: "评论作者", dataIndex: "author", width: 90 },
-              { title: "评论内容", dataIndex: "content", width: 240,
-                render: (v: string) => <Tooltip title={v}><span style={{ display: "block", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v}</span></Tooltip> },
-              { title: "评论时间", dataIndex: "time", width: 105, sorter: (a: CommentRow, b: CommentRow) => String(a.time).localeCompare(String(b.time)) },
-              { title: "点赞数量", dataIndex: "likes", width: 75, align: "center", sorter: (a: CommentRow, b: CommentRow) => Number(a.likes || 0) - Number(b.likes || 0) },
+              { title: "评论内容", dataIndex: "content", width: 400,
+                render: (v: string, r: CommentRow) => (
+                  <Tooltip title={v}>
+                    <div>
+                      {(r.is_author || r.is_top || r.is_first || r.is_author_reply || r.is_author_like) ? (
+                        <Space size={4} wrap style={{ marginBottom: 3 }}>
+                          {r.is_author ? <Tag color="green" style={{ margin: 0, fontSize: 11 }}>作者</Tag> : null}
+                          {r.is_top ? <Tag color="gold" style={{ margin: 0, fontSize: 11 }}>置顶</Tag> : null}
+                          {r.is_first ? <Tag color="cyan" style={{ margin: 0, fontSize: 11 }}>首评</Tag> : null}
+                          {r.is_author_reply ? <Tag color="blue" style={{ margin: 0, fontSize: 11 }}>作者回复</Tag> : null}
+                          {r.is_author_like ? <Tag color="purple" style={{ margin: 0, fontSize: 11 }}>作者点赞</Tag> : null}
+                        </Space>
+                      ) : null}
+                      <span style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" as any, overflow: "hidden" }}>{v}</span>
+                    </div>
+                  </Tooltip>
+                ) },
+              { title: "评论时间", dataIndex: "time", width: 90, sorter: (a: CommentRow, b: CommentRow) => String(a.time).localeCompare(String(b.time)) },
+              { title: "点赞", dataIndex: "likes", width: 90, align: "center", sorter: (a: CommentRow, b: CommentRow) => Number(a.likes || 0) - Number(b.likes || 0) },
               { title: "IP", dataIndex: "ip", width: 90 },
-              { title: "是否作者", dataIndex: "is_author", width: 70, align: "center", render: (v: number) => <Tag color={v ? "green" : "default"}>{yN(v)}</Tag> },
-              { title: "是否置顶", dataIndex: "is_top", width: 70, align: "center", render: (v: number) => <Tag color={v ? "gold" : "default"}>{yN(v)}</Tag> },
-              { title: "是否首评", dataIndex: "is_first", width: 70, align: "center", render: (v: number) => <Tag color={v ? "cyan" : "default"}>{yN(v)}</Tag> },
-              { title: "作者回复", dataIndex: "is_author_reply", width: 75, align: "center", render: (v: number) => <Tag color={v ? "blue" : "default"}>{yN(v)}</Tag> },
-              { title: "作者点赞", dataIndex: "is_author_like", width: 75, align: "center", render: (v: number) => <Tag color={v ? "purple" : "default"}>{yN(v)}</Tag> },
-              { title: "层级", dataIndex: "level", width: 55, align: "center" },
-              { title: "评论biz", dataIndex: "comment_biz", width: 120, render: (v: string) => <Typography.Text code style={{ fontSize: 11 }}>{v}</Typography.Text> },
-              { title: "父级评论biz", dataIndex: "parent_comment_biz", width: 120, render: (v: string) => <Typography.Text code style={{ fontSize: 11 }}>{v || "—"}</Typography.Text> },
-              { title: "操作", dataIndex: "op", width: 80, align: "center", fixed: "right",
+              { title: "层级", dataIndex: "level", width: 90, align: "center" },
+              { title: "评论biz", dataIndex: "comment_biz", width: 90, render: (v: string) => <Typography.Text code style={{ fontSize: 11 }}>{v}</Typography.Text> },
+              { title: "父级biz", dataIndex: "parent_comment_biz", width: 90, render: (v: string) => <Typography.Text code style={{ fontSize: 11 }}>{v || "—"}</Typography.Text> },
+              { title: "操作", dataIndex: "op", width: 70, align: "center", fixed: "right",
                 render: (_: unknown, r: CommentRow) => (
                   <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => del(r)}>删除</Button>
                 ) },
             ]}
           />
-          {loading ? (
-            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,.6)", zIndex: 2, borderRadius: 14 }}>
-              <Space vertical size={10} style={{ alignItems: "center" }}>
-                <Spin size="large" />
-                <Typography.Text type="secondary" style={{ fontSize: 13 }}>正在加载评论…</Typography.Text>
-              </Space>
-            </div>
-          ) : null}
         </div>
+        ) : (
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 0" }}>
+          <Empty description={loadErr ? "加载失败，请重试" : "暂无评论"} />
+        </div>
+        )}
         <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 10 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 条评论</Typography.Text>
         </div>

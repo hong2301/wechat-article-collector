@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import dayjs from "dayjs";
-import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber } from "antd";
+import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber, Spin } from "antd";
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined } from "@ant-design/icons";
 
 const API = "http://127.0.0.1:8000/api/accounts";
@@ -61,7 +61,8 @@ export default function ArticlePage() {
   const [ranges, setRanges] = useState<Record<string, [number | null, number | null]>>(
     Object.fromEntries(NUM_FIELDS.map((f) => [f.key, [null, null]]))
   );
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState(false);
   const [kw, setKw] = useState("");
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [addOpen, setAddOpen] = useState(false);
@@ -87,6 +88,7 @@ export default function ArticlePage() {
 
   // 测量表格容器高度 -> 行区滚动且底栏固定
   useEffect(() => {
+    if (loading) return;   // 表格尚未渲染, 等加载完成后测
     const el = tableWrapRef.current;
     if (!el) return;
     const upd = () => setTableH(el.clientHeight);
@@ -94,7 +96,7 @@ export default function ArticlePage() {
     const ro = new ResizeObserver(upd);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [loading]);
 
   // 无日期的(新增)排最前(按id倒序), 有日期的按日期倒序
   function sortArticles(list: Article[]) {
@@ -110,7 +112,8 @@ export default function ArticlePage() {
       const d = await r.json();
       setName(d.name || "");
       setArticles(sortArticles(d.articles || []));
-    } catch { message.error("加载失败"); }
+      setLoadErr(false);
+    } catch { message.error("加载失败"); setLoadErr(true); }
     finally { setLoading(false); }
   }
 
@@ -332,7 +335,7 @@ export default function ArticlePage() {
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) importFile(f); }}
-        style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
+        style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, minHeight: 300, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Button type="primary" icon={<InboxOutlined />} onClick={() => message.info("采集选中(开发中)")}>采集选中</Button>
           <div style={{ flex: 1 }} />
@@ -341,6 +344,14 @@ export default function ArticlePage() {
           <Button danger icon={<DeleteOutlined />} onClick={deleteSelected}>删除选中</Button>
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.xlsm" style={{ display: "none" }} onChange={onPick} />
         </div>
+        {loading ? (
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Space vertical size={10} style={{ alignItems: "center" }}>
+            <Spin size="large" />
+            <Typography.Text type="secondary" style={{ fontSize: 13 }}>正在加载文章…</Typography.Text>
+          </Space>
+        </div>
+        ) : shown.length > 0 ? (
         <div ref={tableWrapRef} style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden" }}>
         <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" scroll={{ x: 1500, y: Math.max(100, tableH - 48) }}
           onChange={(_p: any, _f: any, sorter: any) => {
@@ -351,7 +362,7 @@ export default function ArticlePage() {
             else setSortInfo({ key: "date", order: "descend" });
           }}
           rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
-          locale={{ emptyText: <Empty description="暂无文章" /> }}
+          locale={{ emptyText: <Empty description={loadErr ? "加载失败，请重试" : "暂无文章"} /> }}
           columns={[
             {
               title: "标题", dataIndex: "title", width: 100, ellipsis: false,
@@ -385,7 +396,7 @@ export default function ArticlePage() {
                 <Space size={4}>
                   <span>{v || 0}</span>
                   <Button size="small" type="link" icon={<MessageOutlined />}
-                    onClick={() => router.push(`/comments?art_biz=${encodeURIComponent(r.art_biz || "")}&biz=${encodeURIComponent(biz)}&title=${encodeURIComponent(r.title || "")}`)}>查看</Button>
+                    onClick={() => router.push(`/comments?art_biz=${encodeURIComponent(r.art_biz || "")}&biz=${encodeURIComponent(biz)}&name=${encodeURIComponent(name || "")}&title=${encodeURIComponent(r.title || "")}`)}>查看</Button>
                 </Space>
               ),
             },
@@ -414,6 +425,11 @@ export default function ArticlePage() {
           ]}
         />
         </div>
+        ) : (
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 0" }}>
+          <Empty description={loadErr ? "加载失败，请重试" : "暂无文章"} />
+        </div>
+        )}
         <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 10 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 篇</Typography.Text>
         </div>
