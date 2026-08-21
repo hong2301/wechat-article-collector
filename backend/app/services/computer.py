@@ -748,18 +748,30 @@ def screenshot(x1, y1, x2, y2, img_format="png", as_base64=False):
     import tempfile
     from PIL import Image, ImageGrab
     try:
-        fmt = str(img_format).lower().lstrip(".")
-        if fmt == "jpeg":
-            fmt = "jpg"
-        if fmt not in ("png", "jpg", "bmp", "webp"):
-            fmt = "png"
-        img = ImageGrab.grab(bbox=(int(x1), int(y1), int(x2), int(y2)))
-        if fmt == "jpg":
-            img = img.convert("RGB")
-        # 写死保存到系统缓存目录(临时目录), 文件名固定, 每次截图直接覆盖
-        fname = f"shot.{fmt}"
-        path = os.path.join(tempfile.gettempdir(), fname)
-        img.save(path, format=("jpeg" if fmt == "jpg" else fmt))
+        # 截图前隐藏鼠标(避免光标出现在截图内), 完成后恢复
+        try:
+            _u32().ShowCursor(False)
+        except Exception:
+            pass
+        try:
+            fmt = str(img_format).lower().lstrip(".")
+            if fmt == "jpeg":
+                fmt = "jpg"
+            if fmt not in ("png", "jpg", "bmp", "webp"):
+                fmt = "png"
+            img = ImageGrab.grab(bbox=(int(x1), int(y1), int(x2), int(y2)))
+            if fmt == "jpg":
+                img = img.convert("RGB")
+            # 写死保存到系统缓存目录(临时目录), 文件名固定, 每次截图直接覆盖
+            fname = f"shot.{fmt}"
+            path = os.path.join(tempfile.gettempdir(), fname)
+            img.save(path, format=("jpeg" if fmt == "jpg" else fmt))
+        finally:
+            # 恢复鼠标可见
+            try:
+                _u32().ShowCursor(True)
+            except Exception:
+                pass
         if not as_base64:
             return path, None
         # 读取图片并转带前缀的 base64

@@ -456,6 +456,23 @@ def article_list_wait_stable():
     x2, y2 = p16
     logs.append(f"列表区域({x1},{y1})-({x2},{y2})")
 
+    # 循环前: 页面稳定判断(100次机会, 每0.1s, 连续30次相同算稳定)
+    ok0, info0 = wait_page_stable(x1, y1, x2, y2, same_need=30, timeout=100, interval=0.1)
+    if not ok0:
+        logs.append(f"初始页面未稳定(30次未达成): {info0}")
+        return False, "; ".join(logs)
+    logs.append(f"初始页面稳定: {info0}")
+
+    # 稳定后点击点位17
+    p17 = _read_point(17)
+    if p17:
+        pc.mouse_click(p17[0], p17[1])
+        echo_line = f"点击点位17({p17[0]},{p17[1]})"
+        logs.append(echo_line)
+        tasks_echo(echo_line)
+    else:
+        logs.append("缺少点位17")
+
     # while 循环(死循环占位, 结束条件后续补)
     prev_classified = None   # 上一轮的 classified(用于截断借时间)
     loop_n = 0

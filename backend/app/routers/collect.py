@@ -12,6 +12,9 @@ from ..services import computer as pc
 
 router = APIRouter(prefix="/api/collect", tags=["collect"])
 
+# 当前采集 worker 线程 id(用于停止时注入异常强制中断)
+_worker_tid = {"tid": None}
+
 
 class CollectStart(BaseModel):
     name: str = ""           # 公众号名称
@@ -41,6 +44,7 @@ def _collect_generate(payload: CollectStart):
             pass
 
     def worker():
+        _worker_tid["tid"] = threading.get_ident()
         prev_hook = tasks_service.bind_tasks_echo(hook)
         try:
             # 1) 微信窗口初始化(带窗口分离参数)
@@ -72,10 +76,14 @@ def _collect_generate(payload: CollectStart):
             ok, text = tasks_service.article_list_wait_stable()
             log_q.put(("log", f"[文章列表识别循环] {'成功' if ok else '失败'} | {text}"))
             log_q.put(("done", True, "采集流程结束"))
+        except SystemExit:
+            log_q.put(("log", "采集已停止(强制中断)"))
+            log_q.put(("done", False, "user_stopped"))
         except Exception as e:
             log_q.put(("log", f"[异常] {e}"))
             log_q.put(("done", False, str(e)))
         finally:
+            _worker_tid["tid"] = None
             tasks_service.bind_tasks_echo(prev_hook)
             tasks_service.clear_stop()   # 清除停止信号
             finished.set()
@@ -111,8 +119,14 @@ def _collect_generate(payload: CollectStart):
 
 @router.post("/stop")
 def collect_stop():
-    """前端关闭采集窗口时显式调用: 请求停止死循环(不依赖SSE断开)"""
-    tasks_service.request_stop()
+    """前端关闭采集窗口时调用: 强制中断采集线程(立即停止, 集中在此实现)"""
+    import ctypes
+    tasks_service.request_stop()          # 信号兜底
+    tid = _worker_tid.get("tid")
+    if tid:
+        # 向 worker 线程注入 SystemExit, 立即打断当前执行的任何步骤
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(
+            ctypes.c_long(tid), ctypes.py_object(SystemExit))
     return {"ok": True}
 
 
