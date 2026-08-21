@@ -8,6 +8,7 @@ import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, messag
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
 import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined } from "@ant-design/icons";
+import PointsDialog from "./components/PointsDialog";
 
 const API = "http://127.0.0.1:8000/api/accounts";
 const RESOLVE = "http://127.0.0.1:8000/api/resolve-name";
@@ -122,6 +123,7 @@ export default function Home() {
   const [query, setQuery] = useState("");
   const [calOpen, setCalOpen] = useState(false);
   const [calData, setCalData] = useState<CalData | null>(null);
+  const [pointsOpen, setPointsOpen] = useState(false);
 
   useEffect(() => {
     const probe = document.createElement("div");
@@ -334,8 +336,9 @@ export default function Home() {
       <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column", background: "#f5f6f8", padding: 14, gap: 12 }}>
       {/* 采集设置模块(在公众号列表上方) */}
       <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px" }}>
-        <Button icon={<ProfileOutlined />} onClick={() => { message.info("点位设置（待接入）"); }}>点位设置</Button>
+        <Button icon={<ProfileOutlined />} onClick={() => setPointsOpen(true)}>点位设置</Button>
       </div>
+      <PointsDialog open={pointsOpen} onClose={() => setPointsOpen(false)} />
       <div className="dropzone"
            onDragOver={(e) => { e.preventDefault(); if (Array.from(e.dataTransfer.types || []).includes("Files")) setDragOver(true); }}
            onDragLeave={() => setDragOver(false)}

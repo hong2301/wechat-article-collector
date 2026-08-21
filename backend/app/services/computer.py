@@ -61,11 +61,18 @@ WHEEL_DELTA = 120
 CF_UNICODETEXT = 13
 
 WM_KEYDOWN = 0x0100
+WM_LBUTTONDOWN = 0x0201
+WM_RBUTTONDOWN = 0x0204
+WM_QUIT = 0x0012
+WH_MOUSE_LL = 14
+SM_CXDOUBLECLK = 36
+SM_CYDOUBLECLK = 37
 
 TH32CS_SNAPPROCESS = 0x00000002
 WECHAT_MAIN_EXES = ("wechat.exe", "weixin.exe")
 
 WNDENUMPROC = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+HOOKPROC = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_int, wt.WPARAM, wt.LPARAM)
 
 
 # ---------------------------------------------------------------------------
@@ -73,6 +80,11 @@ WNDENUMPROC = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
 # ---------------------------------------------------------------------------
 class POINT(ctypes.Structure):
     _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+
+class MSLLHOOKSTRUCT(ctypes.Structure):
+    _fields_ = [("pt", POINT), ("mouseData", wt.DWORD), ("flags", wt.DWORD),
+                ("time", wt.DWORD), ("dwExtraInfo", ctypes.POINTER(wt.ULONG))]
 
 
 class KEYBDINPUT(ctypes.Structure):
@@ -142,10 +154,22 @@ def _u32():
         u.GetSystemMetrics.restype = ctypes.c_int
         u.keybd_event.argtypes = [wt.BYTE, wt.BYTE, wt.DWORD, ctypes.POINTER(wt.ULONG)]
         u.keybd_event.restype = None
+        u.SetWindowsHookExW.argtypes = [ctypes.c_int, HOOKPROC, wt.HINSTANCE, wt.DWORD]
         u.SetWindowsHookExW.restype = ctypes.c_void_p
+        u.CallNextHookEx.argtypes = [ctypes.c_void_p, ctypes.c_int, wt.WPARAM, wt.LPARAM]
+        u.CallNextHookEx.restype = ctypes.c_long
+        u.UnhookWindowsHookEx.argtypes = [ctypes.c_void_p]
+        u.UnhookWindowsHookEx.restype = wt.BOOL
+        u.GetMessageW.argtypes = [ctypes.POINTER(wt.MSG), wt.HWND, wt.UINT, wt.UINT]
         u.GetMessageW.restype = wt.BOOL
+        u.TranslateMessage.argtypes = [ctypes.POINTER(wt.MSG)]
         u.TranslateMessage.restype = wt.BOOL
+        u.DispatchMessageW.argtypes = [ctypes.POINTER(wt.MSG)]
         u.DispatchMessageW.restype = ctypes.c_long
+        u.GetDoubleClickTime.argtypes = []
+        u.GetDoubleClickTime.restype = wt.UINT
+        u.PostThreadMessageW.argtypes = [wt.DWORD, wt.UINT, wt.WPARAM, wt.LPARAM]
+        u.PostThreadMessageW.restype = wt.BOOL
         u.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
         u.SetCursorPos.restype = wt.BOOL
         u.mouse_event.argtypes = [wt.DWORD, wt.DWORD, wt.DWORD, wt.DWORD,
@@ -359,11 +383,13 @@ def mouse_click(x, y, button="left", wait_before=0, wait_after=0,
       wait_before   点击前等待秒数(默认 0)
       wait_after    点击后等待秒数(默认 0)
       show_feedback 是否在点击点显示红色反馈点 0.5 秒(默认 True)
+    返回: (点击的x, 点击的y)
     """
     if wait_before:
         time.sleep(wait_before)
     u32 = _u32()
-    u32.SetCursorPos(int(x), int(y))
+    x, y = int(x), int(y)
+    u32.SetCursorPos(x, y)
     time.sleep(0.05)                    # 移动到位后的微小停顿
     if show_feedback:
         _flash_red_dot(x, y)            # 后台线程显示红点, 不阻塞点击
@@ -373,6 +399,120 @@ def mouse_click(x, y, button="left", wait_before=0, wait_after=0,
     u32.mouse_event(up, 0, 0, 0, None)
     if wait_after:
         time.sleep(wait_after)
+    return x, y
+
+
+def preview_point(x, y, duration=1):
+    """【点位预览】在指定屏幕坐标亮一个红点 duration 秒（默认 1 秒）。
+    用于确认点位位置；后台线程显示, 不阻塞调用。
+    参数:
+      x, y          屏幕坐标
+      duration      红点显示时长(秒, 默认 1)
+    返回: None
+    """
+    _flash_red_dot(x, y, duration=duration)
+
+
+def capture_point():
+    """【坐标采集】阻塞等待用户在屏幕上选定一个坐标。
+    交互: 左键单击红点预览 / 双击确认(取单击值) / 右键退出。
+    返回: (x, y) 确认坐标, 或 None(右键退出/失败)。
+    注意: 阻塞当前线程直到用户双击或右键。
+    """
+    import queue as _queue
+    u32 = _u32()
+    q = _queue.Queue()
+    hook_ready = threading.Event()
+    hook_holder = {"h": None, "tid": None}
+
+    def callback(code, wparam, lparam):
+        if code == 0:
+            ms = ctypes.cast(lparam, ctypes.POINTER(MSLLHOOKSTRUCT)).contents
+            now = time.monotonic()
+            if wparam == WM_LBUTTONDOWN:
+                q.put(("left", ms.pt.x, ms.pt.y, now))
+            elif wparam == WM_RBUTTONDOWN:
+                q.put(("right", ms.pt.x, ms.pt.y, now))
+        return u32.CallNextHookEx(hook_holder["h"], code, wparam, lparam)
+
+    proc = HOOKPROC(callback)
+
+    def hook_thread():
+        hook_holder["tid"] = threading.get_ident()
+        h = u32.SetWindowsHookExW(WH_MOUSE_LL, proc,
+                                  _k32().GetModuleHandleW(None), 0)
+        if not h:
+            hook_ready.set()
+            return
+        hook_holder["h"] = h
+        hook_ready.set()
+        msg = wt.MSG()
+        while u32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
+            u32.TranslateMessage(ctypes.byref(msg))
+            u32.DispatchMessageW(ctypes.byref(msg))
+        u32.UnhookWindowsHookEx(h)
+        hook_holder["h"] = None
+
+    threading.Thread(target=hook_thread, daemon=True).start()
+    if not hook_ready.wait(3):
+        return None
+    if not hook_holder["h"]:
+        return None
+
+    dbl_ms = u32.GetDoubleClickTime()
+    dbl_cx = u32.GetSystemMetrics(SM_CXDOUBLECLK)
+    dbl_cy = u32.GetSystemMetrics(SM_CYDOUBLECLK)
+    last_x = last_y = last_t = None
+    try:
+        while True:
+            try:
+                kind, x, y, evt_t = q.get(timeout=0.2)
+            except _queue.Empty:
+                continue
+            if kind == "right":
+                return None                    # 右键退出
+            # 双击: 与上次左键按下在双击时间和距离内, 取单击值
+            if (last_x is not None
+                    and (evt_t - last_t) * 1000 <= dbl_ms
+                    and abs(x - last_x) <= dbl_cx
+                    and abs(y - last_y) <= dbl_cy):
+                return last_x, last_y
+            last_x, last_y, last_t = x, y, evt_t
+            # 单击: 记录, 通过全局 latest 供前端轮询预览(不显示红点)
+            _set_latest_click(x, y)
+    finally:
+        # 终止钩子线程: 向钩子线程投递 WM_QUIT(不能发当前线程id)
+        tid = hook_holder.get("tid")
+        if tid:
+            try:
+                u32.PostThreadMessageW(tid, WM_QUIT, 0, 0)
+            except Exception:
+                pass
+
+
+# 最近一次单击坐标(供前端轮询预览)
+_latest_click = None
+_latest_click_lock = threading.Lock()
+
+
+def _set_latest_click(x, y):
+    global _latest_click
+    with _latest_click_lock:
+        _latest_click = (int(x), int(y))
+
+
+def get_latest_click():
+    """返回最近一次左键单击的屏幕坐标 (x, y) 或 None
+    用于选点流程中前端实时预览单击值。"""
+    with _latest_click_lock:
+        return _latest_click
+
+
+def clear_latest_click():
+    """清空最近单击坐标。"""
+    global _latest_click
+    with _latest_click_lock:
+        _latest_click = None
 
 
 def _flash_red_dot(x, y, radius=10, duration=0.5):
@@ -581,7 +721,8 @@ __all__ = [
     # 窗口
     "find_windows", "show_window", "close_window", "move_window",
     # 鼠标
-    "mouse_click", "scroll",
+    "mouse_click", "scroll", "preview_point", "capture_point",
+    "get_latest_click", "clear_latest_click",
     # 键盘
     "type_text", "ctrl_key", "ctrl_shift_key", "key_press",
     # 剪贴板

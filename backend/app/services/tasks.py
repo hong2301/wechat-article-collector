@@ -29,13 +29,88 @@ def init_wechat_window():
       2) 找 Weixin.exe 窗口, 无则唤出
       3) 保证已有 Weixin.exe 窗口
       4) 移动到屏幕左半边, 并校验是否就位
+      5) 若宽度/位置不合法, 点击点位9(触发窗口布局)后重跑一次
     返回: (成功?, 说明文本)。
       成功(Weixin 在左半边)返回 (True, 文本);
-      不合法情况(如宽度无法设为半屏)返回 (False, 文本), 交由后续流程处理。
+      重试后仍不合法/失败返回 (False, 文本), 交由后续流程处理。
     """
     import ctypes
     from ctypes import wintypes as wt
     logs = []
+
+    def once():
+        # 单次初始化; 返回 (成功?, 本回文本)
+        _logs = []
+        # 1) 关闭 WeChatAppEx(仅可见窗口)
+        appex = pc.find_windows(exe=WECHAT_APPEX, visible_only=True)
+        for hwnd, _t, _p, _v in appex:
+            pc.close_window(hwnd)
+            _logs.append(f"已关闭 WeChatAppEx 窗口 #{hwnd}")
+        if not appex:
+            _logs.append("无可见 WeChatAppEx 窗口, 跳过")
+
+        # 2) 找 Weixin, 无则唤出
+        weixin = pc.find_windows(exe=WECHAT_MAIN)
+        if not weixin:
+            found = pc.find_windows(exe=WECHAT_MAIN, visible_only=False)
+            if not found:
+                _logs.append("未找到 Weixin.exe 窗口")
+                return False, "未找到 Weixin 窗口"
+            pc.show_window(found[0][0])
+            _logs.append(f"已唤出 Weixin 窗口 #{found[0][0]}")
+            weixin = pc.find_windows(exe=WECHAT_MAIN)
+        else:
+            _logs.append(f"Weixin 窗口已存在 #{weixin[0][0]}")
+        if not weixin:
+            return False, "Weixin 窗口仍未识别"
+
+        hwnd = weixin[0][0]
+        u32_sm = pc._u32()
+        sw = u32_sm.GetSystemMetrics(pc.SM_CXSCREEN)
+        sh = u32_sm.GetSystemMetrics(pc.SM_CYSCREEN)
+        pc.move_window(hwnd, 0, 0, sw // 2, sh)
+
+        # 4) 校验是否就位左半屏
+        r = wt.RECT()
+        pc._u32().GetWindowRect(hwnd, ctypes.byref(r))
+        if abs(r.left) > 2 or abs((r.right - r.left) - sw // 2) > 0:
+            return False, "Weixin 未就位左半屏(宽度或位置不合法)"
+        return True, "Weixin 窗口已就位左半屏"
+
+    # 第一次
+    ok, info = once()
+    logs.append(info)
+    if ok:
+        return True, "; ".join(logs)
+
+    # 不合法: 点击点位9后重跑一次
+    try:
+        from ..database import get_conn
+        conn = get_conn()
+        try:
+            row = conn.execute(
+                "SELECT id, name, x, y FROM points WHERE id=9").fetchone()
+        finally:
+            conn.close()
+        px = py = None
+        if row:
+            try:
+                px = int(float(row["x"]))
+                py = int(float(row["y"]))
+            except (TypeError, ValueError):
+                px = py = None
+        if px is not None:
+            logs.append(f"尝试点击点位9({px},{py})")
+            pc.mouse_click(px, py)
+            time.sleep(0.2)      # 点击点位9后等待, 让窗口布局生效
+        else:
+            logs.append("无点位9, 跳过点击")
+    except Exception:
+        logs.append("读取点位9失败")
+
+    ok2, info2 = once()
+    logs.append(info2)
+    return ok2, "; ".join(logs)
 
     # 1) 关闭 WeChatAppEx(仅可见窗口)
     appex = pc.find_windows(exe=WECHAT_APPEX, visible_only=True)

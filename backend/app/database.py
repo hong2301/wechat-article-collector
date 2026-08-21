@@ -68,6 +68,13 @@ def init_db():
             is_first         INTEGER DEFAULT 0,
             level            INTEGER DEFAULT 0
         );
+        CREATE TABLE IF NOT EXISTS points (
+            id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            name    TEXT DEFAULT '',
+            x       TEXT DEFAULT '',
+            y       TEXT DEFAULT '',
+            remark  TEXT DEFAULT ''
+        );
         """)
         # biz 唯一(同 biz 不允许重复公众号)
         try:

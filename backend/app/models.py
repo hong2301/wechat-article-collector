@@ -25,3 +25,25 @@ class AccountUpdate(BaseModel):
 class Account(AccountBase):
     id: int
     collected_count: int = 0
+
+
+class PointBase(BaseModel):
+    name: str = ""
+    x: str = ""
+    y: str = ""
+    remark: str = ""
+
+
+class PointCreate(PointBase):
+    pass
+
+
+class PointUpdate(BaseModel):
+    name: Optional[str] = None
+    x: Optional[str] = None
+    y: Optional[str] = None
+    remark: Optional[str] = None
+
+
+class Point(PointBase):
+    id: int
