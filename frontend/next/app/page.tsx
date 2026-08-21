@@ -172,8 +172,13 @@ export default function Home() {
     if (!biz.trim()) { message.warning("请填写biz代码"); return; }
     setSaving(true);
     try {
-      await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" },
+      const r = await fetch(API, { method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: name.trim(), biz: biz.trim(), status: "pending" }) });
+      if (!r.ok) {
+        let err = "保存失败";
+        try { const e = await r.json(); err = e.detail || err; } catch {}
+        message.error(err); return;
+      }
       message.success("已保存"); setAddOpen(false); setName(""); setBiz(""); setLink(""); load();
     } catch { message.error("保存失败"); }
     finally { setSaving(false); }
@@ -384,8 +389,8 @@ export default function Home() {
       {/* 新增弹窗 */}
       <Modal title="新增公众号" open={addOpen} onOk={save} okText="保存" confirmLoading={saving}
         onCancel={() => setAddOpen(false)} cancelText="取消">
-        <Space direction="vertical" style={{ width: "100%" }} size="middle">
-          <Space direction="vertical" style={{ width: "100%" }}>
+        <Space vertical style={{ width: "100%" }} size="middle">
+          <Space vertical style={{ width: "100%" }}>
             <Input placeholder="公众号名称" value={name} onChange={(e) => setName(e.target.value)} />
             <Input placeholder="biz 代码" value={biz} onChange={(e) => setBiz(e.target.value)} />
           </Space>
