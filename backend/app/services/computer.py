@@ -170,6 +170,30 @@ def _u32():
         u.GetDoubleClickTime.restype = wt.UINT
         u.PostThreadMessageW.argtypes = [wt.DWORD, wt.UINT, wt.WPARAM, wt.LPARAM]
         u.PostThreadMessageW.restype = wt.BOOL
+        u.RegisterClassExW.argtypes = [ctypes.c_void_p]
+        u.RegisterClassExW.restype = wt.ATOM
+        u.CreateWindowExW.argtypes = [wt.DWORD, wt.LPCWSTR, wt.LPCWSTR, wt.DWORD,
+                                      ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                      wt.HWND, wt.HMENU, wt.HINSTANCE, wt.LPVOID]
+        u.CreateWindowExW.restype = wt.HWND
+        u.DefWindowProcW.argtypes = [wt.HWND, wt.UINT, wt.WPARAM, wt.LPARAM]
+        u.DefWindowProcW.restype = ctypes.c_long
+        u.DestroyWindow.argtypes = [wt.HWND]
+        u.DestroyWindow.restype = wt.BOOL
+        u.UnregisterClassW.argtypes = [wt.LPCWSTR, wt.HINSTANCE]
+        u.UnregisterClassW.restype = wt.BOOL
+        u.GetDC.argtypes = [wt.HWND]
+        u.GetDC.restype = wt.HDC
+        u.ReleaseDC.argtypes = [wt.HWND, wt.HDC]
+        u.ReleaseDC.restype = ctypes.c_int
+        u.FillRect.argtypes = [wt.HDC, ctypes.POINTER(wt.RECT), wt.HBRUSH]
+        u.FillRect.restype = ctypes.c_int
+        u.SetLayeredWindowAttributes.argtypes = [wt.HWND, wt.COLORREF, wt.BYTE, wt.DWORD]
+        u.SetLayeredWindowAttributes.restype = wt.BOOL
+        u.GetClassNameW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
+        u.GetClassNameW.restype = ctypes.c_int
+        u.IsWindow.argtypes = [wt.HWND]
+        u.IsWindow.restype = wt.BOOL
         u.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
         u.SetCursorPos.restype = wt.BOOL
         u.mouse_event.argtypes = [wt.DWORD, wt.DWORD, wt.DWORD, wt.DWORD,
@@ -375,7 +399,7 @@ def move_window(hwnd, x, y, width=None, height=None):
 # 鼠标：移动 / 左键单击 / 滚动
 # ===========================================================================
 def mouse_click(x, y, button="left", wait_before=0, wait_after=0,
-               show_feedback=True):
+               show_feedback=True, hold_ms=80):
     """【左/右键点击】（不支持中键）
     参数:
       x, y          点击坐标
@@ -383,6 +407,7 @@ def mouse_click(x, y, button="left", wait_before=0, wait_after=0,
       wait_before   点击前等待秒数(默认 0)
       wait_after    点击后等待秒数(默认 0)
       show_feedback 是否在点击点显示红色反馈点 0.5 秒(默认 True)
+      hold_ms       按住时长(按下到抬起间隔, 毫秒; 默认 80, 模拟人手按压)
     返回: (点击的x, 点击的y)
     """
     if wait_before:
@@ -391,12 +416,14 @@ def mouse_click(x, y, button="left", wait_before=0, wait_after=0,
     x, y = int(x), int(y)
     u32.SetCursorPos(x, y)
     time.sleep(0.05)                    # 移动到位后的微小停顿
-    if show_feedback:
-        _flash_red_dot(x, y)            # 后台线程显示红点, 不阻塞点击
     down = MOUSEEVENTF_RIGHTDOWN if button == "right" else MOUSEEVENTF_LEFTDOWN
     up = MOUSEEVENTF_RIGHTUP if button == "right" else MOUSEEVENTF_LEFTUP
     u32.mouse_event(down, 0, 0, 0, None)
+    if hold_ms:
+        time.sleep(hold_ms / 1000.0)    # 按住时长(模拟人手按压)
     u32.mouse_event(up, 0, 0, 0, None)
+    if show_feedback:
+        _flash_red_dot(x, y)            # 点击完成后显示红点(不抢点击焦点, 仅作位置反馈)
     if wait_after:
         time.sleep(wait_after)
     return x, y
@@ -516,8 +543,8 @@ def clear_latest_click():
 
 
 def _flash_red_dot(x, y, radius=10, duration=0.5):
-    """内部: 在屏幕坐标 (x,y) 显示一个半透明红点 duration 秒（后台线程, 不阻塞）
-    用 tkinter 无边框置顶窗口实现；失败时静默忽略（反馈仅辅助目视）"""
+    """内部: 在屏幕坐标 (x,y) 显示一个红色圆点 duration 秒（后台线程, 不阻塞）。
+    用 tkinter 无边框置顶窗口; 显示后会有短暂焦点切换(预览用, 采集点击时由调用方关闭此反馈)。"""
     def worker():
         try:
             import tkinter as tk
@@ -531,6 +558,7 @@ def _flash_red_dot(x, y, radius=10, duration=0.5):
             c.pack()
             c.create_oval(2, 2, radius * 2 + 2, radius * 2 + 2,
                           fill="#e53935", outline="#b71c1c", width=2)
+            win.update()
             win.after(int(duration * 1000), win.destroy)
             win.mainloop()
         except Exception:
@@ -554,13 +582,13 @@ def scroll(x, y, pixels, direction="down", wait_before=0, wait_after=0,
     u32 = _u32()
     u32.SetCursorPos(int(x), int(y))
     time.sleep(0.05)                    # 移动到位后的微小停顿
-    if show_feedback:
-        _flash_red_dot(x, y)            # 后台线程显示红点, 不阻塞滚动
     sign = -1 if direction == "down" else 1   # 负值=向下, 正值=向上
     ticks = max(1, int(pixels / WHEEL_DELTA)) if pixels else 0
     for _ in range(ticks):
         u32.mouse_event(MOUSEEVENTF_WHEEL, 0, 0, sign * WHEEL_DELTA, None)
         time.sleep(0.05)
+    if show_feedback:
+        _flash_red_dot(x, y)            # 滚动完成后显示红点(不阻塞/不抢滚动焦点)
     if wait_after:
         time.sleep(wait_after)
 

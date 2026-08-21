@@ -155,6 +155,114 @@ def init_wechat_window():
     return True, "; ".join(logs)
 
 
+def _read_point(pid):
+    """内部: 读取点位坐标 (x, y); 无/无效返回 None"""
+    try:
+        from ..database import get_conn
+        conn = get_conn()
+        try:
+            row = conn.execute(
+                "SELECT x, y FROM points WHERE id=?", (int(pid),)).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return None
+        try:
+            return int(float(row["x"])), int(float(row["y"]))
+        except (TypeError, ValueError):
+            return None
+    except Exception:
+        return None
+
+
+def search_window_init(window_split=False):
+    """搜一搜窗口初始化(坐标采集流程)。
+    前提: 已运行微信窗口初始化 + 采集器窗口初始化(本函数不判定, 但依赖其完成)。
+    参数:
+      window_split 是否窗口分离(默认否); 为真时点击点位12后插入: 等0.3s → 点击点位13
+    步骤:
+      1) 点击点位11(搜索框) → 等0.2s → 输入1 → 等0.1s → 全选删除 → 等0.2s
+      2) 点击点位12(搜索网络) → 等0.5s
+      2b)(window_split) 等0.3s → 点击点位13(窗口分离按钮)
+      3) 查找可见 WeChatAppEx 窗口
+         - 无 → 失败返回 False
+         - 有 → 检查是否在屏幕左半边
+             - 是 → 完成返回 True
+             - 否 → 移动到左半边 → 再检查 → 合格 True / 不合格 False
+    返回: (成功?, 说明文本)
+    """
+    import ctypes
+    from ctypes import wintypes as wt
+    logs = []
+
+    # 1) 点位11: 点击 → 输入1 → 全选删除
+    p11 = _read_point(11)
+    if p11:
+        pc.mouse_click(p11[0], p11[1])
+        logs.append(f"点击点位11({p11[0]},{p11[1]})")
+        time.sleep(0.1)
+        pc.type_text("1")
+        time.sleep(0.1)
+        pc.ctrl_key("A")
+        time.sleep(0.1)
+        pc.key_press(pc.VK_DELETE)
+        time.sleep(0.2)
+    else:
+        logs.append("缺少点位11")
+        return False, "; ".join(logs)
+
+    # 2) 点位12: 点击搜索网络
+    p12 = _read_point(12)
+    if p12:
+        pc.mouse_click(p12[0], p12[1])
+        logs.append(f"点击点位12({p12[0]},{p12[1]})")
+        time.sleep(0.2)
+    else:
+        logs.append("缺少点位12")
+        return False, "; ".join(logs)
+
+    # 2b) 窗口分离: 点击点位13
+    if window_split:
+        p13 = _read_point(13)
+        if p13:
+            pc.mouse_click(p13[0], p13[1])
+            logs.append(f"点击点位13({p13[0]},{p13[1]})")
+            time.sleep(0.3)
+        else:
+            logs.append("缺少点位13")
+            return False, "; ".join(logs)
+
+    # 3) 查找可见 WeChatAppEx 窗口
+    appex = pc.find_windows(exe=WECHAT_APPEX, visible_only=True)
+    if not appex:
+        logs.append("未找到可见 WeChatAppEx 窗口")
+        return False, "; ".join(logs)
+
+    hwnd = appex[0][0]
+    u32_sm = pc._u32()
+    sw = u32_sm.GetSystemMetrics(pc.SM_CXSCREEN)
+    sh = u32_sm.GetSystemMetrics(pc.SM_CYSCREEN)
+
+    def check():
+        r = wt.RECT()
+        pc._u32().GetWindowRect(hwnd, ctypes.byref(r))
+        return abs(r.left) <= 2 and abs((r.right - r.left) - sw // 2) <= 0
+
+    # 3a) 已在左半屏 -> 完成
+    if check():
+        logs.append("WeChatAppEx 已在左半屏")
+        return True, "; ".join(logs)
+
+    # 3b) 不在左半屏 -> 移动到左半边
+    pc.move_window(hwnd, 0, 0, sw // 2, sh)
+    logs.append("WeChatAppEx 已移到左半屏")
+    if check():
+        return True, "; ".join(logs)
+
+    logs.append("WeChatAppEx 未就位左半屏")
+    return False, "; ".join(logs)
+
+
 def init_app_window():
     """采集器窗口初始化: 确保前端窗口(微信公众号采集器)在右半屏。
     前提: 调用本函数前窗口已被唤起(本函数不负责唤起)。
@@ -197,4 +305,4 @@ def init_app_window():
     return True, "; ".join(logs)
 
 
-__all__ = ["init_wechat_window", "init_app_window"]
+__all__ = ["init_wechat_window", "search_window_init", "init_app_window"]
