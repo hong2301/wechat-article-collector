@@ -8,9 +8,57 @@
   * 新增任务函数前需先经过确认。
 """
 
+import threading
 import time
 
 from . import computer as pc
+
+# 模块加载时启用 DPI 感知(进程级, 幂等): 确保所有点位坐标用物理像素, 避免缩放偏移
+pc.enable_dpi_awareness()
+
+# 实时日志钩子(后端采集接口注入后, article_list_wait_stable 的 echo 会同时转发)
+_tasks_log_hook = None
+
+# 全局停止信号: 前端断开/手动停止时置位, 死循环检测后退出
+_stop_requested = threading.Event()
+
+
+def request_stop():
+    """请求停止死循环(前端关闭采集时调用)"""
+    _stop_requested.set()
+
+
+def clear_stop():
+    """清除停止信号(新一次采集开始时调用)"""
+    _stop_requested.clear()
+
+
+def stop_requested():
+    """是否收到停止请求"""
+    return _stop_requested.is_set()
+
+
+
+def bind_tasks_echo(fn):
+    """绑定实时日志回调; 返回旧回调(用于恢复)。fn=None 清除"""
+    global _tasks_log_hook
+    old = _tasks_log_hook
+    _tasks_log_hook = fn
+    return old
+
+
+def tasks_echo(msg):
+    """实时输出日志: 打印 + 转发到钩子(若有)"""
+    try:
+        print(msg, flush=True)
+    except Exception:
+        pass
+    hook = _tasks_log_hook
+    if hook is not None:
+        try:
+            hook(msg)
+        except Exception:
+            pass
 
 
 # 微信相关进程名（对应两个可见微信主窗口的宿主进程）
@@ -412,13 +460,13 @@ def article_list_wait_stable():
     prev_classified = None   # 上一轮的 classified(用于截断借时间)
     loop_n = 0
     def echo(msg):
-        """本轮日志: 存 logs 并实时打印(便于观察死循环运行)"""
+        """本轮日志: 存 logs 并实时转发(打印 + 后端钩子)"""
         logs.append(msg)
-        try:
-            print(msg, flush=True)
-        except Exception:
-            pass
+        tasks_echo(msg)
     while True:
+        if stop_requested():
+            echo("收到停止请求, 退出识别循环")
+            break
         loop_n += 1
         echo(f"--- 列表循环 {loop_n} ---")
 

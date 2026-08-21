@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { DndProvider, useDrag, useDrop } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
-import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, message, Modal, Spin, Progress, Empty } from "antd";
+import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, message, Modal, Spin, Progress, Empty, Switch } from "antd";
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
 import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined, SwapOutlined } from "@ant-design/icons";
@@ -13,6 +13,7 @@ import ScrollsDialog from "./components/ScrollsDialog";
 
 const API = "http://127.0.0.1:8000/api/accounts";
 const RESOLVE = "http://127.0.0.1:8000/api/resolve-name";
+const COLLECT = "http://127.0.0.1:8000/api/collect/start";
 
 interface Task {
   id: number;
@@ -115,6 +116,8 @@ export default function Home() {
 
   const fileRef = useRef<HTMLInputElement>(null);
   const tasksRef = useRef<Task[]>([]);
+  const collectAbortRef = useRef<AbortController | null>(null);  // 采集SSE控制器
+  const collectLogRef = useRef<HTMLDivElement>(null);            // 日志区(自动滚动)
   const [importing, setImporting] = useState(false);
   const [importingPct, setImportingPct] = useState(0);
   const [dragOver, setDragOver] = useState(false);
@@ -137,6 +140,8 @@ export default function Home() {
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([
     dayjs(), dayjs(),
   ]);
+  // 窗口分离(采集设置)
+  const [windowSplit, setWindowSplit] = useState(true);
 
   useEffect(() => {
     const probe = document.createElement("div");
@@ -249,12 +254,68 @@ export default function Home() {
     setCollectLogs([]);
     setCollectOpen(true);
   }
-  // 确认采集: 进入采集进行中(暂未接后端流程, 先更新 UI 状态)
+  // 确认采集: 拼接公众号链接, POST 后端启动采集, SSE 接收日志/进度
   function confirmCollect() {
+    const task = collectTask;
+    if (!task) return;
+    const link = `https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=${encodeURIComponent(task.biz || "")}`;
     setCollectStarted(true);
     setCollectStartTime(new Date().toLocaleTimeString("zh-CN", { hour12: false }));
-    setCollectLogs((p) => [...p, `开始采集「${collectTask?.name || ""}」`]);
-    // TODO: 待接入后端采集流程(SSE 推送日志/进度)
+    setCollectCount(0);
+    setCollectLogs([`开始采集「${task.name || ""}」`]);
+
+    const controller = new AbortController();
+    collectAbortRef.current = controller;
+    const payload = {
+      name: task.name || "",
+      biz: task.biz || "",
+      link,
+      date_start: dateRange[0].format("YYYY-MM-DD"),
+      date_end: dateRange[1].format("YYYY-MM-DD"),
+      window_split: windowSplit,
+    };
+
+    (async () => {
+      try {
+        const resp = await fetch(COLLECT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        });
+        if (!resp.ok || !resp.body) { throw new Error("采集接口失败"); }
+        const reader = resp.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let idx;
+          while ((idx = buf.indexOf("\n\n")) !== -1) {
+            const block = buf.slice(0, idx); buf = buf.slice(idx + 2);
+            if (!block.startsWith("data: ")) continue;
+            try {
+              const d = JSON.parse(block.slice(6));
+              if (d.type === "log" && d.msg) {
+                setCollectLogs((p) => [...p, d.msg]);
+              } else if (d.type === "task" && d.done !== undefined) {
+                // 任务进度(单任务 0/1)
+                if (d.done >= 1) setCollectCount(d.done);
+              } else if (d.type === "done") {
+                setCollectLogs((p) => [...p,
+                  d.ok ? "✅ 采集流程结束" : `❌ 采集失败: ${d.reason || ""}`]);
+              }
+            } catch { /* 忽略坏帧 */ }
+          }
+        }
+        setCollectLogs((p) => [...p, "⏹ 采集连接已断开"]);
+      } catch (e: unknown) {
+        if ((e as Error)?.name !== "AbortError") {
+          setCollectLogs((p) => [...p, `❌ 采集接口异常: ${(e as Error)?.message || e}`]);
+        }
+      }
+    })();
   }
   const [calMonthKey, setCalMonthKey] = useState<string>("");
   async function loadCalendar(id: number, monthKey: string) {
@@ -331,6 +392,12 @@ export default function Home() {
   }, []);
   // 保持 tasksRef 与 tasks 同步
   useEffect(() => { tasksRef.current = tasks; }, [tasks]);
+  // 采集日志自动滚动到底部
+  useEffect(() => {
+    if (collectLogRef.current) {
+      collectLogRef.current.scrollTop = collectLogRef.current.scrollHeight;
+    }
+  }, [collectLogs]);
   function toggleSelect(id: number, checked: boolean) {
     setSelectedKeys((prev) => checked ? [...prev, id] : prev.filter((k) => k !== id));
   }
@@ -375,9 +442,11 @@ export default function Home() {
           <Button size="small" onClick={() => setDateRange([dayjs().subtract(364, "day"), dayjs()])}>近一年</Button>
         </div>
         {/* 设置按钮行 */}
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Button icon={<ProfileOutlined />} onClick={() => setPointsOpen(true)}>点位设置</Button>
           <Button icon={<SwapOutlined />} onClick={() => setScrollsOpen(true)}>滚动设置</Button>
+          <span style={{ marginLeft: 12, fontSize: 13, color: "#555" }}>窗口分离</span>
+          <Switch size="small" checked={windowSplit} onChange={setWindowSplit} />
         </div>
       </div>
       <PointsDialog open={pointsOpen} onClose={() => setPointsOpen(false)} />
@@ -504,7 +573,12 @@ export default function Home() {
       <Modal
         open={collectOpen}
         title={collectStarted ? `正在处理: ${collectTask?.name || ""} · 任务数 0/1` : "确认采集设置"}
-        onCancel={() => setCollectOpen(false)}
+        onCancel={() => {
+          // 显式通知后端停止(不依赖SSE断开), 再断开连接
+          fetch("http://127.0.0.1:8000/api/collect/stop", { method: "POST" }).catch(() => {});
+          collectAbortRef.current?.abort();
+          setCollectOpen(false);
+        }}
         footer={collectStarted ? null : (
           <>
             <Button onClick={() => setCollectOpen(false)}>取消</Button>
@@ -515,9 +589,11 @@ export default function Home() {
       >
         {/* 采集条件卡片 */}
         <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px", marginBottom: 10 }}>
-          <Typography.Text strong style={{ fontSize: 13 }}>采集条件</Typography.Text>
-          <div style={{ marginTop: 8, fontSize: 13, color: "#555" }}>
+          <div style={{ fontSize: 13, color: "#555", lineHeight: 1.8 }}>
             时间范围: {dateRange[0].format("YYYY-MM-DD")} ~ {dateRange[1].format("YYYY-MM-DD")}
+          </div>
+          <div style={{ fontSize: 13, color: "#555", lineHeight: 1.8 }}>
+            窗口分离: {windowSplit ? "开" : "关"}
           </div>
         </div>
 
@@ -537,7 +613,7 @@ export default function Home() {
         {collectStarted && (
           <div style={{ background: "#fafafa", border: "1px solid #eee", borderRadius: 8, padding: "10px 12px" }}>
             <Typography.Text strong style={{ fontSize: 13 }}>日志</Typography.Text>
-            <div style={{
+            <div ref={collectLogRef} style={{
               marginTop: 8, height: 200, overflow: "auto",
               background: "#1e1e1e", borderRadius: 6, padding: 8,
               fontFamily: "Consolas, monospace", fontSize: 12, color: "#d4d4d4", whiteSpace: "pre-wrap",
