@@ -340,6 +340,14 @@ export default function Home() {
                     });
                     setDropBefore(before);
                   }
+                  // 边缘自动滚动: 靠近表格可视区顶部/底部时滚动滚动容器
+                  const body = (e.currentTarget as HTMLElement).closest(".ant-table-body") as HTMLElement | null;
+                  if (body) {
+                    const r = body.getBoundingClientRect();
+                    const edge = 56;
+                    if (e.clientY < r.top + edge) body.scrollTop -= 18;
+                    else if (e.clientY > r.bottom - edge) body.scrollTop += 18;
+                  }
                 },
                 onDragLeave: () => {},
                 onDrop: (e) => {

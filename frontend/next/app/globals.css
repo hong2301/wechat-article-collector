@@ -101,6 +101,6 @@ html, body {
 
 /* 公众号行拖拽排序视觉反馈 */
 tr.drag-source { opacity: 0.35; outline: 1px dashed #1677ff; outline-offset: -1px; }
-tr.drop-before { box-shadow: 0 -2px 0 0 #1677ff; }
-tr.drop-after { box-shadow: 0 2px 0 0 #1677ff; }
+tr.drop-before td { box-shadow: inset 0 3px 0 0 #1677ff !important; }
+tr.drop-after td { box-shadow: inset 0 -3px 0 0 #1677ff !important; }
 tr[class*="drop-"] { cursor: grabbing; }
