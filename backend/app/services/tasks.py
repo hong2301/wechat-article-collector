@@ -389,9 +389,12 @@ def article_list_wait_stable():
     前提: 搜一搜查询(search_query)已加载出公众号链接(本函数不判定, 但依赖其结果)。
     逻辑:
       while 循环(目前为占位, 后续补结束条件):
-        每次循环第一步: 检查点位15-16区域页面是否稳定
-          - 不稳定 → 返回 False
-          - 稳定 → 继续本轮回合(识别文章等, 后续开发)
+        1) 检查点位15-16区域页面是否稳定(失败不退出, 有兜底)
+        2) 截图+OCR+分类得到 classified
+        3) 截断处理: 若 classified 第一个点位不是时间点位,
+           从上一轮的 classified 末尾向前找第一个时间点位借来, 插入本轮顶部(序号0)
+           (第一轮无上一轮, 跳过)
+        4) 日志输出本轮点位详细(序号/类型/文本/data)
     返回: (成功?, 说明文本)
     """
     logs = []
@@ -406,7 +409,7 @@ def article_list_wait_stable():
     logs.append(f"列表区域({x1},{y1})-({x2},{y2})")
 
     # while 循环(死循环占位, 结束条件后续补)
-    all_points = []      # 累积所有轮次识别到的点位(拼接截断)
+    prev_classified = None   # 上一轮的 classified(用于截断借时间)
     loop_n = 0
     while True:
         loop_n += 1
@@ -434,14 +437,35 @@ def article_list_wait_stable():
             logs.append(f"第{loop_n}轮OCR失败: {e}")
             break
 
-        # 累积拼接: 每轮 classified 追加(第一轮接空数组, 后续接前几轮结果)
-        all_points.extend(classified)
-        logs.append(f"第{loop_n}轮点位 {len(classified)} 个, 累计 {len(all_points)} 个")
+        # 截断处理: 本轮第一个点位不是时间点位 -> 向上一轮末尾借时间点位(序号0)
+        if classified and prev_classified is not None and classified[0][1] != "time":
+            borrowed = None
+            # 从上一轮 classify 末尾往前找第一个时间点位
+            for p in reversed(prev_classified):
+                if p[1] == "time":
+                    borrowed = p
+                    break
+            if borrowed is not None:
+                # 把借来的时间点位以序号0插入本轮顶部
+                borrowed_item = (0, borrowed[1], borrowed[2], borrowed[3], borrowed[4])
+                classified.insert(0, borrowed_item)
+                logs.append("截断: 从上一轮借时间点位插入本轮顶部(序号0)")
 
-        # TODO: 结束条件(后续补)、滚动翻页等
-        continue
+        # 日志输出本轮点位详细
+        n_time = sum(1 for p in classified if p[1] == "time")
+        n_article = sum(1 for p in classified if p[1] == "article")
+        logs.append(f"第{loop_n}轮识别点位 {len(classified)} 个"
+                    f"(时间{n_time}/文章{n_article})")
+        for seq, ptyp, ptxt, _pbox, pdata in classified:
+            if ptyp == "time":
+                logs.append(f"  时间点位[{seq}] {ptxt!r} 日期={pdata.get('time')}")
+            else:
+                logs.append(f"  文章点位[{seq}] {ptxt!r}"
+                            f" 阅读={pdata.get('reads')} 赞={pdata.get('likes')}")
 
-    return True, "; ".join(logs), all_points
+        prev_classified = classified
+
+    return True, "; ".join(logs)
 
 
 def init_app_window():
