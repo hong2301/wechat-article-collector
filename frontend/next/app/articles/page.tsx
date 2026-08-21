@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import dayjs from "dayjs";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber, Spin } from "antd";
-import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined } from "@ant-design/icons";
 
 const API = "http://127.0.0.1:8000/api/accounts";
 const ART_PREFIX = "https://mp.weixin.qq.com/s/";
@@ -354,7 +354,7 @@ export default function ArticlePage() {
           locale={{ emptyText: <Empty description="暂无文章" /> }}
           columns={[
             {
-              title: "标题", dataIndex: "title", width: 220, ellipsis: false,
+              title: "标题", dataIndex: "title", width: 100, ellipsis: false,
               render: (v: string, r: Article) => {
                 const text = v || "";
                 const ellStyle = { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
@@ -369,7 +369,7 @@ export default function ArticlePage() {
               },
             },
             {
-              title: "日期", dataIndex: "date", width: 110, sorter: true,
+              title: "日期", dataIndex: "date", width: 90, sorter: true,
               sortOrder: sortInfo.key === "date" ? sortInfo.order : null,
               render: (v: string) => {
                 const t = v || "";
@@ -378,14 +378,24 @@ export default function ArticlePage() {
                 return <Tooltip title={t}><span style={{ cursor: "default" }}>{short}</span></Tooltip>;
               },
             },
-            { title: "评论", dataIndex: "comments", width: 80, sorter: true, sortOrder: sortInfo.key === "comments" ? sortInfo.order : null },
+            {
+              title: "评论", dataIndex: "comments", width: 130,
+              sorter: true, sortOrder: sortInfo.key === "comments" ? sortInfo.order : null,
+              render: (v: string, r: Article) => (
+                <Space size={4}>
+                  <span>{v || 0}</span>
+                  <Button size="small" type="link" icon={<MessageOutlined />}
+                    onClick={() => router.push(`/comments?art_biz=${encodeURIComponent(r.art_biz || "")}&biz=${encodeURIComponent(biz)}&title=${encodeURIComponent(r.title || "")}`)}>查看</Button>
+                </Space>
+              ),
+            },
             { title: "阅读", dataIndex: "reads", width: 80, sorter: true, sortOrder: sortInfo.key === "reads" ? sortInfo.order : null },
             { title: "点赞", dataIndex: "likes", width: 80, sorter: true, sortOrder: sortInfo.key === "likes" ? sortInfo.order : null },
             { title: "转发", dataIndex: "forwards", width: 80, sorter: true, sortOrder: sortInfo.key === "forwards" ? sortInfo.order : null },
             { title: "喜欢", dataIndex: "favorites", width: 80, sorter: true, sortOrder: sortInfo.key === "favorites" ? sortInfo.order : null },
-            { title: "IP", dataIndex: "ip", width: 120 },
+            { title: "IP", dataIndex: "ip", width: 80 },
             {
-              title: "写入时间", dataIndex: "write_time", width: 110, sorter: true,
+              title: "写入时间", dataIndex: "write_time", width: 90, sorter: true,
               sortOrder: sortInfo.key === "write_time" ? sortInfo.order : null,
               render: (v: string) => {
                 const t = v || "";

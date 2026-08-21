@@ -178,6 +178,27 @@ def account_articles_by_biz(biz: str):
     return {"biz": biz, "name": name, "articles": arts}
 
 
+@router.get("/comments")
+def article_comments(art_biz: str = ""):
+    """按文章id(art_biz)返回评论列表"""
+    if not art_biz:
+        raise HTTPException(400, "缺少 art_biz")
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM comments WHERE art_biz=? ORDER BY is_top DESC, time DESC, id ASC",
+            (art_biz,)).fetchall()
+    finally:
+        conn.close()
+    arts = [{
+        "id": d["id"], "comment_biz": d["comment_biz"], "parent_comment_biz": d["parent_comment_biz"],
+        "author": d["author"], "content": d["content"], "time": d["time"], "likes": d["likes"], "ip": d["ip"],
+        "is_author": d["is_author"], "is_top": d["is_top"], "is_author_reply": d["is_author_reply"],
+        "is_author_like": d["is_author_like"], "is_first": d["is_first"], "level": d["level"],
+    } for d in rows]
+    return {"art_biz": art_biz, "comments": arts}
+
+
 @router.delete("/articles-by-biz/{artid}", status_code=204)
 def delete_article_by_biz(artid: int, biz: str):
     """按 biz 删除某公众号下的一篇文章"""
@@ -318,6 +339,25 @@ def import_articles(biz: str = "", file: UploadFile = File(...)):
         raise HTTPException(400, str(e))
     return StreamingResponse(_article_import_sse(rows, biz), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache"})
+
+
+@router.delete("/comments")
+def delete_comments(ids: str = "", art_biz: str = ""):
+    """按 id 批量删除评论(可选限定art_biz)"""
+    id_list = [int(x) for x in (ids or "").split(",") if x.strip().isdigit()]
+    if not id_list:
+        raise HTTPException(400, "缺少评论id")
+    conn = get_conn()
+    try:
+        marks = ",".join("?" * len(id_list))
+        if art_biz:
+            cur = conn.execute(f"DELETE FROM comments WHERE art_biz=? AND id IN ({marks})", (art_biz, *id_list))
+        else:
+            cur = conn.execute(f"DELETE FROM comments WHERE id IN ({marks})", id_list)
+        conn.commit()
+        return {"ok": True, "deleted": cur.rowcount}
+    finally:
+        conn.close()
 
 
 @router.get("/calendar/{aid}")

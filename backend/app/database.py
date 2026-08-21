@@ -51,6 +51,23 @@ def init_db():
             original     TEXT DEFAULT '',
             ip           TEXT DEFAULT ''
         );
+        CREATE TABLE IF NOT EXISTS comments (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            comment_biz      TEXT DEFAULT '',
+            parent_comment_biz TEXT DEFAULT '',
+            art_biz          TEXT DEFAULT '',
+            author           TEXT DEFAULT '',
+            content          TEXT DEFAULT '',
+            time             TEXT DEFAULT '',
+            likes            TEXT DEFAULT '',
+            ip               TEXT DEFAULT '',
+            is_author        INTEGER DEFAULT 0,
+            is_top           INTEGER DEFAULT 0,
+            is_author_reply  INTEGER DEFAULT 0,
+            is_author_like   INTEGER DEFAULT 0,
+            is_first         INTEGER DEFAULT 0,
+            level            INTEGER DEFAULT 0
+        );
         """)
         # biz 唯一(同 biz 不允许重复公众号)
         try:
@@ -81,6 +98,11 @@ def init_db():
             conn.execute("ALTER TABLE articles RENAME COLUMN link TO art_biz")
             conn.commit()
             print("migrate: articles.link -> art_biz (清空)")
+        # 迁移: comments 补 is_first 列
+        _ccols = [r[1] for r in conn.execute("PRAGMA table_info(comments)").fetchall()]
+        if _ccols and "is_first" not in _ccols:
+            conn.execute("ALTER TABLE comments ADD COLUMN is_first INTEGER DEFAULT 0")
+            conn.commit()
         # 文章唯一: 同biz下 art_biz(文章id) 唯一
         try:
             conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_biz_art ON articles(biz, art_biz) WHERE art_biz IS NOT NULL AND art_biz<>''")
