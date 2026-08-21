@@ -93,3 +93,8 @@ html, body {
 .ant-table-tbody > tr > td:last-child {
   padding-right: 18px !important;
 }
+
+/* 拖动排序手柄 */
+.drag-handle-btn { cursor: grab; }
+.drag-handle-btn:active { cursor: grabbing; }
+.drag-handle-btn:hover .anticon { color: #1677ff !important; }

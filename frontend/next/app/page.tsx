@@ -2,13 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Table, Button, Typography, Tag, Tooltip, Space, Input, message, Modal, Spin, Progress, Empty } from "antd";
+import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, message, Modal, Spin, Progress, Empty } from "antd";
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
-import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined } from "@ant-design/icons";
-import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
-import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined } from "@ant-design/icons";
 
 const API = "http://127.0.0.1:8000/api/accounts";
 const RESOLVE = "http://127.0.0.1:8000/api/resolve-name";
@@ -32,23 +29,6 @@ const Telescope = () => (
 const GithubIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.1.1 1.7 1.2 1.7 1.2 1 1.7 2.6 1.2 3.2.9.1-.7.4-1.2.7-1.5-2.4-.3-4.9-1.2-4.9-5.3 0-1.2.4-2.1 1.1-2.9-.1-.3-.5-1.4.1-2.9 0 0 .9-.3 2.9 1.1.8-.2 1.7-.3 2.6-.3s1.8.1 2.6.3c2-1.4 2.9-1.1 2.9-1.1.6 1.5.2 2.6.1 2.9.7.8 1.1 1.7 1.1 2.9 0 4.1-2.5 5-4.9 5.3.4.3.8 1 .8 2.1v3.1c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
 );
-
-interface SortableRowProps extends React.HTMLAttributes<HTMLTableRowElement> {
-  "data-row-key": string;
-}
-function SortableRow({ children, ...props }: SortableRowProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props["data-row-key"] });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    ...(isDragging ? { opacity: 0.6, background: "#eef4ff" } : {}),
-  };
-  return (
-    <tr suppressHydrationWarning {...props} ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      {children}
-    </tr>
-  );
-}
 
 const statusMap: Record<string, { color: string; text: string }> = {
   pending: { color: "gold", text: "待采集" },
@@ -261,6 +241,26 @@ export default function Home() {
     await loadCalendar(row.id, mk);
     setCalOpen(true);
   }
+  async function moveRow(dragId: number, targetId: number) {
+    if (dragId === targetId) return;
+    const oldIndex = tasks.findIndex((t) => t.id === dragId);
+    const newIndex = tasks.findIndex((t) => t.id === targetId);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const next = [...tasks];
+    const [moved] = next.splice(oldIndex, 1);
+    next.splice(newIndex, 0, moved);
+    setTasks(next);
+    try {
+      await fetch(`${API}/sort`, { method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: next.map((t) => t.id) }) });
+    } catch { /* 忽略 */ }
+  }
+  function toggleSelect(id: number, checked: boolean) {
+    setSelectedKeys((prev) => checked ? [...prev, id] : prev.filter((k) => k !== id));
+  }
+  function toggleSelectAll(checked: boolean) {
+    setSelectedKeys(checked ? tasks.map((t) => t.id) : []);
+  }
   function copyBiz(row: Task) {
     if (!row.biz) return;
     navigator.clipboard.writeText(row.biz);
@@ -280,27 +280,13 @@ export default function Home() {
       } });
   }
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
-  async function onDragEnd(event: DragEndEvent) {
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-    const oldIndex = tasks.findIndex((t) => String(t.id) === active.id);
-    const newIndex = tasks.findIndex((t) => String(t.id) === over.id);
-    if (oldIndex < 0 || newIndex < 0) return;
-    const next = arrayMove(tasks, oldIndex, newIndex);
-    setTasks(next);
-    try {
-      await fetch(`${API}/sort`, { method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: next.map((t) => t.id) }) });
-    } catch { /* 忽略 */ }
-  }
 
   return (
       <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column", background: "#f5f6f8" }}>
       <div className="dropzone"
-           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+           onDragOver={(e) => { e.preventDefault(); if (Array.from(e.dataTransfer.types || []).includes("Files")) setDragOver(true); }}
            onDragLeave={() => setDragOver(false)}
-           onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) importFile(f); }}
+           onDrop={(e) => { e.preventDefault(); setDragOver(false); if (Array.from(e.dataTransfer.types || []).includes("Files")) { const f = e.dataTransfer.files?.[0]; if (f) importFile(f); } }}
            style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Button type="primary" icon={<InboxOutlined />} onClick={collectSelected}>采集选中</Button>
@@ -311,13 +297,29 @@ export default function Home() {
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }} onChange={onPick} />
         </div>
 
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-          <SortableContext items={tasks.map((t) => String(t.id))} strategy={verticalListSortingStrategy}>
             <Table className="home-table" rowKey="id" dataSource={tasks} loading={loading} pagination={false} bordered scroll={{ y: "calc(100vh - 255px)" }}
               locale={{ emptyText: <Empty description="请添加一个公众号" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
-              components={{ body: { row: SortableRow } }}
-              rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
+              onRow={(record) => ({
+                draggable: true,
+                onDragStart: (e) => { e.stopPropagation(); e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", String(record.id)); },
+                onDragOver: (e) => { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = "move"; },
+                onDrop: (e) => { e.preventDefault(); e.stopPropagation(); const id = e.dataTransfer.getData("text/plain"); if (id) moveRow(Number(id), record.id); },
+              })}
               columns={[
+                {
+                  title: "", dataIndex: "drag", width: 40, align: "center",
+                  render: () => <HolderOutlined style={{ color: "#bfc7cf", cursor: "grab" }} />,
+                },
+                {
+                  title: <Checkbox indeterminate={selectedKeys.length > 0 && selectedKeys.length < tasks.length}
+                    checked={selectedKeys.length === tasks.length && tasks.length > 0}
+                    onChange={(e) => toggleSelectAll(e.target.checked)} />,
+                  dataIndex: "select", width: 40, align: "center",
+                  render: (_: unknown, r: Task) => (
+                    <Checkbox checked={selectedKeys.includes(r.id)}
+                      onChange={(e) => toggleSelect(r.id, e.target.checked)} />
+                  ),
+                },
                 {
                   title: "公众号名称", dataIndex: "name",
                   render: (_: unknown, r: Task) => (
@@ -354,8 +356,7 @@ export default function Home() {
                 },
               ]}
             />
-          </SortableContext>
-        </DndContext>
+
         <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 10 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>当前 {tasks.length} 个公众号</Typography.Text>
         </div>
