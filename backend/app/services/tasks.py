@@ -346,31 +346,20 @@ def search_query(link=""):
     return True, "; ".join(logs)
 
 
-def article_list_wait_stable():
-    """文章列表识别循环: 等待文章列表页面加载稳定。
-    前提: 搜一搜查询(search_query)已加载出公众号链接(本函数不判定, 但依赖其结果)。
-    逻辑:
-      对点位15-16区域截图(webp), 每次间隔0.1秒;
-      连续15次图片完全相同 → 页面稳定, 进入下一步;
-      最多30次机会, 超时仍不稳定 → 失败返回 False。
-    返回: (成功?, 说明文本)
+def wait_page_stable(x1, y1, x2, y2, same_need=15, timeout=30, interval=0.1):
+    """通用页面稳定判断: 对指定区域反复截图, 连续多次完全相同判页面稳定。
+    参数:
+      x1,y1,x2,y2  截图区域(屏幕坐标)
+      same_need    连续相同多少次判稳定(默认15)
+      timeout      最多截图次数(默认30, 超时判失败)
+      interval     每次截图间隔(默认0.1s)
+    返回: (稳定?, 说明文本)
     """
     import hashlib
     logs = []
-
-    p15 = _read_point(15)
-    p16 = _read_point(16)
-    if not p15 or not p16:
-        logs.append("缺少点位15/16")
-        return False, "; ".join(logs)
-    x1, y1 = p15
-    x2, y2 = p16
-    logs.append(f"列表区域({x1},{y1})-({x2},{y2})")
-
     same_streak = 0       # 连续相同次数
     prev_hash = None
-    deadline = 30         # 最多30次机会
-    for i in range(1, deadline + 1):
+    for i in range(1, timeout + 1):
         path, _b64 = pc.screenshot(x1, y1, x2, y2, img_format="webp")
         if not path:
             logs.append(f"截图失败(第{i}次)")
@@ -383,16 +372,76 @@ def article_list_wait_stable():
             return False, "; ".join(logs)
         if prev_hash is not None and cur_hash == prev_hash:
             same_streak += 1
-            if same_streak >= 15:
+            if same_streak >= same_need:
                 logs.append(f"页面稳定: 连续{i}次截图相同")
                 return True, "; ".join(logs)
         else:
             same_streak = 0
         prev_hash = cur_hash
-        time.sleep(0.1)
-
-    logs.append("页面未稳定: 30次机会用完")
+        if interval:
+            time.sleep(interval)
+    logs.append(f"页面未稳定: {timeout}次机会用完")
     return False, "; ".join(logs)
+
+
+def article_list_wait_stable():
+    """文章列表识别循环: 进入 while 循环, 每次循环第一步检查页面稳定。
+    前提: 搜一搜查询(search_query)已加载出公众号链接(本函数不判定, 但依赖其结果)。
+    逻辑:
+      while 循环(目前为占位, 后续补结束条件):
+        每次循环第一步: 检查点位15-16区域页面是否稳定
+          - 不稳定 → 返回 False
+          - 稳定 → 继续本轮回合(识别文章等, 后续开发)
+    返回: (成功?, 说明文本)
+    """
+    logs = []
+
+    p15 = _read_point(15)
+    p16 = _read_point(16)
+    if not p15 or not p16:
+        logs.append("缺少点位15/16")
+        return False, "; ".join(logs)
+    x1, y1 = p15
+    x2, y2 = p16
+    logs.append(f"列表区域({x1},{y1})-({x2},{y2})")
+
+    # while 循环(死循环占位, 结束条件后续补)
+    all_points = []      # 累积所有轮次识别到的点位(拼接截断)
+    loop_n = 0
+    while True:
+        loop_n += 1
+        logs.append(f"--- 列表循环 {loop_n} ---")
+
+        # 每次循环第一步: 页面稳定判断(失败不退出, 有兜底)
+        ok, info = wait_page_stable(x1, y1, x2, y2)
+        if ok:
+            logs.append(f"第{loop_n}轮页面稳定: {info}")
+        else:
+            logs.append(f"第{loop_n}轮页面未稳定(继续, 用兜底): {info}")
+
+        # 截图 -> OCR 识别 -> 分类(不管稳定与否都执行, 用新截的图)
+        shot_path, _b64 = pc.screenshot(x1, y1, x2, y2, img_format="png")
+        if not shot_path:
+            logs.append(f"第{loop_n}轮截图失败")
+            break
+        try:
+            from PIL import Image
+            from . import ocr as ocr_service
+            img = Image.open(shot_path)
+            items = ocr_service.ocr(img)
+            classified = ocr_service.classify_items(items, box=(x1, y1))
+        except Exception as e:
+            logs.append(f"第{loop_n}轮OCR失败: {e}")
+            break
+
+        # 累积拼接: 每轮 classified 追加(第一轮接空数组, 后续接前几轮结果)
+        all_points.extend(classified)
+        logs.append(f"第{loop_n}轮点位 {len(classified)} 个, 累计 {len(all_points)} 个")
+
+        # TODO: 结束条件(后续补)、滚动翻页等
+        continue
+
+    return True, "; ".join(logs), all_points
 
 
 def init_app_window():
