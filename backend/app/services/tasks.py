@@ -473,8 +473,10 @@ def article_list_wait_stable():
     else:
         logs.append("缺少点位17")
 
-    # while 循环(死循环占位, 结束条件后续补)
+    # while 循环(停止条件: 连续3次截图相同 = 无更多文章)
     prev_classified = None   # 上一轮的 classified(用于截断借时间)
+    prev_shot_hash = None    # 上一轮截图md5(无更多文章判定)
+    same_shot = 0            # 连续相同截图次数
     loop_n = 0
     def echo(msg):
         """本轮日志: 存 logs 并实时转发(打印 + 后端钩子)"""
@@ -498,7 +500,7 @@ def article_list_wait_stable():
         shot_path, _b64 = pc.screenshot(x1, y1, x2, y2, img_format="png")
         if not shot_path:
             echo(f"第{loop_n}轮截图失败")
-            break
+            return False, f"第{loop_n}轮截图失败"
         try:
             from PIL import Image
             from . import ocr as ocr_service
@@ -507,7 +509,7 @@ def article_list_wait_stable():
             classified = ocr_service.classify_items(items, box=(x1, y1))
         except Exception as e:
             echo(f"第{loop_n}轮OCR失败: {e}")
-            break
+            return False, f"第{loop_n}轮OCR失败: {e}"
 
         # 截断处理: 本轮第一个点位不是时间点位 -> 向上一轮末尾借时间点位(序号0)
         if classified and prev_classified is not None and classified[0][1] != "time":
@@ -536,6 +538,23 @@ def article_list_wait_stable():
                      f" 阅读={pdata.get('reads')} 赞={pdata.get('likes')}")
 
         prev_classified = classified
+
+        # 停止条件: 连续3次OCR截图完全相同 -> 无更多文章, 停止(返回True)
+        import hashlib as _hashlib
+        cur_shot_hash = None
+        try:
+            with open(shot_path, "rb") as _f:
+                cur_shot_hash = _hashlib.md5(_f.read()).hexdigest()
+        except Exception:
+            cur_shot_hash = None
+        if prev_shot_hash == cur_shot_hash:
+            same_shot = same_shot + 1
+        else:
+            same_shot = 1
+        prev_shot_hash = cur_shot_hash
+        if same_shot >= 3:
+            echo(f"第{loop_n}轮: 连续3次截图相同, 判定无更多文章, 停止")
+            return True, "无更多文章"
 
         # 滚动: 鼠标移到点位15, 触发滚动配置 id=3(向下)
         try:
