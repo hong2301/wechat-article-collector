@@ -46,8 +46,8 @@ export default function AiDialog({
   useEffect(() => { if (open) load(); }, [open]);
 
   async function save() {
-    if (!apiKey.trim()) { message.warning("请填写 API Key"); return; }
-    if (!models.length) { message.warning("请至少选择一个模型id"); return; }
+    if (!apiKey.trim()) { message.warning("请填写 key"); return; }
+    if (!models.length) { message.warning("请选择模型id"); return; }
     setSaving(true);
     try {
       const r = await fetch(API, {
@@ -69,7 +69,7 @@ export default function AiDialog({
 
   return (
     <Modal
-      title="豆包模型" open={open}
+      title="厂商" open={open}
       onOk={save} okText="保存" confirmLoading={saving}
       onCancel={onClose} cancelText="取消"
       footer={(
@@ -81,9 +81,9 @@ export default function AiDialog({
     >
       <Space direction="vertical" style={{ width: "100%" }} size="middle">
         <Space style={{ width: "100%" }} direction="vertical">
-          <Typography.Text strong>API Key</Typography.Text>
+          <Typography.Text strong>key</Typography.Text>
           <Input.Password
-            placeholder="请输入豆包 API Key"
+            placeholder="请输入 key"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
           />
@@ -91,16 +91,15 @@ export default function AiDialog({
         <Space style={{ width: "100%" }} direction="vertical">
           <Typography.Text strong>模型id</Typography.Text>
           <Select
-            mode="multiple"
-            placeholder="选择模型id(可多选)"
-            value={models}
+            placeholder="选择模型id"
+            value={models.length ? models[0] : undefined}
             options={MODEL_OPTIONS}
             style={{ width: "100%" }}
-            onChange={(v) => setModels(v)}
+            onChange={(v) => setModels(v ? [v] : [])}
           />
         </Space>
         <Space style={{ width: "100%" }} direction="vertical">
-          <Typography.Text strong>AI厂商</Typography.Text>
+          <Typography.Text strong>厂商</Typography.Text>
           <Select
             value={provider}
             options={PROVIDERS}

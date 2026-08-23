@@ -12,7 +12,7 @@ const GithubIcon = () => (
 
 export default function Header() {
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 2px 16px" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0 14px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ width: 34, height: 34, borderRadius: 9, background: "#1565c0", display: "flex", alignItems: "center", justifyContent: "center" }}><Telescope /></div>
         <div>

@@ -435,13 +435,14 @@ export default function Home() {
 
 
   return (
-      <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column", background: "#f5f6f8", padding: 14, gap: 12 }}>
+      <div style={{ height: "100%", overflow: "hidden", display: "flex", flexDirection: "column", background: "#f5f6f8", padding: 0, gap: 12 }}>
       {/* 采集设置模块(在公众号列表上方) */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px" }}>
         {/* 日期选择栏: 日期范围选择器 + 快捷按钮 */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <DatePicker.RangePicker
             value={dateRange}
+            placeholder={["开始日期", "结束日期"]}
             onChange={(v) => { if (v && v[0] && v[1]) setDateRange([v[0], v[1]]); }}
             style={{ width: 260 }}
             allowClear={false}
@@ -450,24 +451,25 @@ export default function Home() {
             onClick={() => setDateRange(null)}>全部</Button>
           <Button size="small" type={dateRange && dateRange[0].isSame(dateRange[1], "day") && dateRange[0].isSame(dayjs(), "day") ? "primary" : "default"}
             onClick={() => setDateRange([dayjs(), dayjs()])}>今天</Button>
-          <Button size="small" type={dateRange && dateRange[0].isSame(dateRange[1], "day") && dateRange[0].isSame(dayjs().subtract(1, "day"), "day") ? "primary" : "default"}
-            onClick={() => setDateRange([dayjs().subtract(1, "day"), dayjs().subtract(1, "day")])}>昨天</Button>
           <Button size="small" onClick={() => setDateRange([dayjs().subtract(2, "day"), dayjs()])}>近3天</Button>
           <Button size="small" onClick={() => setDateRange([dayjs().subtract(6, "day"), dayjs()])}>近一周</Button>
           <Button size="small" onClick={() => setDateRange([dayjs().subtract(29, "day"), dayjs()])}>近一月</Button>
           <Button size="small" onClick={() => setDateRange([dayjs().subtract(364, "day"), dayjs()])}>近一年</Button>
         </div>
-        {/* 设置按钮行 */}
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        {/* 采集开关行(第二行) */}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minHeight: 32 }}>
+          <span style={{ fontSize: 14, color: "#555" }}>窗口分离</span>
+          <Switch checked={windowSplit} onChange={setWindowSplit} />
+          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集4指标</span>
+          <Switch checked={capture4metrics} onChange={setCapture4metrics} />
+          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集阅读数</span>
+          <Switch checked={captureRead} onChange={setCaptureRead} />
+        </div>
+        {/* 设置按钮行(第三行) */}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Button icon={<ProfileOutlined />} onClick={() => setPointsOpen(true)}>点位设置</Button>
           <Button icon={<SwapOutlined />} onClick={() => setScrollsOpen(true)}>滚动设置</Button>
           <Button icon={<RobotOutlined />} onClick={() => setAiOpen(true)}>AI模型</Button>
-          <span style={{ marginLeft: 12, fontSize: 13, color: "#555" }}>窗口分离</span>
-          <Switch size="small" checked={windowSplit} onChange={setWindowSplit} />
-          <span style={{ marginLeft: 12, fontSize: 13, color: "#555" }}>采集4指标</span>
-          <Switch size="small" checked={capture4metrics} onChange={setCapture4metrics} />
-          <span style={{ marginLeft: 12, fontSize: 13, color: "#555" }}>采集阅读数</span>
-          <Switch size="small" checked={captureRead} onChange={setCaptureRead} />
         </div>
       </div>
       <PointsDialog open={pointsOpen} onClose={() => setPointsOpen(false)} />
