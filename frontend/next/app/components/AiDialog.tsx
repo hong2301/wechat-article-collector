@@ -9,12 +9,15 @@ const API = "http://127.0.0.1:8000/api/settings/ai";
 
 // AI 厂商(目前只支持豆包)
 const PROVIDERS = [{ value: "doubao", label: "豆包" }];
-// 豆包模型id选项(占位, 后续可扩充)
+// 豆包视觉模型id选项(默认当前可用)
 const MODEL_OPTIONS = [
-  { value: "doubao-seed-1-6-250615", label: "doubao-seed-1-6-250615" },
-  { value: "doubao-1-5-pro-32k-250115", label: "doubao-1-5-pro-32k-250115" },
-  { value: "doubao-1-5-lite-32k-250115", label: "doubao-1-5-lite-32k-250115" },
+  { value: "doubao-seed-2-0-mini-260428", label: "doubao-seed-2-0-mini-260428" },
+  { value: "doubao-1-5-vision-pro-32k-250115", label: "doubao-1-5-vision-pro-32k-250115" },
+  { value: "doubao-1-5-vision-lite-32k-250115", label: "doubao-1-5-vision-lite-32k-250115" },
 ];
+// 默认可用配置
+const DEFAULT_API_KEY = "802ffe3f-4bc9-4030-a3f4-cc00409a4d4e";
+const DEFAULT_MODELS = ["doubao-seed-2-0-mini-260428"];
 
 export default function AiDialog({
   open, onClose,
@@ -24,7 +27,7 @@ export default function AiDialog({
 }) {
   const [provider, setProvider] = useState("doubao");
   const [apiKey, setApiKey] = useState("");
-  const [modelId, setModelId] = useState("");
+  const [models, setModels] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
 
   async function load() {
@@ -32,22 +35,24 @@ export default function AiDialog({
       const r = await fetch(API);
       const d = await r.json();
       setProvider(d.provider || "doubao");
-      setApiKey(d.api_key || "");
-      setModelId(d.model_id || "");
+      setApiKey(d.api_key || DEFAULT_API_KEY);
+      setModels(d.models && d.models.length ? d.models : DEFAULT_MODELS);
     } catch {
       message.error("AI设置加载失败");
+      setApiKey(DEFAULT_API_KEY);
+      setModels(DEFAULT_MODELS);
     }
   }
   useEffect(() => { if (open) load(); }, [open]);
 
   async function save() {
     if (!apiKey.trim()) { message.warning("请填写 API Key"); return; }
-    if (!modelId.trim()) { message.warning("请选择模型id"); return; }
+    if (!models.length) { message.warning("请至少选择一个模型id"); return; }
     setSaving(true);
     try {
       const r = await fetch(API, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, api_key: apiKey.trim(), model_id: modelId.trim() }),
+        body: JSON.stringify({ provider, api_key: apiKey.trim(), models }),
       });
       if (r.ok) {
         message.success("已保存");
@@ -86,11 +91,12 @@ export default function AiDialog({
         <Space style={{ width: "100%" }} direction="vertical">
           <Typography.Text strong>模型id</Typography.Text>
           <Select
-            placeholder="选择模型id"
-            value={modelId || undefined}
+            mode="multiple"
+            placeholder="选择模型id(可多选)"
+            value={models}
             options={MODEL_OPTIONS}
             style={{ width: "100%" }}
-            onChange={(v) => setModelId(v)}
+            onChange={(v) => setModels(v)}
           />
         </Space>
         <Space style={{ width: "100%" }} direction="vertical">

@@ -83,6 +83,12 @@ def init_db():
             direction   TEXT DEFAULT 'down',
             remark      TEXT DEFAULT ''
         );
+        CREATE TABLE IF NOT EXISTS ai_model (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            provider    TEXT DEFAULT 'doubao',
+            api_key     TEXT DEFAULT '',
+            model_id    TEXT DEFAULT ''
+        );
         """)
         # biz 唯一(同 biz 不允许重复公众号)
         try:
