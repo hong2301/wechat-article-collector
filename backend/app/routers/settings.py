@@ -52,3 +52,53 @@ def save_ai_settings(payload: AiSettings):
         return {"ok": True, "count": len(models)}
     finally:
         conn.close()
+
+
+class CollectConfig(BaseModel):
+    window_split: bool = True          # 窗口分离
+    capture_4metrics: bool = False     # 采集4指标
+    capture_read: bool = False         # 采集阅读数
+    date_start: str = ""              # 日期范围开始(空=全部)
+    date_end: str = ""                # 日期范围结束(空=全部)
+
+
+def _cfg_get(key, default=""):
+    conn = get_conn()
+    try:
+        row = conn.execute("SELECT svalue FROM collect_config WHERE skey=?", (key,)).fetchone()
+        return row["svalue"] if row else default
+    finally:
+        conn.close()
+
+
+def _cfg_set(key, value):
+    conn = get_conn()
+    try:
+        conn.execute("INSERT OR REPLACE INTO collect_config(skey, svalue) VALUES(?,?)",
+                     (key, str(value)))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+@router.get("/collect-config")
+def get_collect_config():
+    """读取采集配置记忆(窗口分离/采集4指标/采集阅读数/时间范围)"""
+    return {
+        "window_split": _cfg_get("window_split", "1") == "1",
+        "capture_4metrics": _cfg_get("capture_4metrics", "0") == "1",
+        "capture_read": _cfg_get("capture_read", "0") == "1",
+        "date_start": _cfg_get("date_start"),
+        "date_end": _cfg_get("date_end"),
+    }
+
+
+@router.post("/collect-config")
+def save_collect_config(payload: CollectConfig):
+    """保存采集配置记忆"""
+    _cfg_set("window_split", "1" if payload.window_split else "0")
+    _cfg_set("capture_4metrics", "1" if payload.capture_4metrics else "0")
+    _cfg_set("capture_read", "1" if payload.capture_read else "0")
+    _cfg_set("date_start", payload.date_start or "")
+    _cfg_set("date_end", payload.date_end or "")
+    return {"ok": True}

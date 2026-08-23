@@ -150,6 +150,47 @@ export default function Home() {
   const [capture4metrics, setCapture4metrics] = useState(false);
   const [captureRead, setCaptureRead] = useState(false);
 
+  // 采集配置记忆: 加载时恢复, 变更时保存到数据库
+  useEffect(() => {
+    fetch("http://127.0.0.1:8000/api/settings/collect-config")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d) {
+          setWindowSplit(!!d.window_split);
+          setCapture4metrics(!!d.capture_4metrics);
+          setCaptureRead(!!d.capture_read);
+          if (d.date_start && d.date_end) {
+            setDateRange([dayjs(d.date_start), dayjs(d.date_end)]);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // 保存采集配置(变更时调用)
+  function saveCollectConfig(next: Partial<{
+    window_split: boolean; capture_4metrics: boolean;
+    capture_read: boolean; date_start: string; date_end: string;
+  }>) {
+    fetch("http://127.0.0.1:8000/api/settings/collect-config", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        window_split: windowSplit,
+        capture_4metrics: capture4metrics,
+        capture_read: captureRead,
+        date_start: dateRange ? dateRange[0].format("YYYY-MM-DD") : "",
+        date_end: dateRange ? dateRange[1].format("YYYY-MM-DD") : "",
+        ...next,
+      }),
+    }).catch(() => {});
+  }
+
+  // 监听采集配置变化自动保存
+  useEffect(() => {
+    saveCollectConfig({});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [windowSplit, capture4metrics, captureRead, dateRange]);
+
   useEffect(() => {
     const probe = document.createElement("div");
     probe.style.cssText = "width:50px;height:50px;overflow:scroll;visibility:hidden;position:absolute;";

@@ -89,6 +89,10 @@ def init_db():
             api_key     TEXT DEFAULT '',
             model_id    TEXT DEFAULT ''
         );
+        CREATE TABLE IF NOT EXISTS collect_config (
+            skey        TEXT PRIMARY KEY,
+            svalue      TEXT DEFAULT ''
+        );
         """)
         # biz 唯一(同 biz 不允许重复公众号)
         try:
