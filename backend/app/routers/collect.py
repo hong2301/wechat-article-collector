@@ -98,7 +98,9 @@ def _collect_generate(payload: CollectStart):
     tasks_service.clear_stop()   # 新任务开始前清除
     msg = (f"任务: {payload.name} | biz={payload.biz} | "
            f"日期 {payload.date_start} ~ {payload.date_end} | "
-           f"窗口分离={'开' if payload.window_split else '关'}")
+           f"窗口分离={'开' if payload.window_split else '关'} | "
+           f"4指标={'开' if payload.capture_4metrics else '关'} | "
+           f"阅读数={'开' if payload.capture_read else '关'}")
     yield _sse({"type": "log", "msg": "采集启动"})
     yield _sse({"type": "log", "msg": msg})
     yield _sse({"type": "task", "done": 0, "total": 1})

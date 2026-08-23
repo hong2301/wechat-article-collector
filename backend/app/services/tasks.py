@@ -469,15 +469,36 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
         return False, "; ".join(logs)
     logs.append(f"初始页面稳定: {info0}")
 
-    # 稳定后点击点位17
-    p17 = _read_point(17)
-    if p17:
-        pc.mouse_click(p17[0], p17[1])
-        echo_line = f"点击点位17({p17[0]},{p17[1]})"
-        logs.append(echo_line)
-        tasks_echo(echo_line)
-    else:
-        logs.append("缺少点位17")
+    # 稳定后: 截图点位15-16 => OCR => 识别"文章"标记(灰色系深色文字)并点击
+    try:
+        from PIL import Image
+        from . import ocr as ocr_service
+        shot_path, _b64 = pc.screenshot(x1, y1, x2, y2, img_format="png")
+        items = ocr_service.ocr(Image.open(shot_path))
+        clicked = False
+        for cx, cy, text, score, sbox, brightness in items:
+            if not text or not text.strip():
+                continue
+            # 文章标记: 灰色系深色文字 且 文本含"文章"
+            if "文章" not in text:
+                continue
+            gray = ocr_service._region_grayish(sbox, (x1, y1))
+            if gray is True:
+                # 点击坐标: sbox是截图内相对坐标, 加区域左上角(x1,y1)偏移成屏幕坐标, 取box中心
+                xs = [p[0] + x1 for p in sbox]
+                ys = [p[1] + y1 for p in sbox]
+                click_x = int(sum(xs) / len(xs))
+                click_y = int(sum(ys) / len(ys))
+                logs.append(f"识别文章标记: {text!r} @({click_x},{click_y})")
+                tasks_echo(f"识别文章标记: {text!r} @({click_x},{click_y})")
+                pc.mouse_click(click_x, click_y)
+                clicked = True
+                break
+        if not clicked:
+            logs.append("未识别到文章标记(灰字), 跳过点击")
+            tasks_echo("未识别到文章标记(灰字), 跳过点击")
+    except Exception as e:
+        logs.append(f"文章标记识别失败: {e}")
 
     # while 循环(停止条件: 连续3次截图相同 = 无更多文章)
     prev_classified = None   # 上一轮的 classified(用于截断借时间)
