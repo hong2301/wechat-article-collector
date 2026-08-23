@@ -612,16 +612,18 @@ export default function Home() {
         width={560}
       >
         {/* 采集条件卡片 */}
-        <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px", marginBottom: 10 }}>
-          <div style={{ fontSize: 13, color: "#555", lineHeight: 1.8 }}>
-            时间范围: {dateRange ? `${dateRange[0].format("YYYY-MM-DD")} ~ ${dateRange[1].format("YYYY-MM-DD")}` : "全部"}
-          </div>
-          <div style={{ fontSize: 13, color: "#555", lineHeight: 1.8 }}>
-            窗口分离: {windowSplit ? "开" : "关"}
-          </div>
-          <div style={{ fontSize: 13, color: "#555", lineHeight: 1.8 }}>
-            采集4指标: {capture4metrics ? "开" : "关"} · 采集阅读数: {captureRead ? "开" : "关"}
-          </div>
+        <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0", marginBottom: 12 }}>
+          {[
+            { label: "时间范围", value: dateRange ? `${dateRange[0].format("YYYY-MM-DD")} ~ ${dateRange[1].format("YYYY-MM-DD")}` : "全部" },
+            { label: "窗口分离", value: windowSplit ? "开" : "关" },
+            { label: "采集4指标", value: capture4metrics ? "开" : "关" },
+            { label: "采集阅读数", value: captureRead ? "开" : "关" },
+          ].map((row) => (
+            <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
+              <span style={{ width: 90, color: "#888" }}>{row.label}</span>
+              <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
+            </div>
+          ))}
         </div>
 
         {/* 采集情况统计卡片(仅进行中显示) */}
