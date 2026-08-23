@@ -691,5 +691,51 @@ def init_app_window():
     return True, "; ".join(logs)
 
 
+def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=False):
+    """文章数据采集。
+    参数:
+      collect_type     采集触发类型(0=未知/默认; 1=公众号点击采集; 可扩展)
+      capture_4metrics 是否采集4指标
+      capture_read     是否采集阅读数量
+    逻辑(待补充):
+      1) 检查触发类型; 为0(不确定)直接返回 False
+      2) 按触发类型走对应分支(待描述)
+    """
+    logs = []
+    if collect_type == 0:
+        logs.append("触发类型不确定, 无法采集")
+        return False, "; ".join(logs)
+    # 非0 -> 第一步: 获取复制链接流程
+    p18 = _read_point(18)   # 文章右上角3点
+    p27 = _read_point(27)   # 点击复制链接
+    if not p18 or not p27:
+        logs.append("缺少点位18/27(3点/复制链接)")
+        return False, "; ".join(logs)
+    # 1) 复制链接流程: 清空剪贴板; 循环(最多2次) 点18(等0.2s)->点27->读60次
+    pc.clear_clipboard()
+    link = None
+    for attempt in (1, 2):
+        logs.append(f"复制链接 第{attempt}次尝试: 点击点位18(3点)({p18[0]},{p18[1]})")
+        pc.mouse_click(p18[0], p18[1])          # 点3点
+        time.sleep(0.2)
+        pc.mouse_click(p27[0], p27[1])          # 点复制链接
+        for _i in range(1, 61):
+            time.sleep(0.1)
+            v = pc.read_clipboard_text()
+            if v:
+                link = v
+                break
+        if link:
+            logs.append(f"第{attempt}次尝试成功, 链接: {link[:60]}")
+            break
+    if not link:
+        logs.append("未获取到复制链接")
+        return False, "; ".join(logs)
+    logs.append("获取复制链接成功")
+    # TODO: 后续流程(采集4指标/阅读数等分支待描述)
+    return True, "; ".join(logs)
+
+
 __all__ = ["init_wechat_window", "search_window_init", "search_query",
-           "article_list_wait_stable", "init_app_window"]
+           "article_list_wait_stable", "init_app_window",
+           "article_data_collect"]
