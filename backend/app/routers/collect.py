@@ -3,6 +3,7 @@
 import json
 import queue
 import threading
+import time
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -104,11 +105,18 @@ def _collect_generate(payload: CollectStart):
     threading.Thread(target=worker, daemon=True).start()
 
     # 主循环: 从队列读日志并 yield(worker 线程阻塞跑死循环也不影响)
+    # 空闲超过5秒发心跳帧, 保持SSE连接不断开
+    last_sent = time.monotonic()
     while not finished.is_set() or not log_q.empty():
         try:
             item = log_q.get(timeout=0.3)
         except queue.Empty:
+            now = time.monotonic()
+            if now - last_sent >= 5:
+                yield _sse({"type": "keepalive"})
+                last_sent = now
             continue
+        last_sent = time.monotonic()
         with lock:
             if item[0] == "log":
                 yield _sse({"type": "log", "msg": item[1]})

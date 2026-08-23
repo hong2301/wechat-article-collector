@@ -462,10 +462,10 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
     x2, y2 = p16
     logs.append(f"列表区域({x1},{y1})-({x2},{y2})")
 
-    # 循环前: 页面稳定判断(100次机会, 每0.1s, 连续30次相同算稳定)
-    ok0, info0 = wait_page_stable(x1, y1, x2, y2, same_need=30, timeout=100, interval=0.1)
+    # 循环前: 页面稳定判断(100次机会, 每0.1s, 连续10次相同算稳定)
+    ok0, info0 = wait_page_stable(x1, y1, x2, y2, same_need=10, timeout=100, interval=0.1)
     if not ok0:
-        logs.append(f"初始页面未稳定(30次未达成): {info0}")
+        logs.append(f"初始页面未稳定(10次未达成): {info0}")
         return False, "; ".join(logs)
     logs.append(f"初始页面稳定: {info0}")
 
@@ -496,8 +496,8 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
         loop_n += 1
         echo(f"--- 列表循环 {loop_n} ---")
 
-        # 每次循环第一步: 页面稳定判断(失败不退出, 有兜底)
-        ok, info = wait_page_stable(x1, y1, x2, y2)
+        # 每次循环第一步: 页面稳定判断(失败不退出, 有兜底; 连续10次相同)
+        ok, info = wait_page_stable(x1, y1, x2, y2, same_need=10)
         if ok:
             echo(f"第{loop_n}轮页面稳定: {info}")
         else:
@@ -586,12 +586,14 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             click_y = int(sum(ys) / len(ys))
             echo(f"  点击文章[{seq}] {ptxt!r} 时间{t} @({click_x},{click_y})")
             pc.mouse_click(click_x, click_y)
+            time.sleep(0.3)   # 点击后等待页面响应
 
             # 点击后: 采集该文章数据(获取链接+写文章表)
             ok_c, text_c = article_data_collect(
                 collect_type=1, capture_4metrics=capture_4metrics,
                 capture_read=capture_read, biz=biz)
             echo(f"  文章数据采集: {'成功' if ok_c else '失败'} | {text_c}")
+            time.sleep(0.5)   # 采集完成间隔
 
         # 日期范围判断(有日期范围时才启用; 全部=空串跳过, 靠三次OCR兜底) 放在三次OCR相同判断上面
         if date_start or date_end:
@@ -621,12 +623,15 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             else:
                 date_out_count = 0       # 本轮无时间点位, 不判定, 重置
 
-        # 停止条件: 连续3次OCR截图完全相同 -> 无更多文章, 停止(返回True)
+        # 停止条件: 连续3轮OCR列表截图完全相同 -> 无更多文章, 停止(返回True)
+        # 注意: 独立重新截图列表区域, 避免被各采集步骤的截图覆盖污染
         import hashlib as _hashlib
         cur_shot_hash = None
         try:
-            with open(shot_path, "rb") as _f:
-                cur_shot_hash = _hashlib.md5(_f.read()).hexdigest()
+            _sp, _ = pc.screenshot(x1, y1, x2, y2, img_format="png")
+            if _sp:
+                with open(_sp, "rb") as _f:
+                    cur_shot_hash = _hashlib.md5(_f.read()).hexdigest()
         except Exception:
             cur_shot_hash = None
         if prev_shot_hash == cur_shot_hash:
@@ -635,7 +640,7 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             same_shot = 1
         prev_shot_hash = cur_shot_hash
         if same_shot >= 3:
-            echo(f"第{loop_n}轮: 连续3次截图相同, 判定无更多文章, 停止")
+            echo(f"第{loop_n}轮: 连续3次列表截图相同, 判定无更多文章, 停止")
             return True, "无更多文章"
 
         # 滚动: 鼠标移到点位15, 触发滚动配置 id=3(向下)
@@ -719,20 +724,39 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
     if collect_type == 0:
         logs.append("触发类型不确定, 无法采集")
         return False, "; ".join(logs)
-    # 非0 -> 第一步: 获取复制链接流程
+    # 非0 -> 第一步: 获取复制链接流程(新版: 截图OCR检测复制字样)
     p18 = _read_point(18)   # 文章右上角3点
     p27 = _read_point(27)   # 点击复制链接
+    p28 = _read_point(28)   # 复制链接区域左上
+    p29 = _read_point(29)   # 复制链接区域右下
     if not p18 or not p27:
         logs.append("缺少点位18/27(3点/复制链接)")
         return False, "; ".join(logs)
-    # 1) 复制链接流程: 清空剪贴板; 循环(最多2次) 点18(等0.2s)->点27->读60次
-    pc.clear_clipboard()
+
+    copy_seen = False   # 标志: 是否检测到过"复制"字样
     link = None
-    for attempt in (1, 2):
-        logs.append(f"复制链接 第{attempt}次尝试: 点击点位18(3点)({p18[0]},{p18[1]})")
-        pc.mouse_click(p18[0], p18[1])          # 点3点
-        time.sleep(0.2)
-        pc.mouse_click(p27[0], p27[1])          # 点复制链接
+    pc.clear_clipboard()
+    logs.append(f"点击点位18(3点)({p18[0]},{p18[1]})")
+    pc.mouse_click(p18[0], p18[1])
+
+    # 截图点位28-29区域, OCR 检测是否有"复制"字样
+    if p28 and p29:
+        try:
+            from PIL import Image
+            from . import ocr as ocr_service
+            shot_path, _b64 = pc.screenshot(p28[0], p28[1], p29[0], p29[1],
+                                            img_format="png")
+            if shot_path:
+                ocr_items = ocr_service.ocr(Image.open(shot_path))
+                copy_seen = any("复制" in (it[2] or "") for it in ocr_items)
+                logs.append("OCR检测到复制字样" if copy_seen else "OCR未检测到复制字样")
+        except Exception as e:
+            logs.append(f"复制链接OCR检测失败: {e}")
+
+    if copy_seen:
+        # 检测到"复制": 点击复制链接(点位27), 读剪贴板60次
+        logs.append(f"点击点位27(复制链接)({p27[0]},{p27[1]})")
+        pc.mouse_click(p27[0], p27[1])
         for _i in range(1, 61):
             time.sleep(0.1)
             v = pc.read_clipboard_text()
@@ -740,11 +764,19 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
                 link = v
                 break
         if link:
-            logs.append(f"第{attempt}次尝试成功, 链接: {link[:60]}")
-            break
+            logs.append(f"已获取复制链接: {link[:60]}")
+        else:
+            logs.append("未读取到剪贴板链接")
+    else:
+        # 未检测到"复制": 再点击点位18, 等0.2秒, 本轮流程结束(无链接)
+        logs.append(f"再次点击点位18(3点)({p18[0]},{p18[1]}), 等0.2s")
+        pc.mouse_click(p18[0], p18[1])
+        time.sleep(0.2)
+        pc.clear_clipboard()
     if not link:
-        logs.append("未获取到复制链接")
-        return False, "; ".join(logs)
+        # 未获取到链接: 说明未检测到复制字样(未打开文章页), 正常结束不Ctrl+W
+        logs.append("未获取到链接, 本轮结束")
+        return True, "; ".join(logs)
     logs.append("获取复制链接成功")
     # 3) 写入文章表: 文章id(art_biz) + 公众号biz
     try:
@@ -756,15 +788,23 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
             acc = conn.execute("SELECT id, name FROM accounts WHERE biz=?", (biz,)).fetchone()
             account_id = acc["id"] if acc else None
             name = acc["name"] if acc else ""
-            cur = conn.execute(
-                "INSERT INTO articles(account_id, name, date, title, art_biz, biz) "
-                "VALUES(?,?,?,'',?,?)",
-                (account_id, name, "", art, biz))
+            # 检查是否已存在(同biz+art_biz唯一), 存在则复用/跳过新增
+            exists = conn.execute(
+                "SELECT id FROM articles WHERE biz=? AND art_biz=?",
+                (biz, art)).fetchone()
+            if exists:
+                new_id = exists["id"]
+                logs.append(f"文章已存在, 复用 id={new_id} art_biz={art}")
+            else:
+                cur = conn.execute(
+                    "INSERT INTO articles(account_id, name, date, title, art_biz, biz) "
+                    "VALUES(?,?,?,'',?,?)",
+                    (account_id, name, "", art, biz))
+                new_id = cur.lastrowid
+                logs.append(f"已写入文章表 id={new_id} art_biz={art}")
             conn.commit()
-            new_id = cur.lastrowid
         finally:
             conn.close()
-        logs.append(f"已写入文章表 id={new_id} art_biz={art}")
     except Exception as e:
         logs.append(f"写入文章表失败: {e}")
         return False, "; ".join(logs)
@@ -871,7 +911,10 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
             pc.key_press(pc.VK_RETURN)
             logs.append("阅读数: 按回车")
 
-    # TODO: 后续流程(阅读数截图等分支待描述)
+    # 最后一步: 若曾检测到"复制"字样(打开了文章页)则 Ctrl+W 关闭; 否则无操作
+    if copy_seen:
+        pc.ctrl_key("W")
+        logs.append("已检测过复制字样, Ctrl+W 关闭文章页")
     return True, "; ".join(logs)
 
 
