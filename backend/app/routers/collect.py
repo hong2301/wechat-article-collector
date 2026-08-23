@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """采集流程路由: 接收前端采集设置与公众号数据, 依次执行 tasks 组合函数, SSE 流式返回日志"""
+import ctypes
 import json
 import queue
 import threading
@@ -15,6 +16,76 @@ router = APIRouter(prefix="/api/collect", tags=["collect"])
 
 # 当前采集 worker 线程 id(用于停止时注入异常强制中断)
 _worker_tid = {"tid": None}
+
+# ---------- ESC 全局监听: 采集时按 ESC = 停止流程 ----------
+_esc_hook = {"h": None, "tid": None, "done": False}
+_WH_KEYBOARD_LL = 13        # 低层键盘钩子
+_VK_ESCAPE = 0x1B
+_LLKHF_INJECTED = 0x00000010
+
+
+class _KBDLLHOOKSTRUCT(ctypes.Structure):
+    _fields_ = [("vkCode", ctypes.c_ulong), ("scanCode", ctypes.c_ulong),
+                ("flags", ctypes.c_ulong), ("time", ctypes.c_ulong),
+                ("dwExtraInfo", ctypes.c_void_p)]
+
+
+def _esc_callback(code, wparam, lparam):
+    if code == 0:
+        kb = ctypes.cast(lparam, ctypes.POINTER(_KBDLLHOOKSTRUCT)).contents
+        if wparam == 0x0100 and kb.vkCode == _VK_ESCAPE and not (kb.flags & _LLKHF_INJECTED):
+            _do_stop()
+            return 1   # 拦截 ESC
+    if _esc_hook["h"]:
+        return pc._u32().CallNextHookEx(_esc_hook["h"], code, wparam, lparam)
+    return 0
+
+
+_esc_proc = pc.HOOKPROC(_esc_callback)
+
+
+def _start_esc_listener():
+    """启动 ESC 全局监听(采集开始后): 按 ESC = 停止流程"""
+    if _esc_hook["tid"] is not None:
+        return
+    _esc_hook["done"] = False   # 重置(上次停止过会置True)
+    def run():
+        _esc_hook["tid"] = threading.get_ident()
+        h = pc._u32().SetWindowsHookExW(
+            _WH_KEYBOARD_LL, _esc_proc, pc._k32().GetModuleHandleW(None), 0)
+        if not h:
+            _esc_hook["h"] = None
+            _esc_hook["tid"] = None
+            return    # 钩子注册失败, 不再尝试
+        _esc_hook["h"] = h
+        msg = pc.wt.MSG()
+        while not _esc_hook["done"] and pc._u32().GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
+            pc._u32().TranslateMessage(ctypes.byref(msg))
+            pc._u32().DispatchMessageW(ctypes.byref(msg))
+        if h:
+            pc._u32().UnhookWindowsHookEx(h)
+        _esc_hook["h"] = None
+        _esc_hook["tid"] = None
+    threading.Thread(target=run, daemon=True).start()
+
+
+def _stop_esc_listener():
+    """停止 ESC 监听(采集结束时)"""
+    _esc_hook["done"] = True
+    tid = _esc_hook["tid"]
+    if tid:
+        pc._u32().PostThreadMessageW(tid, pc.WM_QUIT, 0, 0)
+
+
+def _do_stop():
+    """停止采集: 信号兜底 + 向 worker 线程注入异常立即中断"""
+    import ctypes
+    tasks_service.request_stop()
+    tid = _worker_tid.get("tid")
+    if tid:
+        ctypes.pythonapi.PyThreadState_SetAsyncExc(
+            ctypes.c_long(tid), ctypes.py_object(SystemExit))
+
 
 
 class CollectStart(BaseModel):
@@ -137,12 +208,7 @@ def _collect_generate(payload: CollectStart):
 def collect_stop():
     """前端关闭采集窗口时调用: 强制中断采集线程(立即停止, 集中在此实现)"""
     import ctypes
-    tasks_service.request_stop()          # 信号兜底
-    tid = _worker_tid.get("tid")
-    if tid:
-        # 向 worker 线程注入 SystemExit, 立即打断当前执行的任何步骤
-        ctypes.pythonapi.PyThreadState_SetAsyncExc(
-            ctypes.c_long(tid), ctypes.py_object(SystemExit))
+    _do_stop()          # 复用统一停止(信号+注入异常)
     return {"ok": True}
 
 
@@ -150,6 +216,7 @@ def collect_stop():
 def collect_start(payload: CollectStart):
     """启动采集; SSE 流式返回日志与进度"""
     pc.enable_dpi_awareness()   # 确保坐标用物理像素(否则DPI缩放下点击偏移)
+    _start_esc_listener()       # 采集开始: 监听 ESC(按ESC=停止流程)
     # 客户端断开时(生成器被close)请求停止死循环
     generator = _collect_generate(payload)
 
@@ -158,6 +225,7 @@ def collect_start(payload: CollectStart):
             yield from generator
         finally:
             tasks_service.request_stop()   # 前端断开 -> 停止死循环
+            _stop_esc_listener()           # 结束ESC监听
     return StreamingResponse(
         wrap(),
         media_type="text/event-stream",

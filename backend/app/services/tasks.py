@@ -432,6 +432,48 @@ def wait_page_stable(x1, y1, x2, y2, same_need=15, timeout=30, interval=0.1):
     return False, "; ".join(logs)
 
 
+def _extract_read_from_items(items, box):
+    """从OCR结果中提取阅读数: 文本含'阅读'+数字, 且该文本区域灰字颜色校验通过。
+    返回: 阅读数(int) 或 None
+    """
+    from .ocr import _region_grayish, extract_reads
+    ox, oy = box
+    items = list(items or [])
+    for i, (cx, cy, text, score, sbox, brightness) in enumerate(items):
+        if "阅读" in (text or ""):
+            gray = _region_grayish(sbox, (ox, oy))
+            if gray is False:
+                continue   # 颜色不是灰色系 -> 排除
+            # 优先: 本段提取数字(阅读 730 / 阅读730)
+            r = extract_reads(text)
+            if r is not None:
+                return r
+            # 兜底: 与本文本 y 相近(±15px)的后续段找数字
+            for _cx2, _cy2, _t2, _s2, _sbox2, _b2 in items[i + 1:]:
+                if abs(_cy2 - cy) <= 15:
+                    r2 = extract_reads(_t2)
+                    if r2 is not None:
+                        return r2
+                else:
+                    break
+    return None
+
+
+def _save_reads(article_id, reads, logs):
+    """更新文章表 reads 字段"""
+    try:
+        from ..database import get_conn
+        conn = get_conn()
+        try:
+            conn.execute("UPDATE articles SET reads=? WHERE id=?", (reads, article_id))
+            conn.commit()
+            logs.append(f"阅读数已写入 article id={article_id}: {reads}")
+        finally:
+            conn.close()
+    except Exception as e:
+        logs.append(f"阅读数写入失败: {e}")
+
+
 def article_list_wait_stable(date_start="", date_end="", biz="",
                              capture_4metrics=False, capture_read=False):
     """文章列表识别循环: 进入 while 循环, 每次循环第一步检查页面稳定。
@@ -785,7 +827,7 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
                 link = v
                 break
         if link:
-            logs.append(f"已获取复制链接: {link[:60]}")
+            logs.append(f"已复制链接: {link[:60]}")
         else:
             logs.append("未读取到剪贴板链接")
     else:
@@ -798,7 +840,7 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         # 未获取到链接: 未打开文章页(检测到复制字样时可能也读不到链接, 兜底处理)
         logs.append("未获取到链接, 本轮结束")
         return _finish(logs, copy_seen, False, "未获取到链接")
-    logs.append("获取复制链接成功")
+
     # 3) 写入文章表: 文章id(art_biz) + 公众号biz
     try:
         from ..database import get_conn
@@ -815,14 +857,14 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
                 (biz, art)).fetchone()
             if exists:
                 new_id = exists["id"]
-                logs.append(f"文章已存在, 复用 id={new_id} art_biz={art}")
+                logs.append(f"文章已存在, 复用 id={new_id}")
             else:
                 cur = conn.execute(
                     "INSERT INTO articles(account_id, name, date, title, art_biz, biz) "
                     "VALUES(?,?,?,'',?,?)",
                     (account_id, name, "", art, biz))
                 new_id = cur.lastrowid
-                logs.append(f"已写入文章表 id={new_id} art_biz={art}")
+                logs.append(f"已写入文章表 id={new_id}")
             conn.commit()
         finally:
             conn.close()
@@ -868,14 +910,13 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         metrics = None
         import requests as _requests
         if shot_b64 and api_key and model:
-            logs.append("豆包识图...")
             metrics = doubao_recognize_interact(shot_b64, api_key, model)
             if metrics is not None:
-                logs.append(f"豆包识图成功: 点赞{metrics[0]} 转发{metrics[1]} 喜欢{metrics[2]} 留言{metrics[3]}")
+                logs.append(f"4指标: 点赞{metrics[0]} 转发{metrics[1]} 喜欢{metrics[2]} 留言{metrics[3]}")
             else:
-                logs.append("豆包识图失败, 仅保存4指标截图base64")
+                logs.append("豆包识图失败, 仅保存4指标截图")
         else:
-            logs.append("未配置AI模型或截图失败, 仅保存截图base64(如有)")
+            logs.append("未配置AI模型或截图失败, 仅保存截图(如有)")
 
         # 更新文章数据: 成功写指标值; 失败只带 shot(base64)
         data = {"biz": biz, "art_biz": art}
@@ -892,45 +933,66 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
                 json=data, timeout=15,
             )
             if r.status_code == 200:
-                logs.append(f"已更新文章数据(art_biz={art})")
+                logs.append("文章数据已更新")
             else:
-                logs.append(f"更新文章数据失败: HTTP {r.status_code}")
+                logs.append(f"文章数据更新失败: HTTP {r.status_code}")
         except Exception as e:
             logs.append(f"更新文章数据失败: {e}")
 
     # 采集阅读数(开启时, 在4指标之后): 滚到底->Ctrl+W->搜一搜按钮->输入链接->回车
     if capture_read:
-        # 1) 鼠标移到文章列表左上(点位15), 向下滚动500000px(0.5s内完成)
+        # 0) 开头统一判断点位15(滚动位置)与23(搜一搜按钮), 任一缺失则跳过整个阅读数采集
         p15 = _read_point(15)
-        if p15:
-            pc.scroll(p15[0], p15[1], 500000, direction="down", duration=0.5)
-            logs.append(f"阅读数: 在点位15滚动500000px")
-            time.sleep(0.5)
+        p23 = _read_point(23)
+        if not p15 or not p23:
+            logs.append(f"阅读数: 缺少点位15={bool(p15)}/23={bool(p23)}, 跳过阅读数采集")
         else:
-            logs.append("缺少点位15, 跳过滚动")
-        # 2) Ctrl+W 关闭当前页
-        pc.ctrl_key("W")
-        logs.append("阅读数: Ctrl+W 关闭")
-        # 3) 采集类型1: 点击搜一搜按钮(点位23), 等0.2s
-        if collect_type == 1:
-            p23 = _read_point(23)
-            if p23:
+            # 1) 鼠标移到文章列表左上(点位15), 向下滚动5000px(0.5s内完成)
+            pc.scroll(p15[0], p15[1], 5000, direction="down", duration=0.5)
+            logs.append(f"阅读数: 在点位15滚动5000px")
+            time.sleep(0.5)
+            # 2) Ctrl+W 关闭当前页
+            pc.ctrl_key("W")
+            logs.append("阅读数: Ctrl+W 关闭")
+            time.sleep(0.5)
+            # 3) 采集类型1: 点击搜一搜按钮(点位23), 等0.2s
+            if collect_type == 1:
                 pc.mouse_click(p23[0], p23[1])
                 logs.append(f"阅读数: 点击搜一搜按钮(点位23)({p23[0]},{p23[1]})")
                 time.sleep(0.2)
-            else:
-                logs.append("缺少点位23(搜一搜按钮)")
-            # 4) 剪贴板粘贴复制的链接(与搜一搜查询一致), 等0.2s, 回车
-            if pc.set_clipboard_text(link):
+                # 4) 剪贴板粘贴复制的链接(与搜一搜查询一致), 等0.2s, 回车
+                pc.set_clipboard_text(link)
                 pc.ctrl_key("V")
                 logs.append("阅读数: 剪贴板粘贴链接")
-            else:
-                logs.append("阅读数: 剪贴板写入失败")
-                pc.type_text(link)
-                logs.append("阅读数: 改用逐字输入")
-            time.sleep(0.2)
-            pc.key_press(pc.VK_RETURN)
-            logs.append("阅读数: 按回车")
+                time.sleep(0.2)
+                pc.key_press(pc.VK_RETURN)
+                logs.append("阅读数: 按回车")
+                # 回车后: 页面稳定检测(点位32/33区域, 50次机会, 连续30次相同) -> OCR提取阅读数
+                p32 = _read_point(32)
+                p33 = _read_point(33)
+                if not (p32 and p33):
+                    logs.append("缺少点位32/33(阅读数区域), 跳过阅读数识别")
+                else:
+                    ok_stable, info = wait_page_stable(
+                        p32[0], p32[1], p33[0], p33[1], same_need=30, timeout=50, interval=0.1)
+                    if ok_stable:
+                        # 稳定后: 截图OCR提取阅读数
+                        png_path, b64 = pc.screenshot(
+                            p32[0], p32[1], p33[0], p33[1], img_format="png", as_base64=True)
+                        if not b64:
+                            logs.append("阅读数: 稳定后截图失败")
+                        else:
+                            from . import ocr as ocr_service
+                            from PIL import Image as PILImage
+                            items = ocr_service.ocr(PILImage.open(png_path).convert("RGB"))
+                            reads = _extract_read_from_items(items, (p32[0], p32[1]))
+                            if reads is not None:
+                                logs.append(f"阅读数: 识别到阅读数 {reads}")
+                                _save_reads(new_id, reads, logs)
+                            else:
+                                logs.append("阅读数: OCR未找到'阅读'+数字或颜色不符")
+                    else:
+                        logs.append(f"阅读数: 结果页未稳定({info}), 跳过识别")
 
     # 最后一步(统一出口): 交给 _finish 统一处理 Ctrl+W 并返回
     return _finish(logs, copy_seen, True, "")
