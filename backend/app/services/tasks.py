@@ -837,7 +837,41 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         except Exception as e:
             logs.append(f"更新文章数据失败: {e}")
 
-    # TODO: 后续流程(采集阅读数等分支待描述)
+    # 采集阅读数(开启时, 在4指标之后): 滚到底->Ctrl+W->搜一搜按钮->输入链接->回车
+    if capture_read:
+        # 1) 鼠标移到文章列表左上(点位15), 向下滚动500000px(0.5s内完成)
+        p15 = _read_point(15)
+        if p15:
+            pc.scroll(p15[0], p15[1], 500000, direction="down", duration=0.5)
+            logs.append(f"阅读数: 在点位15滚动500000px")
+            time.sleep(0.5)
+        else:
+            logs.append("缺少点位15, 跳过滚动")
+        # 2) Ctrl+W 关闭当前页
+        pc.ctrl_key("W")
+        logs.append("阅读数: Ctrl+W 关闭")
+        # 3) 采集类型1: 点击搜一搜按钮(点位23), 等0.2s
+        if collect_type == 1:
+            p23 = _read_point(23)
+            if p23:
+                pc.mouse_click(p23[0], p23[1])
+                logs.append(f"阅读数: 点击搜一搜按钮(点位23)({p23[0]},{p23[1]})")
+                time.sleep(0.2)
+            else:
+                logs.append("缺少点位23(搜一搜按钮)")
+            # 4) 剪贴板粘贴复制的链接(与搜一搜查询一致), 等0.2s, 回车
+            if pc.set_clipboard_text(link):
+                pc.ctrl_key("V")
+                logs.append("阅读数: 剪贴板粘贴链接")
+            else:
+                logs.append("阅读数: 剪贴板写入失败")
+                pc.type_text(link)
+                logs.append("阅读数: 改用逐字输入")
+            time.sleep(0.2)
+            pc.key_press(pc.VK_RETURN)
+            logs.append("阅读数: 按回车")
+
+    # TODO: 后续流程(阅读数截图等分支待描述)
     return True, "; ".join(logs)
 
 
