@@ -77,7 +77,9 @@ def _collect_generate(payload: CollectStart):
             # 5) 文章列表识别循环(死循环, 前端断开/手动停止时结束)
             log_q.put(("log", "进入文章列表识别循环(可手动停止)"))
             ok, text = tasks_service.article_list_wait_stable(
-                date_start=payload.date_start, date_end=payload.date_end)
+                date_start=payload.date_start, date_end=payload.date_end,
+                biz=payload.biz, capture_4metrics=payload.capture_4metrics,
+                capture_read=payload.capture_read)
             log_q.put(("log", f"[文章列表识别循环] {'成功' if ok else '失败'} | {text}"))
             log_q.put(("done", True, "采集流程结束"))
         except SystemExit:

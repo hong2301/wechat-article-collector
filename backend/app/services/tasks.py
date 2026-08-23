@@ -432,11 +432,15 @@ def wait_page_stable(x1, y1, x2, y2, same_need=15, timeout=30, interval=0.1):
     return False, "; ".join(logs)
 
 
-def article_list_wait_stable(date_start="", date_end=""):
+def article_list_wait_stable(date_start="", date_end="", biz="",
+                             capture_4metrics=False, capture_read=False):
     """文章列表识别循环: 进入 while 循环, 每次循环第一步检查页面稳定。
     前提: 搜一搜查询(search_query)已加载出公众号链接(本函数不判定, 但依赖其结果)。
     参数:
       date_start, date_end 采集时间范围(YYYY-MM-DD); 空字符串=全部(不限)
+      biz              所属公众号 biz 代码(点击文章后数据采集用)
+      capture_4metrics 是否采集4指标
+      capture_read     是否采集阅读数量
     逻辑:
       while 循环(目前为占位, 后续补结束条件):
         1) 检查点位15-16区域页面是否稳定(失败不退出, 有兜底)
@@ -583,6 +587,12 @@ def article_list_wait_stable(date_start="", date_end=""):
             echo(f"  点击文章[{seq}] {ptxt!r} 时间{t} @({click_x},{click_y})")
             pc.mouse_click(click_x, click_y)
 
+            # 点击后: 采集该文章数据(获取链接+写文章表)
+            ok_c, text_c = article_data_collect(
+                collect_type=1, capture_4metrics=capture_4metrics,
+                capture_read=capture_read, biz=biz)
+            echo(f"  文章数据采集: {'成功' if ok_c else '失败'} | {text_c}")
+
         # 日期范围判断(有日期范围时才启用; 全部=空串跳过, 靠三次OCR兜底) 放在三次OCR相同判断上面
         if date_start or date_end:
             # 收集本轮 time 点位的标准日期(yyyy/mm/dd), 去除 None;
@@ -691,15 +701,18 @@ def init_app_window():
     return True, "; ".join(logs)
 
 
-def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=False):
+def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=False,
+                         biz=""):
     """文章数据采集。
     参数:
       collect_type     采集触发类型(0=未知/默认; 1=公众号点击采集; 可扩展)
       capture_4metrics 是否采集4指标
       capture_read     是否采集阅读数量
-    逻辑(待补充):
+      biz              所属公众号 biz 代码
+    逻辑:
       1) 检查触发类型; 为0(不确定)直接返回 False
-      2) 按触发类型走对应分支(待描述)
+      2) 获取复制链接
+      3) 拿到链接后写入文章表(文章id+公众号biz)
     """
     logs = []
     if collect_type == 0:
@@ -732,6 +745,28 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         logs.append("未获取到复制链接")
         return False, "; ".join(logs)
     logs.append("获取复制链接成功")
+    # 3) 写入文章表: 文章id(art_biz) + 公众号biz
+    try:
+        from ..database import get_conn
+        from .importer import extract_art_biz
+        art = extract_art_biz(link)
+        conn = get_conn()
+        try:
+            acc = conn.execute("SELECT id, name FROM accounts WHERE biz=?", (biz,)).fetchone()
+            account_id = acc["id"] if acc else None
+            name = acc["name"] if acc else ""
+            cur = conn.execute(
+                "INSERT INTO articles(account_id, name, date, title, art_biz, biz) "
+                "VALUES(?,?,?,'',?,?)",
+                (account_id, name, "", art, biz))
+            conn.commit()
+            new_id = cur.lastrowid
+        finally:
+            conn.close()
+        logs.append(f"已写入文章表 id={new_id} art_biz={art}")
+    except Exception as e:
+        logs.append(f"写入文章表失败: {e}")
+        return False, "; ".join(logs)
     # TODO: 后续流程(采集4指标/阅读数等分支待描述)
     return True, "; ".join(logs)
 
