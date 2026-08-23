@@ -46,8 +46,8 @@ export default function AiDialog({
   useEffect(() => { if (open) load(); }, [open]);
 
   async function save() {
-    if (!apiKey.trim()) { message.warning("请填写 key"); return; }
-    if (!models.length) { message.warning("请选择模型id"); return; }
+    if (!apiKey.trim()) { message.warning("请填写 Key"); return; }
+    if (!models.length) { message.warning("请选择模型Id"); return; }
     setSaving(true);
     try {
       const r = await fetch(API, {
@@ -69,7 +69,7 @@ export default function AiDialog({
 
   return (
     <Modal
-      title="厂商" open={open}
+      title="AI模型设置" open={open}
       onOk={save} okText="保存" confirmLoading={saving}
       onCancel={onClose} cancelText="取消"
       footer={(
@@ -79,26 +79,26 @@ export default function AiDialog({
         </>
       )}
     >
-      <Space direction="vertical" style={{ width: "100%" }} size="middle">
-        <Space style={{ width: "100%" }} direction="vertical">
-          <Typography.Text strong>key</Typography.Text>
+      <Space orientation="vertical" style={{ width: "100%" }} size="middle">
+        <Space style={{ width: "100%" }} orientation="vertical">
+          <Typography.Text strong>Key</Typography.Text>
           <Input.Password
-            placeholder="请输入 key"
+            placeholder="请输入 Key"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
           />
         </Space>
-        <Space style={{ width: "100%" }} direction="vertical">
-          <Typography.Text strong>模型id</Typography.Text>
+        <Space style={{ width: "100%" }} orientation="vertical">
+          <Typography.Text strong>模型Id</Typography.Text>
           <Select
-            placeholder="选择模型id"
+            placeholder="选择模型Id"
             value={models.length ? models[0] : undefined}
             options={MODEL_OPTIONS}
             style={{ width: "100%" }}
             onChange={(v) => setModels(v ? [v] : [])}
           />
         </Space>
-        <Space style={{ width: "100%" }} direction="vertical">
+        <Space style={{ width: "100%" }} orientation="vertical">
           <Typography.Text strong>厂商</Typography.Text>
           <Select
             value={provider}
