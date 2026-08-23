@@ -432,9 +432,11 @@ def wait_page_stable(x1, y1, x2, y2, same_need=15, timeout=30, interval=0.1):
     return False, "; ".join(logs)
 
 
-def article_list_wait_stable():
+def article_list_wait_stable(date_start="", date_end=""):
     """文章列表识别循环: 进入 while 循环, 每次循环第一步检查页面稳定。
     前提: 搜一搜查询(search_query)已加载出公众号链接(本函数不判定, 但依赖其结果)。
+    参数:
+      date_start, date_end 采集时间范围(YYYY-MM-DD); 空字符串=全部(不限)
     逻辑:
       while 循环(目前为占位, 后续补结束条件):
         1) 检查点位15-16区域页面是否稳定(失败不退出, 有兜底)

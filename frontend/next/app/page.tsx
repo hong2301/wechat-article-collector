@@ -136,10 +136,8 @@ export default function Home() {
   const [collectLogs, setCollectLogs] = useState<string[]>([]);
   const [pointsOpen, setPointsOpen] = useState(false);
   const [scrollsOpen, setScrollsOpen] = useState(false);
-  // 日期范围(采集用), 默认当天
-  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs]>([
-    dayjs(), dayjs(),
-  ]);
+  // 日期范围(采集用), null=全部(不限日期); 默认全部
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
   // 窗口分离(采集设置)
   const [windowSplit, setWindowSplit] = useState(true);
 
@@ -270,8 +268,8 @@ export default function Home() {
       name: task.name || "",
       biz: task.biz || "",
       link,
-      date_start: dateRange[0].format("YYYY-MM-DD"),
-      date_end: dateRange[1].format("YYYY-MM-DD"),
+      date_start: dateRange ? dateRange[0].format("YYYY-MM-DD") : "",
+      date_end: dateRange ? dateRange[1].format("YYYY-MM-DD") : "",
       window_split: windowSplit,
     };
 
@@ -436,6 +434,12 @@ export default function Home() {
             style={{ width: 260 }}
             allowClear={false}
           />
+          <Button size="small" type={dateRange === null ? "primary" : "default"}
+            onClick={() => setDateRange(null)}>全部</Button>
+          <Button size="small" type={dateRange && dateRange[0].isSame(dateRange[1], "day") && dateRange[0].isSame(dayjs(), "day") ? "primary" : "default"}
+            onClick={() => setDateRange([dayjs(), dayjs()])}>今天</Button>
+          <Button size="small" type={dateRange && dateRange[0].isSame(dateRange[1], "day") && dateRange[0].isSame(dayjs().subtract(1, "day"), "day") ? "primary" : "default"}
+            onClick={() => setDateRange([dayjs().subtract(1, "day"), dayjs().subtract(1, "day")])}>昨天</Button>
           <Button size="small" onClick={() => setDateRange([dayjs().subtract(2, "day"), dayjs()])}>近3天</Button>
           <Button size="small" onClick={() => setDateRange([dayjs().subtract(6, "day"), dayjs()])}>近一周</Button>
           <Button size="small" onClick={() => setDateRange([dayjs().subtract(29, "day"), dayjs()])}>近一月</Button>
@@ -590,7 +594,7 @@ export default function Home() {
         {/* 采集条件卡片 */}
         <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px", marginBottom: 10 }}>
           <div style={{ fontSize: 13, color: "#555", lineHeight: 1.8 }}>
-            时间范围: {dateRange[0].format("YYYY-MM-DD")} ~ {dateRange[1].format("YYYY-MM-DD")}
+            时间范围: {dateRange ? `${dateRange[0].format("YYYY-MM-DD")} ~ ${dateRange[1].format("YYYY-MM-DD")}` : "全部"}
           </div>
           <div style={{ fontSize: 13, color: "#555", lineHeight: 1.8 }}>
             窗口分离: {windowSplit ? "开" : "关"}
