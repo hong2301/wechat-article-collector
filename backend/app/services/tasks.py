@@ -499,7 +499,7 @@ def article_list_wait_stable(date_start="", date_end=""):
         else:
             echo(f"第{loop_n}轮页面未稳定(继续, 用兜底): {info} ")
 
-        # 截图 -> OCR 识别 -> 分类(不管稳定与否都执行, 用新截的图)
+        # 流程一: 截图 -> OCR(得到原始识别数据)
         shot_path, _b64 = pc.screenshot(x1, y1, x2, y2, img_format="png")
         if not shot_path:
             echo(f"第{loop_n}轮截图失败")
@@ -509,10 +509,16 @@ def article_list_wait_stable(date_start="", date_end=""):
             from . import ocr as ocr_service
             img = Image.open(shot_path)
             items = ocr_service.ocr(img)
-            classified = ocr_service.classify_items(items, box=(x1, y1))
         except Exception as e:
             echo(f"第{loop_n}轮OCR失败: {e}")
             return False, f"第{loop_n}轮OCR失败: {e}"
+
+        # 流程二: 分类 -> 截断借时间 -> 配对时间
+        try:
+            classified = ocr_service.classify_items(items, box=(x1, y1))
+        except Exception as e:
+            echo(f"第{loop_n}轮分类失败: {e}")
+            return False, f"第{loop_n}轮分类失败: {e}"
 
         # 截断处理: 本轮第一个点位不是时间点位 -> 向上一轮末尾借时间点位(序号0)
         if classified and prev_classified is not None and classified[0][1] != "time":
@@ -528,6 +534,14 @@ def article_list_wait_stable(date_start="", date_end=""):
                 classified.insert(0, borrowed_item)
                 echo("截断: 从上一轮借时间点位插入本轮顶部(序号0)")
 
+        # 配对时间: 按顺序遍历, 每个文章点位填入其前面最近的时间点位日期
+        cur_t = None
+        for p in classified:
+            if p[1] == "time" and p[4].get("time"):
+                cur_t = p[4]["time"]
+            elif p[1] == "article":
+                p[4]["time"] = cur_t   # 填配对时间(可能是None, 即无可用时间)
+
         # 日志输出本轮点位详细
         n_time = sum(1 for p in classified if p[1] == "time")
         n_article = sum(1 for p in classified if p[1] == "article")
@@ -538,9 +552,36 @@ def article_list_wait_stable(date_start="", date_end=""):
                 echo(f"  时间点位[{seq}] {ptxt!r} 日期={pdata.get('time')}")
             else:
                 echo(f"  文章点位[{seq}] {ptxt!r}"
-                     f" 阅读={pdata.get('reads')} 赞={pdata.get('likes')}")
+                     f" 阅读={pdata.get('reads')} 赞={pdata.get('likes')}"
+                     f" 配对时间={pdata.get('time')}")
 
         prev_classified = classified
+
+        # 遍历文章点位: 时间在日期范围内(或时间为空=不确定) -> 点击文章点位
+        # 点击坐标: (box最小x, box中心y), 用电脑控制模块 mouse_click
+        s_d = date_start.replace("-", "/") if date_start else None
+        e_d = date_end.replace("-", "/") if date_end else None
+        for seq, ptyp, ptxt, pbox, pdata in classified:
+            if ptyp != "article":
+                continue
+            t = pdata.get("time")
+            should_click = False
+            if not t:
+                should_click = True              # 时间为空(不确定) -> 点击
+            elif s_d and t < s_d or e_d and t > e_d:
+                should_click = False             # 时间在范围外 -> 跳过
+            else:
+                should_click = True              # 在范围内 -> 点击
+            if not should_click:
+                echo(f"  跳过文章[{seq}] {ptxt!r} 时间{t} 不在范围")
+                continue
+            # box 四点取 最小x + 中心y(按y序文章中心)
+            xs = [p[0] for p in pbox]
+            ys = [p[1] for p in pbox]
+            click_x = min(xs)
+            click_y = int(sum(ys) / len(ys))
+            echo(f"  点击文章[{seq}] {ptxt!r} 时间{t} @({click_x},{click_y})")
+            pc.mouse_click(click_x, click_y)
 
         # 日期范围判断(有日期范围时才启用; 全部=空串跳过, 靠三次OCR兜底) 放在三次OCR相同判断上面
         if date_start or date_end:
@@ -552,28 +593,17 @@ def article_list_wait_stable(date_start="", date_end=""):
             e = date_end.replace("-", "/") if date_end else None
             in_range = any(not (s and t < s) and not (e and t > e) for t in times)
             if in_range:
-                date_out_count = 0       # 范围内存在 -> 继续, 重置计数
+                date_out_count = 0       # 存在范围内 -> 继续, 重置计数
                 echo(f"第{loop_n}轮: 存在范围内文章, 继续")
             elif times:
-                # 全不在范围: 检查时间点位在范围之前还是之后
-                all_before = all(s and t < s for t in times) if s else False
-                all_after = all(e and t > e for t in times) if e else False
-                if all_before:
-                    # 时间还没到范围(都在起始日之前) -> 继续
-                    date_out_count = 0
-                    echo(f"第{loop_n}轮: 时间点位在范围之前(未到范围), 继续")
-                elif all_after:
-                    # 都在范围之后 -> 初始正常, 连续3次则停止
-                    date_out_count = date_out_count + 1
-                    echo(f"第{loop_n}轮: 时间点位在范围之后({date_out_count}/3)")
-                    if date_out_count >= 3:
-                        echo("连续3次确定不在日期范围, 停止")
-                        return False, "连续3次确定不在日期范围"
-                else:
-                    # 混合(前后都有) -> 不判定, 重置
-                    date_out_count = 0
+                # 全不在范围(不考虑前后顺序) -> 计数, 连续3次停止
+                date_out_count = date_out_count + 1
+                echo(f"第{loop_n}轮: 时间点位均不在日期范围({date_out_count}/3)")
+                if date_out_count >= 3:
+                    echo("连续3次确定不在日期范围, 停止")
+                    return False, "连续3次确定不在日期范围"
             else:
-                date_out_count = 0       # 本轮无时间点位, 不判定
+                date_out_count = 0       # 本轮无时间点位, 不判定, 重置
 
         # 停止条件: 连续3次OCR截图完全相同 -> 无更多文章, 停止(返回True)
         import hashlib as _hashlib
