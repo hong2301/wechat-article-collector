@@ -741,10 +741,11 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
       3) 拿到链接后写入文章表(文章id+公众号biz)
     """
     logs = []
+    copy_seen = False   # 标志: 是否检测到过"复制"字样
     from .doubao_api import recognize_interact as doubao_recognize_interact
     if collect_type == 0:
         logs.append("触发类型不确定, 无法采集")
-        return False, "; ".join(logs)
+        return _finish(logs, copy_seen, False, "触发类型不确定, 无法采集")
     # 非0 -> 第一步: 获取复制链接流程(新版: 截图OCR检测复制字样)
     p18 = _read_point(18)   # 文章右上角3点
     p27 = _read_point(27)   # 点击复制链接
@@ -752,9 +753,8 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
     p29 = _read_point(29)   # 复制链接区域右下
     if not p18 or not p27:
         logs.append("缺少点位18/27(3点/复制链接)")
-        return False, "; ".join(logs)
+        return _finish(logs, copy_seen, False, "缺少点位18/27(3点/复制链接)")
 
-    copy_seen = False   # 标志: 是否检测到过"复制"字样
     link = None
     pc.clear_clipboard()
     logs.append(f"点击点位18(3点)({p18[0]},{p18[1]})")
@@ -795,9 +795,9 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         time.sleep(0.2)
         pc.clear_clipboard()
     if not link:
-        # 未获取到链接: 说明未检测到复制字样(未打开文章页), 正常结束不Ctrl+W
+        # 未获取到链接: 未打开文章页(检测到复制字样时可能也读不到链接, 兜底处理)
         logs.append("未获取到链接, 本轮结束")
-        return True, "; ".join(logs)
+        return _finish(logs, copy_seen, False, "未获取到链接")
     logs.append("获取复制链接成功")
     # 3) 写入文章表: 文章id(art_biz) + 公众号biz
     try:
@@ -828,7 +828,7 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
             conn.close()
     except Exception as e:
         logs.append(f"写入文章表失败: {e}")
-        return False, "; ".join(logs)
+        return _finish(logs, copy_seen, False, f"写入文章表失败: {e}")
 
     # 4指标采集(开启时): 截图30/31区域 -> 豆包识图(1次) -> 更新文章数据
     # 成功写指标值; 失败仍写截图base64(shot列)到文章表, 不中断流程
@@ -932,11 +932,22 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
             pc.key_press(pc.VK_RETURN)
             logs.append("阅读数: 按回车")
 
-    # 最后一步: 若曾检测到"复制"字样(打开了文章页)则 Ctrl+W 关闭; 否则无操作
+    # 最后一步(统一出口): 交给 _finish 统一处理 Ctrl+W 并返回
+    return _finish(logs, copy_seen, True, "")
+
+
+def _finish(logs, copy_seen, ok, reason):
+    """统一退出: copy_seen表明打开过文章页需Ctrl+W; 返回 (是否成功, 文本)"""
     if copy_seen:
-        pc.ctrl_key("W")
+        try:
+            pc.ctrl_key("W")
+        except Exception:
+            pass
         logs.append("已检测过复制字样, Ctrl+W 关闭文章页")
-    return True, "; ".join(logs)
+    text = "; ".join(logs)
+    if reason:
+        text = reason + " | " + text
+    return ok, text
 
 
 __all__ = ["init_wechat_window", "search_window_init", "search_query",
