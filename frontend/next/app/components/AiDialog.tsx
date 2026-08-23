@@ -1,0 +1,108 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import {
+  Modal, Button, Input, Select, Space, message, Typography, Form,
+} from "antd";
+
+const API = "http://127.0.0.1:8000/api/settings/ai";
+
+// AI 厂商(目前只支持豆包)
+const PROVIDERS = [{ value: "doubao", label: "豆包" }];
+// 豆包模型id选项(占位, 后续可扩充)
+const MODEL_OPTIONS = [
+  { value: "doubao-seed-1-6-250615", label: "doubao-seed-1-6-250615" },
+  { value: "doubao-1-5-pro-32k-250115", label: "doubao-1-5-pro-32k-250115" },
+  { value: "doubao-1-5-lite-32k-250115", label: "doubao-1-5-lite-32k-250115" },
+];
+
+export default function AiDialog({
+  open, onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const [provider, setProvider] = useState("doubao");
+  const [apiKey, setApiKey] = useState("");
+  const [modelId, setModelId] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    try {
+      const r = await fetch(API);
+      const d = await r.json();
+      setProvider(d.provider || "doubao");
+      setApiKey(d.api_key || "");
+      setModelId(d.model_id || "");
+    } catch {
+      message.error("AI设置加载失败");
+    }
+  }
+  useEffect(() => { if (open) load(); }, [open]);
+
+  async function save() {
+    if (!apiKey.trim()) { message.warning("请填写 API Key"); return; }
+    if (!modelId.trim()) { message.warning("请选择模型id"); return; }
+    setSaving(true);
+    try {
+      const r = await fetch(API, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, api_key: apiKey.trim(), model_id: modelId.trim() }),
+      });
+      if (r.ok) {
+        message.success("已保存");
+        onClose();
+      } else {
+        message.error("保存失败");
+      }
+    } catch {
+      message.error("保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="豆包模型" open={open}
+      onOk={save} okText="保存" confirmLoading={saving}
+      onCancel={onClose} cancelText="取消"
+      footer={(
+        <>
+          <Button onClick={onClose}>取消</Button>
+          <Button type="primary" loading={saving} onClick={save}>保存</Button>
+        </>
+      )}
+    >
+      <Space direction="vertical" style={{ width: "100%" }} size="middle">
+        <Space style={{ width: "100%" }} direction="vertical">
+          <Typography.Text strong>API Key</Typography.Text>
+          <Input.Password
+            placeholder="请输入豆包 API Key"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+          />
+        </Space>
+        <Space style={{ width: "100%" }} direction="vertical">
+          <Typography.Text strong>模型id</Typography.Text>
+          <Select
+            placeholder="选择模型id"
+            value={modelId || undefined}
+            options={MODEL_OPTIONS}
+            style={{ width: "100%" }}
+            onChange={(v) => setModelId(v)}
+          />
+        </Space>
+        <Space style={{ width: "100%" }} direction="vertical">
+          <Typography.Text strong>AI厂商</Typography.Text>
+          <Select
+            value={provider}
+            options={PROVIDERS}
+            style={{ width: "100%" }}
+            onChange={(v) => setProvider(v)}
+          />
+        </Space>
+      </Space>
+    </Modal>
+  );
+}

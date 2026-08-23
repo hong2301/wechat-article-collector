@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import init_db
-from .routers import accounts, resolve_api, points, scrolls, collect
+from .routers import accounts, resolve_api, points, scrolls, collect, settings
 from .services import ocr as ocr_service
 
 app = FastAPI(title="微信公众号采集器后端", version="3.1.0")
@@ -42,3 +42,4 @@ app.include_router(resolve_api.router)
 app.include_router(points.router)
 app.include_router(scrolls.router)
 app.include_router(collect.router)
+app.include_router(settings.router)

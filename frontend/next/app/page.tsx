@@ -7,9 +7,10 @@ import { HTML5Backend } from "react-dnd-html5-backend";
 import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, message, Modal, Spin, Progress, Empty, Switch } from "antd";
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
-import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined, SwapOutlined } from "@ant-design/icons";
+import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined, SwapOutlined, RobotOutlined } from "@ant-design/icons";
 import PointsDialog from "./components/PointsDialog";
 import ScrollsDialog from "./components/ScrollsDialog";
+import AiDialog from "./components/AiDialog";
 
 const API = "http://127.0.0.1:8000/api/accounts";
 const RESOLVE = "http://127.0.0.1:8000/api/resolve-name";
@@ -140,6 +141,7 @@ export default function Home() {
   const [collectLogs, setCollectLogs] = useState<string[]>([]);
   const [pointsOpen, setPointsOpen] = useState(false);
   const [scrollsOpen, setScrollsOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
   // 日期范围(采集用), null=全部(不限日期); 默认全部
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
   // 窗口分离(采集设置)
@@ -459,6 +461,7 @@ export default function Home() {
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <Button icon={<ProfileOutlined />} onClick={() => setPointsOpen(true)}>点位设置</Button>
           <Button icon={<SwapOutlined />} onClick={() => setScrollsOpen(true)}>滚动设置</Button>
+          <Button icon={<RobotOutlined />} onClick={() => setAiOpen(true)}>AI模型</Button>
           <span style={{ marginLeft: 12, fontSize: 13, color: "#555" }}>窗口分离</span>
           <Switch size="small" checked={windowSplit} onChange={setWindowSplit} />
           <span style={{ marginLeft: 12, fontSize: 13, color: "#555" }}>采集4指标</span>
@@ -468,6 +471,7 @@ export default function Home() {
         </div>
       </div>
       <PointsDialog open={pointsOpen} onClose={() => setPointsOpen(false)} />
+      <AiDialog open={aiOpen} onClose={() => setAiOpen(false)} />
       <ScrollsDialog open={scrollsOpen} onClose={() => setScrollsOpen(false)} />
       <div className="dropzone"
            onDragOver={(e) => { e.preventDefault(); if (Array.from(e.dataTransfer.types || []).includes("Files")) setDragOver(true); }}
