@@ -479,6 +479,7 @@ def article_list_wait_stable(date_start="", date_end=""):
     prev_classified = None   # 上一轮的 classified(用于截断借时间)
     prev_shot_hash = None    # 上一轮截图md5(无更多文章判定)
     same_shot = 0            # 连续相同截图次数
+    date_out_count = 0       # 连续在日期范围之后次数(有日期范围时)
     loop_n = 0
     def echo(msg):
         """本轮日志: 存 logs 并实时转发(打印 + 后端钩子)"""
@@ -540,6 +541,39 @@ def article_list_wait_stable(date_start="", date_end=""):
                      f" 阅读={pdata.get('reads')} 赞={pdata.get('likes')}")
 
         prev_classified = classified
+
+        # 日期范围判断(有日期范围时才启用; 全部=空串跳过, 靠三次OCR兜底) 放在三次OCR相同判断上面
+        if date_start or date_end:
+            # 收集本轮 time 点位的标准日期(yyyy/mm/dd), 去除 None
+            times = [p[4].get("time") for p in classified
+                     if p[1] == "time" and p[4].get("time")]
+            # 范围起止转 yyyy/mm/dd 便于字符串比较
+            s = date_start.replace("-", "/") if date_start else None
+            e = date_end.replace("-", "/") if date_end else None
+            in_range = any(not (s and t < s) and not (e and t > e) for t in times)
+            if in_range:
+                date_out_count = 0       # 范围内存在 -> 继续, 重置计数
+                echo(f"第{loop_n}轮: 存在范围内文章, 继续")
+            elif times:
+                # 全不在范围: 检查时间点位在范围之前还是之后
+                all_before = all(s and t < s for t in times) if s else False
+                all_after = all(e and t > e for t in times) if e else False
+                if all_before:
+                    # 时间还没到范围(都在起始日之前) -> 继续
+                    date_out_count = 0
+                    echo(f"第{loop_n}轮: 时间点位在范围之前(未到范围), 继续")
+                elif all_after:
+                    # 都在范围之后 -> 初始正常, 连续3次则停止
+                    date_out_count = date_out_count + 1
+                    echo(f"第{loop_n}轮: 时间点位在范围之后({date_out_count}/3)")
+                    if date_out_count >= 3:
+                        echo("连续3次确定不在日期范围, 停止")
+                        return False, "连续3次确定不在日期范围"
+                else:
+                    # 混合(前后都有) -> 不判定, 重置
+                    date_out_count = 0
+            else:
+                date_out_count = 0       # 本轮无时间点位, 不判定
 
         # 停止条件: 连续3次OCR截图完全相同 -> 无更多文章, 停止(返回True)
         import hashlib as _hashlib
