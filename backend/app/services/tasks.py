@@ -580,6 +580,29 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             echo(f"第{loop_n}轮OCR失败: {e}")
             return False, f"第{loop_n}轮OCR失败: {e}"
 
+        # 流程一点五: 检测"余下"加载更多按钮(灰底蓝字) -> 有则点击后重新截图+OCR
+        try:
+            btn = None
+            for cx, cy, text, score, sbox, brightness in items:
+                if not text or "余下" not in text:
+                    continue
+                if ocr_service.text_color(sbox, (x1, y1)) == "blue":
+                    xs = [p[0] + x1 for p in sbox]
+                    ys = [p[1] + y1 for p in sbox]
+                    btn = (int(sum(xs) / len(xs)), int(sum(ys) / len(ys)), text)
+                    break
+            if btn:
+                echo(f"识别到'余下'加载更多按钮: {btn[2]!r} @({btn[0]},{btn[1]}), 点击后重新截图")
+                pc.mouse_click(btn[0], btn[1])
+                time.sleep(0.6)
+                # 点击后: 重新截图+OCR(替换本轮items, 继续下面的分类)
+                shot_path2, _b64 = pc.screenshot(x1, y1, x2, y2, img_format="png")
+                if shot_path2:
+                    items = ocr_service.ocr(Image.open(shot_path2))
+                    echo("余下按钮点击后已重新截图OCR")
+        except Exception as e:
+            echo(f"第{loop_n}轮余下按钮检测失败: {e}")
+
         # 流程二: 分类 -> 截断借时间 -> 配对时间
         try:
             classified = ocr_service.classify_items(items, box=(x1, y1))
@@ -654,7 +677,8 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             # 点击后: 采集该文章数据(获取链接+写文章表)
             ok_c, text_c = article_data_collect(
                 collect_type=1, capture_4metrics=capture_4metrics,
-                capture_read=capture_read, biz=biz)
+                capture_read=capture_read, biz=biz,
+                list_reads=pdata.get("reads"), list_likes=pdata.get("likes"))
             echo(f"  文章数据采集: {'成功' if ok_c else '失败'} | {text_c}")
             time.sleep(0.5)   # 采集完成间隔
 
@@ -770,13 +794,15 @@ def init_app_window():
 
 
 def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=False,
-                         biz=""):
+                         biz="", list_reads=None, list_likes=None):
     """文章数据采集。
     参数:
       collect_type     采集触发类型(0=未知/默认; 1=公众号点击采集; 可扩展)
       capture_4metrics 是否采集4指标
       capture_read     是否采集阅读数量
       biz              所属公众号 biz 代码
+      list_reads       列表页OCR识别的阅读数(有值则跳过阅读数采集并直接更新)
+      list_likes       列表页OCR识别的点赞数
     逻辑:
       1) 检查触发类型; 为0(不确定)直接返回 False
       2) 获取复制链接
@@ -841,11 +867,26 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         logs.append("未获取到链接, 本轮结束")
         return _finish(logs, copy_seen, False, "未获取到链接")
 
-    # 3) 写入文章表: 文章id(art_biz) + 公众号biz
+    # 3) 写入文章表: 先提取文章元信息(标题/时间/原创/ip), 成功则带字段写入; 失败只写链接
     try:
         from ..database import get_conn
         from .importer import extract_art_biz
+        from .fetch_article import fetch_article   # (title, pub_time, original, ip)
         art = extract_art_biz(link)
+
+        # 抓取文章元信息(网络请求, 失败不阻断, 只记录)
+        meta = None
+        try:
+            meta = fetch_article(link)
+        except Exception as e:
+            logs.append(f"元信息抓取失败: {e}")
+        if meta:
+            a_title, a_date, a_original, a_ip = meta
+            logs.append(f"元信息: {a_title} | {a_date or '无时间'} | {a_original} | {a_ip or '无ip'}")
+        else:
+            a_title, a_date, a_original, a_ip = "", "", "", ""
+            logs.append("元信息抓取失败, 仅写入链接")
+
         conn = get_conn()
         try:
             acc = conn.execute("SELECT id, name FROM accounts WHERE biz=?", (biz,)).fetchone()
@@ -857,12 +898,19 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
                 (biz, art)).fetchone()
             if exists:
                 new_id = exists["id"]
-                logs.append(f"文章已存在, 复用 id={new_id}")
+                # 已存在: 有元信息时补全缺失字段
+                if meta:
+                    conn.execute(
+                        "UPDATE articles SET title=?, date=?, original=?, ip=? WHERE id=?",
+                        (a_title, a_date, a_original, a_ip, new_id))
+                    logs.append(f"文章已存在, 更新元信息 id={new_id}")
+                else:
+                    logs.append(f"文章已存在, 复用 id={new_id}")
             else:
                 cur = conn.execute(
-                    "INSERT INTO articles(account_id, name, date, title, art_biz, biz) "
-                    "VALUES(?,?,?,'',?,?)",
-                    (account_id, name, "", art, biz))
+                    "INSERT INTO articles(account_id, name, date, title, original, ip, art_biz, biz) "
+                    "VALUES(?,?,?,?,?,?,?,?)",
+                    (account_id, name, a_date, a_title, a_original, a_ip, art, biz))
                 new_id = cur.lastrowid
                 logs.append(f"已写入文章表 id={new_id}")
             conn.commit()
@@ -871,6 +919,30 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
     except Exception as e:
         logs.append(f"写入文章表失败: {e}")
         return _finish(logs, copy_seen, False, f"写入文章表失败: {e}")
+
+    # 3b) 列表页识别到的阅读数/点赞先更新(放在4指标采集前面)
+    if list_reads is not None or list_likes is not None:
+        try:
+            from ..database import get_conn
+            conn = get_conn()
+            try:
+                if list_reads is not None and list_likes is not None:
+                    conn.execute("UPDATE articles SET reads=?, likes=? WHERE id=?",
+                                 (list_reads, list_likes, new_id))
+                    logs.append(f"列表阅读/赞: {list_reads}/{list_likes} 已写入 id={new_id}")
+                elif list_reads is not None:
+                    conn.execute("UPDATE articles SET reads=? WHERE id=?",
+                                 (list_reads, new_id))
+                    logs.append(f"列表阅读: {list_reads} 已写入 id={new_id}")
+                else:
+                    conn.execute("UPDATE articles SET likes=? WHERE id=?",
+                                 (list_likes, new_id))
+                    logs.append(f"列表赞: {list_likes} 已写入 id={new_id}")
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception as e:
+            logs.append(f"列表阅读/赞写入失败: {e}")
 
     # 4指标采集(开启时): 截图30/31区域 -> 豆包识图(1次) -> 更新文章数据
     # 成功写指标值; 失败仍写截图base64(shot列)到文章表, 不中断流程
@@ -940,7 +1012,8 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
             logs.append(f"更新文章数据失败: {e}")
 
     # 采集阅读数(开启时, 在4指标之后): 滚到底->Ctrl+W->搜一搜按钮->输入链接->回车
-    if capture_read:
+    # 列表页已识别到阅读数(list_reads)则跳过此流程(数据已有)
+    if capture_read and list_reads is None:
         # 0) 开头统一判断点位15(滚动位置)与23(搜一搜按钮), 任一缺失则跳过整个阅读数采集
         p15 = _read_point(15)
         p23 = _read_point(23)
@@ -948,7 +1021,7 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
             logs.append(f"阅读数: 缺少点位15={bool(p15)}/23={bool(p23)}, 跳过阅读数采集")
         else:
             # 1) 鼠标移到文章列表左上(点位15), 向下滚动5000px(0.5s内完成)
-            pc.scroll(p15[0], p15[1], 5000, direction="down", duration=0.5)
+            pc.scroll(p15[0], p15[1], 50000, direction="down", duration=0.5)
             logs.append(f"阅读数: 在点位15滚动5000px")
             time.sleep(0.5)
             # 2) Ctrl+W 关闭当前页

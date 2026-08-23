@@ -106,9 +106,9 @@ def _text_brightness(crop):
         return 255.0
 
 
-def _region_grayish(sbox, box=None):
-    """判断 sbox 区域主色是否为灰色系(时间点位文字: 三通道接近, 中等亮度)
-    返回 True/False; box 为空或失败返回 None(不判定/不阻断)"""
+def _region_sample(sbox, box):
+    """通用: 截取 sbox 区域(屏幕坐标 box+offset) 并返回深色像素采样列表
+    返回: [RGB元组,...]; box 为空/失败返回 None"""
     if not sbox or len(sbox) < 4 or box is None:
         return None
     try:
@@ -122,16 +122,51 @@ def _region_grayish(sbox, box=None):
         samples = [img.getpixel((x, y)) for y in range(0, h, 2)
                    for x in range(0, w, 2)]
         dark = [p for p in samples if sum(p) < 650]   # 深色像素(文字)
-        if not dark:
-            return None
-        r = sum(p[0] for p in dark) / len(dark)
-        g = sum(p[1] for p in dark) / len(dark)
-        b = sum(p[2] for p in dark) / len(dark)
-        spread = max(r, g, b) - min(r, g, b)
-        # 灰色系: 三通道接近(spread小) 且 中等亮度
-        return spread < 45 and 100 <= (r + g + b) / 3 <= 210
+        return dark if dark else None
     except Exception:
         return None
+
+
+def _region_grayish(sbox, box=None):
+    """判断 sbox 区域主色是否为灰色系(时间点位文字: 三通道接近, 中等亮度)
+    返回 True/False; box 为空或失败返回 None(不判定/不阻断)"""
+    dark = _region_sample(sbox, box)
+    if not dark:
+        return None
+    r = sum(p[0] for p in dark) / len(dark)
+    g = sum(p[1] for p in dark) / len(dark)
+    b = sum(p[2] for p in dark) / len(dark)
+    spread = max(r, g, b) - min(r, g, b)
+    avg = (r + g + b) / 3
+    # 灰色系: 三通道接近(spread小) 且 中等亮度
+    return spread < 45 and 100 <= avg <= 210
+
+
+def text_color(sbox, box=None):
+    """通用: 判断 sbox 区域文字主色调(平均色判定, 同 _region_grayish 思路)
+    返回: 'blue'(蓝调: B明显高于R且不低于G) / 'gray'(灰系: 三通道接近+中等亮度)
+          / 'black'(深黑) / 'other'; 无深色或失败返回 None"""
+    dark = _region_sample(sbox, box)
+    if not dark:
+        return None
+    r = sum(p[0] for p in dark) / len(dark)
+    g = sum(p[1] for p in dark) / len(dark)
+    b = sum(p[2] for p in dark) / len(dark)
+    spread = max(r, g, b) - min(r, g, b)
+    avg = (r + g + b) / 3
+    # 蓝调: B 明显高于 R 且不低于 G (余下按钮实测) / 灰系: 三通道接近+中等亮度
+    if b > r + 15 and b >= g:
+        return "blue"
+    if spread < 45 and 100 <= avg <= 210:
+        return "gray"
+    if avg < 60 and spread < 60:
+        return "black"
+    return "other"
+
+
+def _region_grayish(sbox, box=None):
+    """兼容: 是否灰色系(时间点位/文章标记文字)"""
+    return text_color(sbox, box) == "gray"
 
 
 def extract_reads(text):
