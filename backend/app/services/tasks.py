@@ -585,23 +585,29 @@ def article_list_wait_stable(date_start="", date_end=""):
 
         # 日期范围判断(有日期范围时才启用; 全部=空串跳过, 靠三次OCR兜底) 放在三次OCR相同判断上面
         if date_start or date_end:
-            # 收集本轮 time 点位的标准日期(yyyy/mm/dd), 去除 None
+            # 收集本轮 time 点位的标准日期(yyyy/mm/dd), 去除 None;
+            # 排除序号0(=截断借来, 属于上一张图, 不参与本轮判定)
             times = [p[4].get("time") for p in classified
-                     if p[1] == "time" and p[4].get("time")]
+                     if p[0] != 0 and p[1] == "time" and p[4].get("time")]
             # 范围起止转 yyyy/mm/dd 便于字符串比较
             s = date_start.replace("-", "/") if date_start else None
             e = date_end.replace("-", "/") if date_end else None
-            in_range = any(not (s and t < s) and not (e and t > e) for t in times)
-            if in_range:
-                date_out_count = 0       # 存在范围内 -> 继续, 重置计数
+            if times and any(not (s and t < s) and not (e and t > e) for t in times):
+                # 存在范围内 -> 重置计数, 继续
+                date_out_count = 0
                 echo(f"第{loop_n}轮: 存在范围内文章, 继续")
             elif times:
-                # 全不在范围(不考虑前后顺序) -> 计数, 连续3次停止
-                date_out_count = date_out_count + 1
-                echo(f"第{loop_n}轮: 时间点位均不在日期范围({date_out_count}/3)")
-                if date_out_count >= 3:
-                    echo("连续3次确定不在日期范围, 停止")
-                    return False, "连续3次确定不在日期范围"
+                # 全不在范围内: 优先看是否有时间点位在范围之后
+                if any(e and t > e for t in times):
+                    date_out_count = date_out_count + 1
+                    echo(f"第{loop_n}轮: 时间点位在日期范围之后({date_out_count}/3)")
+                    if date_out_count >= 3:
+                        echo("连续3次无日期范围文章, 停止")
+                        return False, "连续3次无日期范围文章"
+                else:
+                    # 有在范围之前(范围还没到) -> 多滚动几次就会出现, 重置计数继续
+                    date_out_count = 0
+                    echo(f"第{loop_n}轮: 时间点位在日期范围之前(未到范围), 继续")
             else:
                 date_out_count = 0       # 本轮无时间点位, 不判定, 重置
 
