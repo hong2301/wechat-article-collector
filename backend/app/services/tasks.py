@@ -462,10 +462,10 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
     x2, y2 = p16
     logs.append(f"列表区域({x1},{y1})-({x2},{y2})")
 
-    # 循环前: 页面稳定判断(100次机会, 每0.1s, 连续10次相同算稳定)
-    ok0, info0 = wait_page_stable(x1, y1, x2, y2, same_need=10, timeout=100, interval=0.1)
+    # 循环前: 页面稳定判断(100次机会, 每0.1s, 连续20次相同算稳定)
+    ok0, info0 = wait_page_stable(x1, y1, x2, y2, same_need=20, timeout=100, interval=0.1)
     if not ok0:
-        logs.append(f"初始页面未稳定(10次未达成): {info0}")
+        logs.append(f"初始页面未稳定(20次未达成): {info0}")
         return False, "; ".join(logs)
     logs.append(f"初始页面稳定: {info0}")
 
