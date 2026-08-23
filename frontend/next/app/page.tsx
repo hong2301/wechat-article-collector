@@ -14,6 +14,10 @@ import ScrollsDialog from "./components/ScrollsDialog";
 const API = "http://127.0.0.1:8000/api/accounts";
 const RESOLVE = "http://127.0.0.1:8000/api/resolve-name";
 const COLLECT = "http://127.0.0.1:8000/api/collect/start";
+// 采集触发类型枚举(可扩展)
+const COLLECT_TYPE = {
+  ACCOUNT_CLICK: 1,   // 公众号列表点击采集
+} as const;
 
 interface Task {
   id: number;
@@ -140,6 +144,9 @@ export default function Home() {
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
   // 窗口分离(采集设置)
   const [windowSplit, setWindowSplit] = useState(true);
+  // 采集指标开关
+  const [capture4metrics, setCapture4metrics] = useState(false);
+  const [captureRead, setCaptureRead] = useState(false);
 
   useEffect(() => {
     const probe = document.createElement("div");
@@ -265,12 +272,15 @@ export default function Home() {
     const controller = new AbortController();
     collectAbortRef.current = controller;
     const payload = {
+      collect_type: COLLECT_TYPE.ACCOUNT_CLICK,   // 触发类型: 公众号点击采集
       name: task.name || "",
       biz: task.biz || "",
       link,
       date_start: dateRange ? dateRange[0].format("YYYY-MM-DD") : "",
       date_end: dateRange ? dateRange[1].format("YYYY-MM-DD") : "",
       window_split: windowSplit,
+      capture_4metrics: capture4metrics,
+      capture_read: captureRead,
     };
 
     (async () => {
@@ -446,11 +456,15 @@ export default function Home() {
           <Button size="small" onClick={() => setDateRange([dayjs().subtract(364, "day"), dayjs()])}>近一年</Button>
         </div>
         {/* 设置按钮行 */}
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <Button icon={<ProfileOutlined />} onClick={() => setPointsOpen(true)}>点位设置</Button>
           <Button icon={<SwapOutlined />} onClick={() => setScrollsOpen(true)}>滚动设置</Button>
           <span style={{ marginLeft: 12, fontSize: 13, color: "#555" }}>窗口分离</span>
           <Switch size="small" checked={windowSplit} onChange={setWindowSplit} />
+          <span style={{ marginLeft: 12, fontSize: 13, color: "#555" }}>采集4指标</span>
+          <Switch size="small" checked={capture4metrics} onChange={setCapture4metrics} />
+          <span style={{ marginLeft: 12, fontSize: 13, color: "#555" }}>采集阅读数</span>
+          <Switch size="small" checked={captureRead} onChange={setCaptureRead} />
         </div>
       </div>
       <PointsDialog open={pointsOpen} onClose={() => setPointsOpen(false)} />
@@ -598,6 +612,9 @@ export default function Home() {
           </div>
           <div style={{ fontSize: 13, color: "#555", lineHeight: 1.8 }}>
             窗口分离: {windowSplit ? "开" : "关"}
+          </div>
+          <div style={{ fontSize: 13, color: "#555", lineHeight: 1.8 }}>
+            采集4指标: {capture4metrics ? "开" : "关"} · 采集阅读数: {captureRead ? "开" : "关"}
           </div>
         </div>
 

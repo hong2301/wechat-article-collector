@@ -17,12 +17,15 @@ _worker_tid = {"tid": None}
 
 
 class CollectStart(BaseModel):
+    collect_type: int = 1    # 采集触发类型: 1=公众号点击采集(可扩展枚举)
     name: str = ""           # 公众号名称
     biz: str = ""            # biz
     link: str = ""           # 拼接好的公众号链接(前端拼好再传)
     date_start: str = ""     # 采集开始日期
     date_end: str = ""       # 采集结束日期
     window_split: bool = True  # 窗口分离
+    capture_4metrics: bool = False  # 采集4指标
+    capture_read: bool = False       # 采集阅读数
 
 
 def _sse(data: dict):
