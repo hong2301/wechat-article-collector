@@ -715,6 +715,7 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
       3) 拿到链接后写入文章表(文章id+公众号biz)
     """
     logs = []
+    from .doubao_api import recognize_interact as doubao_recognize_interact
     if collect_type == 0:
         logs.append("触发类型不确定, 无法采集")
         return False, "; ".join(logs)
@@ -767,7 +768,76 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
     except Exception as e:
         logs.append(f"写入文章表失败: {e}")
         return False, "; ".join(logs)
-    # TODO: 后续流程(采集4指标/阅读数等分支待描述)
+
+    # 4指标采集(开启时): 截图30/31区域 -> 豆包识图(1次) -> 更新文章数据
+    # 成功写指标值; 失败仍写截图base64(shot列)到文章表, 不中断流程
+    if capture_4metrics:
+        p30 = _read_point(30)   # 4指标区域左上
+        p31 = _read_point(31)   # 4指标区域右下
+        if p30 and p31:
+            try:
+                shot_path, shot_b64 = pc.screenshot(
+                    p30[0], p30[1], p31[0], p31[1], img_format="png", as_base64=True)
+                if not shot_b64:
+                    logs.append("4指标区域截图失败")
+                    shot_b64 = None
+            except Exception as e:
+                logs.append(f"4指标区域截图失败: {e}")
+                shot_b64 = None
+        else:
+            logs.append("缺少点位30/31(4指标区域), 跳过4指标")
+            shot_b64 = None
+
+        # 从 ai_model 表取 key + 模型; 未配置则跳过识图只留截图
+        api_key = ""
+        model = ""
+        try:
+            conn = get_conn()
+            try:
+                row = conn.execute(
+                    "SELECT api_key, model_id FROM ai_model ORDER BY id LIMIT 1").fetchone()
+                if row:
+                    api_key = row["api_key"] or ""
+                    model = row["model_id"] or ""
+            finally:
+                conn.close()
+        except Exception:
+            pass
+
+        metrics = None
+        import requests as _requests
+        if shot_b64 and api_key and model:
+            logs.append("豆包识图...")
+            metrics = doubao_recognize_interact(shot_b64, api_key, model)
+            if metrics is not None:
+                logs.append(f"豆包识图成功: 点赞{metrics[0]} 转发{metrics[1]} 喜欢{metrics[2]} 留言{metrics[3]}")
+            else:
+                logs.append("豆包识图失败, 仅保存4指标截图base64")
+        else:
+            logs.append("未配置AI模型或截图失败, 仅保存截图base64(如有)")
+
+        # 更新文章数据: 成功写指标值; 失败只带 shot(base64)
+        data = {"biz": biz, "art_biz": art}
+        if metrics is not None:
+            data.update({
+                "likes": str(metrics[0]), "forwards": str(metrics[1]),
+                "favorites": str(metrics[2]), "comments": str(metrics[3]),
+            })
+        if shot_b64:
+            data["shot"] = shot_b64
+        try:
+            r = _requests.put(
+                "http://127.0.0.1:8000/api/accounts/articles-by-biz/save",
+                json=data, timeout=15,
+            )
+            if r.status_code == 200:
+                logs.append(f"已更新文章数据(art_biz={art})")
+            else:
+                logs.append(f"更新文章数据失败: HTTP {r.status_code}")
+        except Exception as e:
+            logs.append(f"更新文章数据失败: {e}")
+
+    # TODO: 后续流程(采集阅读数等分支待描述)
     return True, "; ".join(logs)
 
 

@@ -224,6 +224,7 @@ class ArticleSave(BaseModel):
     comments: str = ""
     original: str = ""
     ip: str = ""
+    shot: str = ""   # 4指标截图(base64)
 
 
 @router.put("/articles-by-biz/save")
@@ -235,7 +236,7 @@ def save_article(payload: ArticleSave):
         raise HTTPException(400, "缺少文章id")
     sets = []
     vals = []
-    for f in ("title", "date", "reads", "likes", "forwards", "favorites", "comments", "original", "ip"):
+    for f in ("title", "date", "reads", "likes", "forwards", "favorites", "comments", "original", "ip", "shot"):
         v = (p.get(f) or "").strip()
         if v:
             sets.append(f"{f}=?")
