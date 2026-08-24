@@ -265,6 +265,7 @@ export default function ArticlePage() {
   function runUpd(idx: number) {
     const a = updQueue[idx];
     if (!a) {
+      setUpdIdx(updQueue.length);   // 全部完成, 进度显示 N/N
       message.success("全部更新完成");
       return;
     }
