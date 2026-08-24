@@ -800,9 +800,11 @@ def _collect_reads(collect_type, link, biz, art):
     写库按 biz+art_biz 匹配, 不依赖写表结果; 列表页已识别到阅读数时主函数跳过高不此调用"""
     # 实时输出: 每步直接 tasks_echo
     p15 = _read_point(15)
-    p23 = _read_point(23)
-    if not p15 or not p23:
-        tasks_echo(f"[warn] 阅读数: 缺少点位15={bool(p15)}/23={bool(p23)}, 跳过阅读数采集")
+    # 搜一搜按钮点位: 类型1=点位23(公众号采集), 类型2=点位14(单篇更新)
+    p_sou = _read_point(23) if collect_type == 1 else _read_point(14)
+    _tag_n = 23 if collect_type == 1 else 14
+    if not p15 or not p_sou:
+        tasks_echo(f"[warn] 阅读数: 缺少点位15={bool(p15)}/{_tag_n}={bool(p_sou)}, 跳过阅读数采集")
         return
     # 1) 鼠标移到文章列表左上(点位15), 向下滚动5000px(0.5s内完成)
     pc.scroll(p15[0], p15[1], 50000, direction="down", duration=0.5)
@@ -812,10 +814,10 @@ def _collect_reads(collect_type, link, biz, art):
     pc.ctrl_key("W")
     tasks_echo("阅读数: Ctrl+W 关闭")
     time.sleep(0.5)
-    # 3) 采集类型1: 点击搜一搜按钮(点位23), 等0.2s
-    if collect_type == 1:
-        pc.mouse_click(p23[0], p23[1])
-        tasks_echo(f"阅读数: 点击搜一搜按钮(点位23)({p23[0]},{p23[1]})")
+    # 3) 点击搜一搜按钮(类型1=点位23 / 类型2=点位14), 等0.2s
+    if collect_type in (1, 2):
+        pc.mouse_click(p_sou[0], p_sou[1])
+        tasks_echo(f"阅读数: 点击搜一搜按钮(点位{_tag_n})({p_sou[0]},{p_sou[1]})")
         time.sleep(0.2)
         # 4) 剪贴板粘贴复制的链接(与搜一搜查询一致), 等0.2s, 回车
         pc.set_clipboard_text(link)

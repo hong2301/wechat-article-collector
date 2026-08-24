@@ -98,6 +98,17 @@ export default function ArticlePage() {
   const [dlCount, setDlCount] = useState(0);             // 已完成数
   const [dlRun, setDlRun] = useState(false);            // 下载中
   const dlAbortRef = useRef<AbortController | null>(null);  // 下载取消控制
+  // 更新弹窗(单篇文章更新)
+  const [updOpen, setUpdOpen] = useState(false);
+  const [updStarted, setUpdStarted] = useState(false);
+  const [updTask, setUpdTask] = useState<Article | null>(null);
+  const [updLogs, setUpdLogs] = useState<string[]>([]);
+  const updAbortRef = useRef<AbortController | null>(null);
+  const updLogRef = useRef<HTMLDivElement>(null);
+  // 更新日志自动滚动
+  useEffect(() => {
+    if (updLogRef.current) updLogRef.current.scrollTop = updLogRef.current.scrollHeight;
+  }, [updLogs]);
   const [addOpen, setAddOpen] = useState(false);
   const [newLink, setNewLink] = useState("");
   const [saving, setSaving] = useState(false);
@@ -196,6 +207,67 @@ export default function ArticlePage() {
     const cancelled = dlAbortRef.current?.signal.aborted;
     if (cancelled) message.warning(`已取消, 完成 ${done} 篇`);
     else message.success(`下载完成: ${done} 篇`);
+  }
+  // 单篇更新: 打开更新确认弹窗
+  function openUpdate(a: Article) {
+    setUpdTask(a);
+    setUpdStarted(false);
+    setUpdLogs([]);
+    setUpdOpen(true);
+  }
+  // 确认更新: 走后端单篇更新流程(collect_type=2)
+  function confirmUpdate() {
+    const a = updTask;
+    if (!a || !a.art_biz) { message.warning("无文章链接"); return; }
+    setUpdStarted(true);
+    setUpdLogs([`开始更新「${a.title || a.art_biz || ""}」`]);
+    const link = `https://mp.weixin.qq.com/s/${a.art_biz}`;
+    const controller = new AbortController();
+    updAbortRef.current = controller;
+    const payload = {
+      name: name || "",
+      biz: biz || "",
+      link,
+      window_split: windowSplit,
+      capture_4metrics: capture4metrics,
+      capture_read: captureRead,
+      save_html: saveHtml,
+      save_dir: "",
+    };
+    (async () => {
+      try {
+        const resp = await fetch("http://127.0.0.1:8000/api/collect/update", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload), signal: controller.signal,
+        });
+        if (!resp.ok || !resp.body) throw new Error("更新接口失败");
+        const reader = resp.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let i2;
+          while ((i2 = buf.indexOf("\n\n")) !== -1) {
+            const block = buf.slice(0, i2); buf = buf.slice(i2 + 2);
+            if (!block.startsWith("data: ")) continue;
+            try {
+              const d = JSON.parse(block.slice(6));
+              if (d.type === "log" && d.msg) setUpdLogs((p) => [...p, d.msg]);
+              else if (d.type === "done") {
+                setUpdLogs((p) => [...p, d.ok ? "✅ 更新完成" : `❌ 更新失败: ${d.reason || ""}`]);
+              }
+            } catch { /* 忽略坏帧 */ }
+          }
+        }
+        setUpdLogs((p) => [...p, "⏹ 连接已断开"]);
+      } catch (e: unknown) {
+        if ((e as Error)?.name !== "AbortError") {
+          setUpdLogs((p) => [...p, `❌ 更新接口异常: ${(e as Error)?.message || e}`]);
+        }
+      }
+    })();
   }
   // 打开当前公众号的下载文件夹(D:/article_data/公众号名)
   async function openAccountDir() {
@@ -520,7 +592,7 @@ export default function ArticlePage() {
               render: (_: unknown, r: Article) => (
                 <Space>
                   <Button size="small" type="link" icon={<DownloadOutlined />} loading={dlKey === (r.art_biz || "")} onClick={() => downloadHtml(r)}>下载</Button>
-                  <Button size="small" type="link" icon={<ReloadOutlined />} onClick={() => message.info("更新功能开发中")}>更新</Button>
+                  <Button size="small" type="link" icon={<ReloadOutlined />} onClick={() => openUpdate(r)}>更新</Button>
                   <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => del(r)}>删除</Button>
                 </Space>
               ) },
@@ -596,6 +668,76 @@ export default function ArticlePage() {
           <div>请输入文章链接，保存后显示在标题列（无标题则显示链接）。</div>
           <Input placeholder="https://mp.weixin.qq.com/s/..." value={newLink} onChange={(e) => setNewLink(e.target.value)} onPressEnter={saveNew} />
         </Space>
+      </Modal>
+
+      {/* 更新弹窗: 确认阶段 -> 更新进行中 */}
+      <Modal
+        open={updOpen}
+        title={updStarted ? `正在更新「${updTask?.title || updTask?.art_biz || ""}」` : "确认更新设置"}
+        onCancel={() => { updAbortRef.current?.abort(); setUpdOpen(false); }}
+        footer={updStarted ? (
+          <Button onClick={() => setUpdOpen(false)}>收起</Button>
+        ) : (
+          <>
+            <Button onClick={() => setUpdOpen(false)}>取消</Button>
+            <Button type="primary" onClick={confirmUpdate}>确认</Button>
+          </>
+        )}
+        width={updStarted ? 880 : 520}
+      >
+        {updStarted ? (
+          <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
+              <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0" }}>更新设置</div>
+              {[
+                { label: "窗口分离", value: windowSplit ? "开" : "关" },
+                { label: "采集4指标", value: capture4metrics ? "开" : "关" },
+                { label: "采集阅读数", value: captureRead ? "开" : "关" },
+                { label: "保存Html", value: saveHtml ? "开" : "关" },
+              ].map((row) => (
+                <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
+                  <span style={{ width: 90, color: "#888" }}>{row.label}</span>
+                  <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
+              <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0" }}>更新情况</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 14px", fontSize: 13, color: "#555" }}>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
+            {[
+              { label: "窗口分离", value: windowSplit ? "开" : "关" },
+              { label: "采集4指标", value: capture4metrics ? "开" : "关" },
+              { label: "采集阅读数", value: captureRead ? "开" : "关" },
+              { label: "保存Html", value: saveHtml ? "开" : "关" },
+            ].map((row) => (
+              <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
+                <span style={{ width: 90, color: "#888" }}>{row.label}</span>
+                <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        {updStarted && (
+          <div style={{ background: "#fafafa", border: "1px solid #eee", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
+            <Typography.Text strong style={{ fontSize: 13 }}>日志</Typography.Text>
+            <div ref={updLogRef} style={{
+              marginTop: 8, height: 220, overflow: "auto",
+              background: "#1e1e1e", borderRadius: 6, padding: 8,
+              fontFamily: "Consolas, monospace", fontSize: 12, color: "#d4d4d4", whiteSpace: "pre-wrap",
+            }}>
+              {updLogs.length === 0 ? (
+                <span style={{ color: "#888" }}>(暂无日志)</span>
+              ) : (
+                updLogs.map((l, i) => <div key={i} style={{ color: "#cfcfcf" }}>{l}</div>)
+              )}
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
