@@ -162,19 +162,22 @@ class SortPayload(BaseModel):
 
 
 @router.get("/articles-by-biz")
-def account_articles_by_biz(biz: str):
-    """按 biz 返回该公众号的文章列表"""
+def account_articles_by_biz(biz: str = ""):
+    """biz=该公众号返其文章; biz=all或空 返回全部文章(含公众号名)"""
     conn = get_conn()
     try:
-        acc = conn.execute("SELECT id, name FROM accounts WHERE biz=?", (biz,)).fetchone()
-        rows = conn.execute("SELECT * FROM articles WHERE biz=? ORDER BY date DESC, id DESC", (biz,)).fetchall()
+        acc = conn.execute("SELECT id, name FROM accounts WHERE biz=?", (biz,)).fetchone() if biz and biz != "all" else None
+        if biz and biz != "all":
+            rows = conn.execute("SELECT * FROM articles WHERE biz=? ORDER BY date DESC, id DESC", (biz,)).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM articles ORDER BY date DESC, id DESC").fetchall()
     finally:
         conn.close()
-    name = dict(acc)["name"] if acc else ""
+    name = dict(acc)["name"] if acc else ("全部文章" if (not biz or biz == "all") else "")
     arts = [{"id": d["id"], "title": d["title"], "date": d["date"], "art_biz": d["art_biz"],
              "reads": d["reads"], "likes": d["likes"], "forwards": d["forwards"],
              "favorites": d["favorites"], "comments": d["comments"], "write_time": d["write_time"],
-             "original": d["original"], "ip": d["ip"]} for d in rows]
+             "original": d["original"], "ip": d["ip"], "acc_name": d["name"] or ""} for d in rows]
     return {"biz": biz, "name": name, "articles": arts}
 
 
@@ -200,11 +203,14 @@ def article_comments(art_biz: str = ""):
 
 
 @router.delete("/articles-by-biz/{artid}", status_code=204)
-def delete_article_by_biz(artid: int, biz: str):
-    """按 biz 删除某公众号下的一篇文章"""
+def delete_article_by_biz(artid: int, biz: str = ""):
+    """删除文章; biz=all/空 按id直接删, 否则限定公众号"""
     conn = get_conn()
     try:
-        cur = conn.execute("DELETE FROM articles WHERE id=? AND biz=?", (artid, biz))
+        if biz and biz != "all":
+            cur = conn.execute("DELETE FROM articles WHERE id=? AND biz=?", (artid, biz))
+        else:
+            cur = conn.execute("DELETE FROM articles WHERE id=?", (artid,))
         conn.commit()
         if cur.rowcount == 0:
             raise HTTPException(404, "文章不存在")

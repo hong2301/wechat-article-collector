@@ -7,7 +7,7 @@ import { HTML5Backend } from "react-dnd-html5-backend";
 import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, message, Modal, Spin, Progress, Empty, Switch } from "antd";
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
-import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined, SwapOutlined, RobotOutlined, FolderOpenOutlined, FileExcelOutlined } from "@ant-design/icons";
+import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined, SwapOutlined, RobotOutlined, FolderOpenOutlined, FileExcelOutlined, UnorderedListOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import PointsDialog from "./components/PointsDialog";
 import ScrollsDialog from "./components/ScrollsDialog";
@@ -705,6 +705,7 @@ export default function Home() {
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 10, flexShrink: 0 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <Button size="small" color="primary" variant="outlined" icon={<UnorderedListOutlined />} onClick={() => router.push("/articles?biz=all&name=全部文章")}>查看全部文章</Button>
             <Button size="small" icon={<FolderOpenOutlined />} onClick={openDownloads}>打开下载数据</Button>
             <Button size="small" icon={<FileExcelOutlined />} onClick={exportExcel}>导出表格</Button>
           </div>

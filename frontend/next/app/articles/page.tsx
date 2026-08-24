@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import dayjs from "dayjs";
-import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber, Spin, Switch } from "antd";
+import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber, Spin, Switch, Select } from "antd";
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined, FolderOpenOutlined, DownloadOutlined, ReloadOutlined, FileExcelOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 
@@ -48,7 +48,7 @@ export default function ArticlePage() {
   const [biz, setBiz] = useState("");
   const [name, setName] = useState("");
   const [articles, setArticles] = useState<Article[]>([]);
-  const [sortInfo, setSortInfo] = useState<{ key: string; order: "ascend" | "descend" }>({ key: "date", order: "descend" });
+  const [sortInfo, setSortInfo] = useState<{ key: string; order: "ascend" | "descend" }>({ key: "acc_name", order: "ascend" });
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
   const [quickActive, setQuickActive] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(true);
@@ -89,6 +89,7 @@ export default function ArticlePage() {
   const [ranges, setRanges] = useState<Record<string, [number | null, number | null]>>(
     Object.fromEntries(NUM_FIELDS.map((f) => [f.key, [null, null]]))
   );
+  const [accFilter, setAccFilter] = useState<string[]>([]);  // 公众号多选(全部文章模式), 空=全选
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState(false);
   const [dlKey, setDlKey] = useState<string>("");   // 正在下载的文章art_biz(空=无下载中)
@@ -141,7 +142,7 @@ export default function ArticlePage() {
     const n = q.get("name") || "";
     setBiz(b);
     if (n) setName(n);   // 立即显示公众号名, 不等接口
-    if (b) load(b);
+    load(b);             // biz 空=全部文章; 有值=该公众号文章
   }, []);
 
   // 测量表格容器高度 -> 行区滚动且底栏固定
@@ -158,7 +159,16 @@ export default function ArticlePage() {
       const r = await fetch(`${API}/articles-by-biz?biz=${encodeURIComponent(b)}`);
       const d = await r.json();
       setName(d.name || "");
-      setArticles(sortArticles(d.articles || []));
+      const arts = d.articles || [];
+      setArticles(sortArticles(arts));
+      // 全部文章模式: 公众号多选默认全选
+      if (b === "all") {
+        const names = Array.from(new Set(arts.map((a: any) => a.acc_name || ""))).filter(Boolean) as string[];
+        setAccFilter(["__all__"]);   // 默认选中'全部'
+        void names;
+      } else {
+        setAccFilter([]);
+      }
       setLoadErr(false);
     } catch { message.error("加载失败"); setLoadErr(true); }
     finally { setLoading(false); }
@@ -353,9 +363,13 @@ export default function ArticlePage() {
   }
   // 打开当前公众号的下载文件夹(D:/article_data/公众号名)
   async function openAccountDir() {
-    if (!name) { message.info("暂无公众号名"); return; }
+    // 全部文章模式: 打开总文件夹; 单公众号: 打开对应公众号文件夹
+    const isAll = biz === "all";
     try {
-      const d = await (await fetch(`http://127.0.0.1:8000/api/settings/open-downloads?sub=${encodeURIComponent(name)}`, { method: "POST" })).json();
+      const url = isAll
+        ? `http://127.0.0.1:8000/api/settings/open-downloads`
+        : `http://127.0.0.1:8000/api/settings/open-downloads?sub=${encodeURIComponent(name || "")}`;
+      const d = await (await fetch(url, { method: "POST" })).json();
       if (!d.ok) message.error(d.error || "打开失败");
     } catch { message.error("无法连接后端"); }
   }
@@ -370,17 +384,19 @@ export default function ArticlePage() {
     const key = sortInfo.key;
     const dir = sortInfo.order === "descend" ? -1 : 1;
     const arr = [...articles];
-    arr.sort((a, b) => {
-      const av = colVal(a, key), bv = colVal(b, key);
+    const numCmp = (av: any, bv: any) => {
       const aEmpty = av === "" || av == null, bEmpty = bv === "" || bv == null;
       if (aEmpty || bEmpty) { if (aEmpty && bEmpty) return 0; return aEmpty ? -1 : 1; }
-      if (key === "date" || key === "write_time") {
-        const at = new Date(String(av)).getTime(), bt = new Date(String(bv)).getTime();
-        return (at - bt) * dir;
-      }
       const an = Number(av), bn = Number(bv);
-      const r = (Number.isFinite(an) && Number.isFinite(bn)) ? an - bn : String(av).localeCompare(String(bv), "zh");
-      return r * dir;
+      return (Number.isFinite(an) && Number.isFinite(bn)) ? an - bn : String(av).localeCompare(String(bv), "zh");
+    };
+    arr.sort((a, b) => {
+      const r = numCmp(colVal(a, key), colVal(b, key)) * dir;
+      if (r !== 0) return r;
+      // 次排序: 日期(降序)
+      const at = new Date(String(a.date || "")).getTime();
+      const bt = new Date(String(b.date || "")).getTime();
+      return (Number.isFinite(bt) ? bt : 0) - (Number.isFinite(at) ? at : 0);
     });
     return arr;
   }, [articles, sortInfo]);
@@ -407,9 +423,11 @@ export default function ArticlePage() {
       // 标题查询
       const q = kw.trim().toLowerCase();
       if (q && !(a.title || "").toLowerCase().includes(q)) return false;
+      // 公众号多选(全部文章模式, 含'全部'或空 = 不过滤)
+      if (accFilter.length > 0 && !accFilter.includes("__all__") && !accFilter.includes((a as any).acc_name || "")) return false;
       return true;
     });
-  }, [sorted, dateRange, ranges, kw]);
+  }, [sorted, dateRange, ranges, kw, accFilter]);
   // 日期快捷范围
   function toggleQuick(days: number, key: string) {
     if (quickActive === key) {
@@ -560,6 +578,21 @@ export default function ArticlePage() {
             <Button size="small" type={quickActive === "7" ? "primary" : "default"} onClick={() => toggleQuick(7, "7")}>近一周</Button>
             <Button size="small" type={quickActive === "30" ? "primary" : "default"} onClick={() => toggleQuick(30, "30")}>近一月</Button>
           </Space>
+          {biz === "all" && (
+            <Select
+              mode="multiple" allowClear placeholder="公众号"
+              value={accFilter} onChange={(v: any[]) => {
+                // 含'全部' => 只看全部(去掉具体项); 否则按所选公众号过滤
+                setAccFilter(v && v.includes("__all__") ? ["__all__"] : (v || []));
+              }}
+              style={{ minWidth: 180, maxWidth: 320 }}
+              options={[
+                { value: "__all__", label: "全部" },
+                ...Array.from(new Set(articles.map((a: any) => a.acc_name || ""))).filter(Boolean).map((n: any) => ({ value: String(n), label: String(n) })),
+              ]}
+              maxTagCount="responsive"
+            />
+          )}
           {!collapsed && (
             <Input allowClear prefix={<SearchOutlined style={{ color: "#bfc7cf" }} />}
               placeholder="输入文章标题"
@@ -589,13 +622,13 @@ export default function ArticlePage() {
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) importFile(f); }}
-        style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, minHeight: 300, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
+        style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Button type="primary" icon={<ReloadOutlined />} onClick={openUpdateSelected}>更新选中</Button>
           <Button icon={<DownloadOutlined />} onClick={downloadSelected}>下载选中</Button>
           <div style={{ flex: 1 }} />
-          <Button color="primary" variant="outlined" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>
-          <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>
+          {biz !== "all" && <Button color="primary" variant="outlined" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>}
+          {biz !== "all" && <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>}
           <Button danger icon={<DeleteOutlined />} onClick={deleteSelected}>删除选中</Button>
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.xlsm" style={{ display: "none" }} onChange={onPick} />
         </div>
@@ -611,14 +644,19 @@ export default function ArticlePage() {
         <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" sticky scroll={{ x: 1500 }}
           onChange={(_p: any, _f: any, sorter: any) => {
             const s = Array.isArray(sorter) ? sorter[0] : sorter;
-            const key = s?.columnKey;
+            const key = s?.columnKey || s?.field;
             const order = s?.order;
             if (key && (order === "ascend" || order === "descend")) setSortInfo({ key, order });
-            else setSortInfo({ key: "date", order: "descend" });
+            else setSortInfo(biz === "all" ? { key: "acc_name", order: "ascend" } : { key: "date", order: "descend" });
           }}
           rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
           locale={{ emptyText: <Empty description={loadErr ? "加载失败，请重试" : "暂无文章"} /> }}
           columns={[
+            ...(biz === "all" ? [{
+              title: "公众号名称", key: "acc_name", dataIndex: "acc_name", width: 120, ellipsis: true, sorter: true,
+              sortOrder: sortInfo.key === "acc_name" ? sortInfo.order : null,
+              render: (v: string) => <span style={{ fontSize: 12 }}>{v || "-"}</span>,
+            }] : []),
             {
               title: "标题", dataIndex: "title", width: 100, ellipsis: false,
               render: (v: string, r: Article) => {
