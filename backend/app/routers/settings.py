@@ -65,3 +65,21 @@ def open_downloads():
         return {"ok": True, "dir": d}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+@router.post("/pick-dir")
+def pick_dir(current: str = "D:/article_data"):
+    """弹系统文件夹选择器(initialdir=当前保存路径), 返回选中的目录; 取消返回空"""
+    import os
+    import tkinter as tk
+    from tkinter import filedialog
+    if not os.path.isdir(current):
+        current = "D:/article_data"
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        chosen = filedialog.askdirectory(initialdir=current, title="选择保存HTML的根目录")
+    finally:
+        root.destroy()
+    return {"ok": True, "dir": chosen or ""}

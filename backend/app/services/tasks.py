@@ -300,7 +300,7 @@ def search_query(link=""):
 
 def article_list_wait_stable(date_start="", date_end="", biz="",
                              capture_4metrics=False, capture_read=False,
-                             save_html=False):
+                             save_html=False, save_dir=""):
     """文章列表识别循环: 进入 while 循环, 每次循环第一步检查页面稳定。
     前提: 搜一搜查询(search_query)已加载出公众号链接(本函数不判定, 但依赖其结果)。
     参数:
@@ -309,6 +309,7 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
       capture_4metrics 是否采集4指标
       capture_read     是否采集阅读数量
       save_html        是否保存文章为本地HTML(含图片)
+      save_dir         保存HTML根目录(空=默认D:/article_data)
     逻辑:
       while 循环(目前为占位, 后续补结束条件):
         1) 检查点位15-16区域页面是否稳定(失败不退出, 有兜底)
@@ -501,7 +502,7 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             # 点击后: 采集该文章数据(获取链接+写文章表)
             ok_c, text_c = article_data_collect(
                 collect_type=1, capture_4metrics=capture_4metrics,
-                capture_read=capture_read, save_html=save_html, biz=biz,
+                capture_read=capture_read, save_html=save_html, save_dir=save_dir, biz=biz,
                 list_reads=pdata.get("reads"), list_likes=pdata.get("likes"))
             echo(f"  文章数据采集: {'成功' if ok_c else '失败'} | {text_c}")
             time.sleep(0.5)   # 采集完成间隔
@@ -696,7 +697,7 @@ def _save_article_base(link, biz, list_reads=None, list_likes=None):
     return new_id, name, art, "; ".join(logs)
 
 
-def _save_html_block(link, name="", tag=""):
+def _save_html_block(link, name="", tag="", base_dir=None):
     """步骤3: 保存文章为本地HTML(公众号分类目录, 含图片本地化) - 独立流程
     后台异步执行(save_article_html 内含网络请求), 完成后回调日志"""
     if not tag:
@@ -706,7 +707,7 @@ def _save_html_block(link, name="", tag=""):
             tag = "保存Html"
     tasks_echo(f"[async:{tag}] 正在保存...")
     try:
-        html_path, info = save_article_html(link, account_name=name)
+        html_path, info = save_article_html(link, account_name=name, base_dir=base_dir)
         ok_txt = "成功: " + info if html_path else "失败: " + info
         tasks_echo(f"[async:{tag}] {ok_txt}")
     except Exception as e:
@@ -850,7 +851,7 @@ def _collect_reads(collect_type, link, biz, art):
 
 
 def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=False,
-                         save_html=False, biz="", list_reads=None, list_likes=None):
+                         save_html=False, save_dir="", biz="", list_reads=None, list_likes=None):
     """文章数据采集(编排主函数, 各块拆分到 _save_article_base
     /_bg_meta_and_html/_collect_metrics/_collect_reads; 复制链接逻辑留本函数)。
     参数: 同前(collect_type/capture_4metrics/capture_read/save_html/biz/list_reads/list_likes)
@@ -925,7 +926,7 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
 
     # 3) 保存Html(独立流程, 并行异步)
     if save_html:
-        _bg_executor.submit(_save_html_block, link)  # 开始/完成日志由后台函数输出
+        _bg_executor.submit(_save_html_block, link, base_dir=save_dir)  # 开始/完成日志由后台函数输出
 
     # 4) 4指标(开启时)
     if capture_4metrics:

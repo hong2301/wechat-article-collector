@@ -99,6 +99,7 @@ class CollectStart(BaseModel):
     capture_4metrics: bool = False  # 采集4指标
     capture_read: bool = False       # 采集阅读数
     save_html: bool = False          # 保存文章为本地HTML(含图片)
+    save_dir: str = ""              # 保存HTML根目录(空=默认D:/article_data)
 
 
 def _sse(data: dict):
@@ -152,7 +153,8 @@ def _collect_generate(payload: CollectStart):
             ok, text = tasks_service.article_list_wait_stable(
                 date_start=payload.date_start, date_end=payload.date_end,
                 biz=payload.biz, capture_4metrics=payload.capture_4metrics,
-                capture_read=payload.capture_read, save_html=payload.save_html)
+                capture_read=payload.capture_read, save_html=payload.save_html,
+                save_dir=payload.save_dir)
             log_q.put(("log", f"[文章列表识别循环] {'成功' if ok else '失败'} | {text}"))
             log_q.put(("done", True, "采集流程结束"))
         except SystemExit:

@@ -158,6 +158,8 @@ export default function Home() {
   const [captureRead, setCaptureRead] = useState(false);
   // 采集时保存HTML到本地(默认关)
   const [saveHtml, setSaveHtml] = useState(false);
+  // 保存HTML根目录(存储路径, 默认D:/article_data)
+  const [saveDir, setSaveDir] = useState("D:/article_data");
 
   // 采集配置记忆: localStorage 存储(窗口分离/4指标/阅读数/时间范围)
   useEffect(() => {
@@ -169,6 +171,7 @@ export default function Home() {
         if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
         if (typeof d.capture_read === "boolean") setCaptureRead(d.capture_read);
         if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
+        if (typeof d.save_dir === "string" && d.save_dir) setSaveDir(d.save_dir);
         if (d.date_start && d.date_end) {
           setDateRange([dayjs(d.date_start), dayjs(d.date_end)]);
         }
@@ -186,12 +189,13 @@ export default function Home() {
         capture_4metrics: capture4metrics,
         capture_read: captureRead,
         save_html: saveHtml,
+        save_dir: saveDir,
         date_start: dateRange ? dateRange[0].format("YYYY-MM-DD") : "",
         date_end: dateRange ? dateRange[1].format("YYYY-MM-DD") : "",
       }));
     } catch { /* 忽略写入失败 */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowSplit, capture4metrics, captureRead, saveHtml, dateRange]);
+  }, [windowSplit, capture4metrics, captureRead, saveHtml, saveDir, dateRange]);
 
   useEffect(() => {
     const probe = document.createElement("div");
@@ -355,6 +359,7 @@ export default function Home() {
       capture_4metrics: capture4metrics,
       capture_read: captureRead,
       save_html: saveHtml,
+      save_dir: saveDir,
     };
 
     (async () => {
@@ -418,6 +423,13 @@ export default function Home() {
     try {
       const d = await (await fetch("http://127.0.0.1:8000/api/settings/open-downloads", { method: "POST" })).json();
       if (!d.ok) message.error(d.error || "打开失败");
+    } catch { message.error("无法连接后端"); }
+  }
+  // 选择存储路径(保存HTML根目录): 弹系统文件夹选择器(从当前路径打开)
+  async function pickSaveDir() {
+    try {
+      const d = await (await fetch("http://127.0.0.1:8000/api/settings/pick-dir?current=" + encodeURIComponent(saveDir), { method: "POST" })).json();
+      if (d.dir) setSaveDir(d.dir);
     } catch { message.error("无法连接后端"); }
   }
 
@@ -574,6 +586,7 @@ export default function Home() {
           <Button icon={<ProfileOutlined />} onClick={() => setPointsOpen(true)}>点位设置</Button>
           <Button icon={<SwapOutlined />} onClick={() => setScrollsOpen(true)}>滚动设置</Button>
           <Button icon={<RobotOutlined />} onClick={() => setAiOpen(true)}>AI模型</Button>
+          <Button onClick={pickSaveDir}>存储路径: {saveDir}</Button>
         </div>
       </div>
       <PointsDialog open={pointsOpen} onClose={() => setPointsOpen(false)} />
