@@ -14,6 +14,7 @@ import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from ctypes import wintypes as wt
 from datetime import datetime
+import threading
 import time
 import requests as _requests
 from PIL import Image
@@ -41,16 +42,38 @@ APP_EXE = "electron.exe"           # 前端壳进程
 
 # 后台异步执行器: 网络类任务(元信息抓取/保存HTML)丢线程池, 不阻塞主采集流程
 _bg_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="bg")
+_bg_futures = []          # 已提交的后台 future 集合(完成后移除)
+_bg_futures_lock = threading.Lock()
+
+
+def _submit_bg(fn, *args, **kwargs):
+    """提交后台任务并记录 future(供 wait_bg_done 等待); 完成后自动移除"""
+    f = _bg_executor.submit(fn, *args, **kwargs)
+    with _bg_futures_lock:
+        _bg_futures.append(f)
+    f.add_done_callback(lambda _f: _done_bg(_f))
+    return f
+
+
+def _done_bg(f):
+    with _bg_futures_lock:
+        try:
+            _bg_futures.remove(f)
+        except ValueError:
+            pass
 
 
 def wait_bg_done(timeout=120):
-    """等待所有后台异步任务完成(自动停止时调用, 确保写表/保存Html/4指标/阅读数OCR收尾)
-    主动停止不调用(后台任务不强等); 完成后重建执行器供下次使用"""
-    global _bg_executor
-    try:
-        _bg_executor.shutdown(wait=True, cancel_futures=False)
-    finally:
-        _bg_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="bg")
+    """等待本次所有后台异步任务完成(自动停止时调用, 确保写表/保存Html/4指标/阅读数OCR收尾)
+    主动停止不调用; 只等已提交的 future, executor 保持可复用(不 shutdown)"""
+    from concurrent.futures import wait
+    with _bg_futures_lock:
+        fs = list(_bg_futures)
+    if fs:
+        try:
+            wait(fs, timeout=timeout)
+        except Exception:
+            pass
 
 
 def init_wechat_window(window_split=False):
@@ -802,7 +825,7 @@ def _collect_metrics(biz, art):
         pass
 
     # 豆包识图+写表整体异步提交(网络耗时, 不阻塞主流程)
-    _bg_executor.submit(_bg_ai_metrics, shot_b64, api_key, model, biz, art)
+    _submit_bg(_bg_ai_metrics, shot_b64, api_key, model, biz, art)
 
 
 def _bg_reads_ocr(png_path, box, biz, art):
@@ -869,7 +892,7 @@ def _collect_reads(collect_type, link, biz, art):
                     tasks_echo("阅读数: 稳定后截图失败")
                 else:
                     tasks_echo("阅读数: 截图完成, OCR识别后台进行...")
-                    _bg_executor.submit(_bg_reads_ocr, png_path, (p32[0], p32[1]), biz, art)
+                    _submit_bg(_bg_reads_ocr, png_path, (p32[0], p32[1]), biz, art)
             else:
                 tasks_echo(f"阅读数: 结果页未稳定({info}), 跳过识别")
 
@@ -953,11 +976,11 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         return _finish(logs, copy_seen, False, "链接提取art_biz失败")
 
     # 2) 写文章表(完整流程: 抓元信息->写表, 整体异步提交, 不阻塞后续)
-    _bg_executor.submit(_save_article_base, link, biz, list_reads, list_likes)
+    _submit_bg(_save_article_base, link, biz, list_reads, list_likes)
 
     # 3) 保存Html(独立流程, 并行异步)
     if save_html:
-        _bg_executor.submit(_save_html_block, link, base_dir=save_dir)  # 开始/完成日志由后台函数输出
+        _submit_bg(_save_html_block, link, base_dir=save_dir)  # 开始/完成日志由后台函数输出
 
     # 4) 4指标(开启时)
     if capture_4metrics:
