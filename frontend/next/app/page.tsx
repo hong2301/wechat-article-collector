@@ -140,6 +140,10 @@ export default function Home() {
   const [collectStartTime, setCollectStartTime] = useState<string>("");
   const [collectCount, setCollectCount] = useState(0);
   const [collectLogs, setCollectLogs] = useState<string[]>([]);
+  const [queue, setQueue] = useState<Task[]>([]);   // 采集队列(采集选中/单条)
+  const [queueIdx, setQueueIdx] = useState(0);      // 当前正在采集的队列下标
+  const [collectDone, setCollectDone] = useState(false); // 全部采集完成(弹窗保留可关)
+  const collectRunRef = useRef(false);              // 是否采集中(队列运行中)
   const [speed, setSpeed] = useState(0);
   const [pointsOpen, setPointsOpen] = useState(false);
   const [scrollsOpen, setScrollsOpen] = useState(false);
@@ -290,27 +294,53 @@ export default function Home() {
   }
   function collectSelected() {
     if (selectedKeys.length === 0) { Modal.warning({ title: "未选择", content: "请在左侧勾选要采集的公众号", okText: "知道了" }); return; }
-    message.info(`准备采集 ${selectedKeys.length} 个公众号（功能待接后端）`);
-  }
-  function collectRow(row: Task) {
-    // 打开确认弹窗: 显示当前采集设置(日期范围)
-    setCollectTask(row);
+    const rows = tasks.filter((t) => selectedKeys.includes(t.id));
+    if (rows.length === 0) return;
+    // 加入采集队列(批量)
+    setQueue(rows);
+    setQueueIdx(0);
+    setCollectTask(rows[0]);
     setCollectStarted(false);
+    setCollectDone(false);
     setCollectCount(0);
     setCollectLogs([]);
     setCollectOpen(true);
   }
-  // 确认采集: 拼接公众号链接, POST 后端启动采集, SSE 接收日志/进度
-  function confirmCollect() {
-    const task = collectTask;
-    if (!task) return;
-    const link = `https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=${encodeURIComponent(task.biz || "")}`;
-    setCollectStarted(true);
-    setCollectStartTime(new Date().toLocaleTimeString("zh-CN", { hour12: false }));
-    collectStartTsRef.current = Date.now();
-    setSpeed(0);
+  function collectRow(row: Task) {
+    // 打开确认弹窗: 只加入一个采集任务
+    setQueue([row]);
+    setQueueIdx(0);
+    setCollectTask(row);
+    setCollectStarted(false);
+    setCollectDone(false);
     setCollectCount(0);
-    setCollectLogs([`开始采集「${task.name || ""}」`]);
+    setCollectLogs([]);
+    setCollectOpen(true);
+  }
+  // 确认采集: 确认设置后按队列启动采集(每个任务完整走流程)
+  function confirmCollect() {
+    if (queue.length === 0) return;
+    setCollectStarted(true);
+    runOne(0);
+  }
+  // 采集队列第 idx 个: 拼接链接 -> POST 后端启动(完整采集流程) -> SSE 接收
+  // 任务完成后自动执行下一个; 全部完成关闭弹窗
+  function runOne(idx: number) {
+    const task = queue[idx];
+    if (!task) { setQueueIdx(queue.length); message.success("全部采集完成"); setCollectDone(true); return; }
+    setCollectDone(false);
+    setQueueIdx(idx);
+    setCollectTask(task);
+    const link = `https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=${encodeURIComponent(task.biz || "")}`;
+    if (idx === 0) {
+      setCollectStartTime(new Date().toLocaleTimeString("zh-CN", { hour12: false }));
+      collectStartTsRef.current = Date.now();
+      setSpeed(0);
+      setCollectCount(0);
+      setCollectLogs([`开始采集「${task.name || ""}」`]);
+    } else {
+      setCollectLogs((p) => [...p, `--- 开始采集「${task.name || ""}」(${idx + 1}/${queue.length}) ---`]);
+    }
 
     const controller = new AbortController();
     collectAbortRef.current = controller;
@@ -336,6 +366,7 @@ export default function Home() {
           signal: controller.signal,
         });
         if (!resp.ok || !resp.body) { throw new Error("采集接口失败"); }
+        let finished = false;
         const reader = resp.body.getReader();
         const dec = new TextDecoder();
         let buf = "";
@@ -343,9 +374,9 @@ export default function Home() {
           const { done, value } = await reader.read();
           if (done) break;
           buf += dec.decode(value, { stream: true });
-          let idx;
-          while ((idx = buf.indexOf("\n\n")) !== -1) {
-            const block = buf.slice(0, idx); buf = buf.slice(idx + 2);
+          let i2;
+          while ((i2 = buf.indexOf("\n\n")) !== -1) {
+            const block = buf.slice(0, i2); buf = buf.slice(i2 + 2);
             if (!block.startsWith("data: ")) continue;
             try {
               const d = JSON.parse(block.slice(6));
@@ -356,9 +387,9 @@ export default function Home() {
                   setCollectCount((c) => c + 1);
                 }
               } else if (d.type === "task" && d.done !== undefined) {
-                // 任务进度(单任务 0/1)
                 if (d.done >= 1) setCollectCount(d.done);
               } else if (d.type === "done") {
+                finished = true;
                 setCollectLogs((p) => [...p,
                   d.ok ? "✅ 采集流程结束" : `❌ 采集失败: ${d.reason || ""}`]);
               }
@@ -366,6 +397,10 @@ export default function Home() {
           }
         }
         setCollectLogs((p) => [...p, "⏹ 采集连接已断开"]);
+        // 队列: 本任务结束 -> 下一个(仍完整流程)
+        if (finished && collectAbortRef.current === controller) {
+          runOne(idx + 1);
+        }
       } catch (e: unknown) {
         if ((e as Error)?.name !== "AbortError") {
           setCollectLogs((p) => [...p, `❌ 采集接口异常: ${(e as Error)?.message || e}`]);
@@ -373,6 +408,8 @@ export default function Home() {
       }
     })();
   }
+
+
   const [calMonthKey, setCalMonthKey] = useState<string>("");
   async function loadCalendar(id: number, monthKey: string) {
     const [y, m] = monthKey.split("-").map(Number);
@@ -653,12 +690,14 @@ export default function Home() {
       {/* 采集弹窗: 确认阶段 -> 采集进行中(停止由后端ESC监听) */}
       <Modal
         open={collectOpen}
-        title={collectStarted ? `正在处理: ${collectTask?.name || ""} · 任务数 0/1` : "确认采集设置"}
+        title={collectStarted ? `正在采集「${collectTask?.name || ""}」 (${queueIdx}/${queue.length})` : queue.length > 1 ? `确认采集设置 (共 ${queue.length} 个)` : "确认采集设置"}
         onCancel={() => {
           collectAbortRef.current?.abort();
           setCollectOpen(false);
         }}
-        footer={collectStarted ? null : (
+        footer={collectStarted ? (
+          <Button onClick={() => setCollectOpen(false)}>{collectDone ? "关闭" : "收起"}</Button>
+        ) : (
           <>
             <Button onClick={() => setCollectOpen(false)}>取消</Button>
             <Button type="primary" onClick={confirmCollect}>确认</Button>

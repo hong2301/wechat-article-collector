@@ -523,10 +523,10 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
                 # 全不在范围内: 时间若比范围早(已滚过范围) -> 累计停止
                 if any(s and t < s for t in times):
                     date_out_count = date_out_count + 1
-                    echo(f"第{loop_n}轮: 时间点位已过日期范围(比范围早)({date_out_count}/3)")
-                    if date_out_count >= 3:
-                        echo("连续3次已过日期范围, 停止")
-                        return False, "连续3次已过日期范围"
+                    echo(f"第{loop_n}轮: 时间点位已过日期范围(比范围早)({date_out_count}/2)")
+                    if date_out_count >= 2:
+                        echo("连续2次已过日期范围, 停止")
+                        return False, "连续2次已过日期范围"
                 else:
                     # 时间比范围晚(顶部还有更新的, 未滚到范围) -> 继续滚动
                     date_out_count = 0
