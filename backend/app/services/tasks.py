@@ -6,62 +6,30 @@
 规则:
   * 本模块只放组合逻辑, 不放新的 Win32/输入原语(那些在 computer.py)。
   * 新增任务函数前需先经过确认。
+  * 辅助工具在 common.py, 运行状态在 robot.py, 主函数集中在本模块。
 """
 
-import threading
+import ctypes
+import hashlib
+from ctypes import wintypes as wt
 import time
+import requests as _requests
+from PIL import Image
 
 from . import computer as pc
+from . import ocr as ocr_service
+from .common import (_read_point, _finish, _save_reads,
+                     _extract_read_from_items, wait_page_stable)
+from .robot import (request_stop, clear_stop, stop_requested,
+                    bind_tasks_echo, tasks_echo)
+from ..database import get_conn
+from .doubao_api import recognize_interact as doubao_recognize_interact
+from .importer import extract_art_biz
+from .fetch_article import fetch_article
 
 # 模块加载时启用 DPI 感知(进程级, 幂等): 确保所有点位坐标用物理像素, 避免缩放偏移
 pc.enable_dpi_awareness()
 
-# 实时日志钩子(后端采集接口注入后, article_list_wait_stable 的 echo 会同时转发)
-_tasks_log_hook = None
-
-# 全局停止信号: 前端断开/手动停止时置位, 死循环检测后退出
-_stop_requested = threading.Event()
-
-
-def request_stop():
-    """请求停止死循环(前端关闭采集时调用)"""
-    _stop_requested.set()
-
-
-def clear_stop():
-    """清除停止信号(新一次采集开始时调用)"""
-    _stop_requested.clear()
-
-
-def stop_requested():
-    """是否收到停止请求"""
-    return _stop_requested.is_set()
-
-
-
-def bind_tasks_echo(fn):
-    """绑定实时日志回调; 返回旧回调(用于恢复)。fn=None 清除"""
-    global _tasks_log_hook
-    old = _tasks_log_hook
-    _tasks_log_hook = fn
-    return old
-
-
-def tasks_echo(msg):
-    """实时输出日志: 打印 + 转发到钩子(若有)"""
-    try:
-        print(msg, flush=True)
-    except Exception:
-        pass
-    hook = _tasks_log_hook
-    if hook is not None:
-        try:
-            hook(msg)
-        except Exception:
-            pass
-
-
-# 微信相关进程名（对应两个可见微信主窗口的宿主进程）
 WECHAT_MAIN = "Weixin.exe"          # 微信主界面进程
 WECHAT_APPEX = "WeChatAppEx.exe"    # 微信小程序/外部App容器进程
 
@@ -85,8 +53,6 @@ def init_wechat_window(window_split=False):
       成功(Weixin 在左半边)返回 (True, 文本);
       失败返回 (False, 文本), 交由后续流程处理。
     """
-    import ctypes
-    from ctypes import wintypes as wt
     logs = []
 
     def once():
@@ -139,7 +105,6 @@ def init_wechat_window(window_split=False):
         return False, "; ".join(logs)
 
     try:
-        from ..database import get_conn
         conn = get_conn()
         try:
             row = conn.execute(
@@ -166,68 +131,6 @@ def init_wechat_window(window_split=False):
     logs.append(info2)
     return ok2, "; ".join(logs)
 
-    # 1) 关闭 WeChatAppEx(仅可见窗口)
-    appex = pc.find_windows(exe=WECHAT_APPEX, visible_only=True)
-    for hwnd, _t, _p, _v in appex:
-        pc.close_window(hwnd)
-        logs.append(f"已关闭 WeChatAppEx 窗口 #{hwnd}")
-    if not appex:
-        logs.append("无可见 WeChatAppEx 窗口, 跳过")
-
-    # 2) 找 Weixin, 无则唤出
-    weixin = pc.find_windows(exe=WECHAT_MAIN)
-    if not weixin:
-        found = pc.find_windows(exe=WECHAT_MAIN, visible_only=False)
-        if not found:
-            logs.append("未找到 Weixin.exe 窗口")
-            return False, "; ".join(logs)
-        pc.show_window(found[0][0])
-        logs.append(f"已唤出 Weixin 窗口 #{found[0][0]}")
-        weixin = pc.find_windows(exe=WECHAT_MAIN)
-    else:
-        logs.append(f"Weixin 窗口已存在 #{weixin[0][0]}")
-    if not weixin:
-        logs.append("Weixin.exe 窗口仍未识别")
-        return False, "; ".join(logs)
-
-    hwnd = weixin[0][0]
-
-    # 3) 移到屏幕左半边(用通用 move_window 计算左半位置并按需移动)
-    u32_sm = pc._u32()   # 内部取屏幕尺寸用
-    sw = u32_sm.GetSystemMetrics(pc.SM_CXSCREEN)
-    sh = u32_sm.GetSystemMetrics(pc.SM_CYSCREEN)
-    pc.move_window(hwnd, 0, 0, sw // 2, sh)
-
-    # 4) 校验是否就位左半屏(贴左边缘且宽度等于半屏); 不合法则返回 False
-    r = wt.RECT()
-    pc._u32().GetWindowRect(hwnd, ctypes.byref(r))
-    if abs(r.left) > 2 or abs((r.right - r.left) - sw // 2) > 0:
-        logs.append("Weixin 未就位左半屏(宽度或位置不合法)")
-        return False, "; ".join(logs)
-
-    logs.append("Weixin 窗口已就位左半屏")
-    return True, "; ".join(logs)
-
-
-def _read_point(pid):
-    """内部: 读取点位坐标 (x, y); 无/无效返回 None"""
-    try:
-        from ..database import get_conn
-        conn = get_conn()
-        try:
-            row = conn.execute(
-                "SELECT x, y FROM points WHERE id=?", (int(pid),)).fetchone()
-        finally:
-            conn.close()
-        if not row:
-            return None
-        try:
-            return int(float(row["x"])), int(float(row["y"]))
-        except (TypeError, ValueError):
-            return None
-    except Exception:
-        return None
-
 
 def search_window_init(window_split=False):
     """搜一搜窗口初始化(坐标采集流程)。
@@ -246,8 +149,6 @@ def search_window_init(window_split=False):
              - 否 → 移动到左半边 → 再检查 → 合格 True / 不合格 False
     返回: (成功?, 说明文本)
     """
-    import ctypes
-    from ctypes import wintypes as wt
     logs = []
 
     # 0) 前置判定: 微信初始化(Weixin左半屏) + 采集器初始化(采集器右半屏)必须已满足
@@ -357,8 +258,6 @@ def search_query(link=""):
       2) 点击点位14(查询输入框) → 等0.1s → 输入链接 → 等0.1s → 回车
     返回: (成功?, 说明文本)
     """
-    import ctypes
-    from ctypes import wintypes as wt
     logs = []
 
     # 1) 检查可见 WeChatAppEx 在左半屏
@@ -394,88 +293,9 @@ def search_query(link=""):
     return True, "; ".join(logs)
 
 
-def wait_page_stable(x1, y1, x2, y2, same_need=15, timeout=30, interval=0.1):
-    """通用页面稳定判断: 对指定区域反复截图, 连续多次完全相同判页面稳定。
-    参数:
-      x1,y1,x2,y2  截图区域(屏幕坐标)
-      same_need    连续相同多少次判稳定(默认15)
-      timeout      最多截图次数(默认30, 超时判失败)
-      interval     每次截图间隔(默认0.1s)
-    返回: (稳定?, 说明文本)
-    """
-    import hashlib
-    logs = []
-    same_streak = 0       # 连续相同次数
-    prev_hash = None
-    for i in range(1, timeout + 1):
-        path, _b64 = pc.screenshot(x1, y1, x2, y2, img_format="webp")
-        if not path:
-            logs.append(f"截图失败(第{i}次)")
-            return False, "; ".join(logs)
-        try:
-            with open(path, "rb") as f:
-                cur_hash = hashlib.md5(f.read()).hexdigest()
-        except Exception:
-            logs.append(f"读取截图失败(第{i}次)")
-            return False, "; ".join(logs)
-        if prev_hash is not None and cur_hash == prev_hash:
-            same_streak += 1
-            if same_streak >= same_need:
-                logs.append(f"页面稳定: 连续{i}次截图相同")
-                return True, "; ".join(logs)
-        else:
-            same_streak = 0
-        prev_hash = cur_hash
-        if interval:
-            time.sleep(interval)
-    logs.append(f"页面未稳定: {timeout}次机会用完")
-    return False, "; ".join(logs)
-
-
-def _extract_read_from_items(items, box):
-    """从OCR结果中提取阅读数: 文本含'阅读'+数字, 且该文本区域灰字颜色校验通过。
-    返回: 阅读数(int) 或 None
-    """
-    from .ocr import _region_grayish, extract_reads
-    ox, oy = box
-    items = list(items or [])
-    for i, (cx, cy, text, score, sbox, brightness) in enumerate(items):
-        if "阅读" in (text or ""):
-            gray = _region_grayish(sbox, (ox, oy))
-            if gray is False:
-                continue   # 颜色不是灰色系 -> 排除
-            # 优先: 本段提取数字(阅读 730 / 阅读730)
-            r = extract_reads(text)
-            if r is not None:
-                return r
-            # 兜底: 与本文本 y 相近(±15px)的后续段找数字
-            for _cx2, _cy2, _t2, _s2, _sbox2, _b2 in items[i + 1:]:
-                if abs(_cy2 - cy) <= 15:
-                    r2 = extract_reads(_t2)
-                    if r2 is not None:
-                        return r2
-                else:
-                    break
-    return None
-
-
-def _save_reads(article_id, reads, logs):
-    """更新文章表 reads 字段"""
-    try:
-        from ..database import get_conn
-        conn = get_conn()
-        try:
-            conn.execute("UPDATE articles SET reads=? WHERE id=?", (reads, article_id))
-            conn.commit()
-            logs.append(f"阅读数已写入 article id={article_id}: {reads}")
-        finally:
-            conn.close()
-    except Exception as e:
-        logs.append(f"阅读数写入失败: {e}")
-
-
 def article_list_wait_stable(date_start="", date_end="", biz="",
-                             capture_4metrics=False, capture_read=False):
+                             capture_4metrics=False, capture_read=False,
+                             save_html=False):
     """文章列表识别循环: 进入 while 循环, 每次循环第一步检查页面稳定。
     前提: 搜一搜查询(search_query)已加载出公众号链接(本函数不判定, 但依赖其结果)。
     参数:
@@ -483,6 +303,7 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
       biz              所属公众号 biz 代码(点击文章后数据采集用)
       capture_4metrics 是否采集4指标
       capture_read     是否采集阅读数量
+      save_html        是否保存文章为本地HTML(含图片)
     逻辑:
       while 循环(目前为占位, 后续补结束条件):
         1) 检查点位15-16区域页面是否稳定(失败不退出, 有兜底)
@@ -513,8 +334,6 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
 
     # 稳定后: 截图点位15-16 => OCR => 识别"文章"标记(灰色系深色文字)并点击
     try:
-        from PIL import Image
-        from . import ocr as ocr_service
         shot_path, _b64 = pc.screenshot(x1, y1, x2, y2, img_format="png")
         items = ocr_service.ocr(Image.open(shot_path))
         clicked = False
@@ -548,10 +367,12 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
     same_shot = 0            # 连续相同截图次数
     date_out_count = 0       # 连续在日期范围之后次数(有日期范围时)
     loop_n = 0
+
     def echo(msg):
         """本轮日志: 存 logs 并实时转发(打印 + 后端钩子)"""
         logs.append(msg)
         tasks_echo(msg)
+
     while True:
         if stop_requested():
             echo("收到停止请求, 退出识别循环")
@@ -572,8 +393,6 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             echo(f"第{loop_n}轮截图失败")
             return False, f"第{loop_n}轮截图失败"
         try:
-            from PIL import Image
-            from . import ocr as ocr_service
             img = Image.open(shot_path)
             items = ocr_service.ocr(img)
         except Exception as e:
@@ -677,7 +496,7 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             # 点击后: 采集该文章数据(获取链接+写文章表)
             ok_c, text_c = article_data_collect(
                 collect_type=1, capture_4metrics=capture_4metrics,
-                capture_read=capture_read, biz=biz,
+                capture_read=capture_read, save_html=save_html, biz=biz,
                 list_reads=pdata.get("reads"), list_likes=pdata.get("likes"))
             echo(f"  文章数据采集: {'成功' if ok_c else '失败'} | {text_c}")
             time.sleep(0.5)   # 采集完成间隔
@@ -712,13 +531,12 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
 
         # 停止条件: 连续3轮OCR列表截图完全相同 -> 无更多文章, 停止(返回True)
         # 注意: 独立重新截图列表区域, 避免被各采集步骤的截图覆盖污染
-        import hashlib as _hashlib
         cur_shot_hash = None
         try:
             _sp, _ = pc.screenshot(x1, y1, x2, y2, img_format="png")
             if _sp:
                 with open(_sp, "rb") as _f:
-                    cur_shot_hash = _hashlib.md5(_f.read()).hexdigest()
+                    cur_shot_hash = hashlib.md5(_f.read()).hexdigest()
         except Exception:
             cur_shot_hash = None
         if prev_shot_hash == cur_shot_hash:
@@ -732,7 +550,6 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
 
         # 滚动: 鼠标移到点位15, 触发滚动配置 id=3(向下)
         try:
-            from ..database import get_conn
             conn = get_conn()
             try:
                 row = conn.execute("SELECT distance, direction FROM scrolls WHERE id=3").fetchone()
@@ -761,8 +578,6 @@ def init_app_window():
     失败(找不到窗口/移动异常)返回 False。
     返回: (成功?, 说明文本)。
     """
-    import ctypes
-    from ctypes import wintypes as wt
     logs = []
 
     # 1) 查找前端窗口(按标题, 可能是 electron 或其它壳进程)
@@ -794,23 +609,28 @@ def init_app_window():
 
 
 def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=False,
-                         biz="", list_reads=None, list_likes=None):
+                         save_html=False, biz="", list_reads=None, list_likes=None):
     """文章数据采集。
     参数:
       collect_type     采集触发类型(0=未知/默认; 1=公众号点击采集; 可扩展)
       capture_4metrics 是否采集4指标
       capture_read     是否采集阅读数量
+      save_html        是否保存文章为本地HTML(含图片)
       biz              所属公众号 biz 代码
       list_reads       列表页OCR识别的阅读数(有值则跳过阅读数采集并直接更新)
       list_likes       列表页OCR识别的点赞数
     逻辑:
       1) 检查触发类型; 为0(不确定)直接返回 False
-      2) 获取复制链接
-      3) 拿到链接后写入文章表(文章id+公众号biz)
+      2) 截图OCR检测复制字样 -> 点击复制链接, 读剪贴板获取链接
+      3) 提取文章元信息(标题/时间/原创/ip) + 写入文章表(失败仅写链接)
+      4) save_html: 保存文章为本地HTML(公众号分类目录, 含图片)
+      5) 列表页识别到的阅读数/点赞先更新(放4指标前)
+      6) capture_4metrics: 截图4指标区域 -> 豆包识图 -> 更新文章数据
+      7) capture_read且列表无阅读数: 搜一搜查链接 -> 识别阅读数 -> 写库
+      统一出口 _finish: 打开过文章页则 Ctrl+W 关闭
     """
     logs = []
     copy_seen = False   # 标志: 是否检测到过"复制"字样
-    from .doubao_api import recognize_interact as doubao_recognize_interact
     if collect_type == 0:
         logs.append("触发类型不确定, 无法采集")
         return _finish(logs, copy_seen, False, "触发类型不确定, 无法采集")
@@ -831,8 +651,6 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
     # 截图点位28-29区域, OCR 检测是否有"复制"字样
     if p28 and p29:
         try:
-            from PIL import Image
-            from . import ocr as ocr_service
             shot_path, _b64 = pc.screenshot(p28[0], p28[1], p29[0], p29[1],
                                             img_format="png")
             if shot_path:
@@ -869,9 +687,6 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
 
     # 3) 写入文章表: 先提取文章元信息(标题/时间/原创/ip), 成功则带字段写入; 失败只写链接
     try:
-        from ..database import get_conn
-        from .importer import extract_art_biz
-        from .fetch_article import fetch_article   # (title, pub_time, original, ip)
         art = extract_art_biz(link)
 
         # 抓取文章元信息(网络请求, 失败不阻断, 只记录)
@@ -920,10 +735,21 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         logs.append(f"写入文章表失败: {e}")
         return _finish(logs, copy_seen, False, f"写入文章表失败: {e}")
 
+    # 3c) 保存文章为本地HTML(开启时): 公众号分类目录, 含图片本地化
+    if save_html:
+        try:
+            from .fetch_article import save_article_html
+            html_path, info = save_article_html(link, account_name=name)
+            if html_path:
+                logs.append(f"保存Html: {info}")
+            else:
+                logs.append(f"保存Html失败: {info}")
+        except Exception as e:
+            logs.append(f"保存Html异常: {e}")
+
     # 3b) 列表页识别到的阅读数/点赞先更新(放在4指标采集前面)
     if list_reads is not None or list_likes is not None:
         try:
-            from ..database import get_conn
             conn = get_conn()
             try:
                 if list_reads is not None and list_likes is not None:
@@ -980,7 +806,6 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
             pass
 
         metrics = None
-        import requests as _requests
         if shot_b64 and api_key and model:
             metrics = doubao_recognize_interact(shot_b64, api_key, model)
             if metrics is not None:
@@ -1055,9 +880,7 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
                         if not b64:
                             logs.append("阅读数: 稳定后截图失败")
                         else:
-                            from . import ocr as ocr_service
-                            from PIL import Image as PILImage
-                            items = ocr_service.ocr(PILImage.open(png_path).convert("RGB"))
+                            items = ocr_service.ocr(Image.open(png_path).convert("RGB"))
                             reads = _extract_read_from_items(items, (p32[0], p32[1]))
                             if reads is not None:
                                 logs.append(f"阅读数: 识别到阅读数 {reads}")
@@ -1070,21 +893,8 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
     # 最后一步(统一出口): 交给 _finish 统一处理 Ctrl+W 并返回
     return _finish(logs, copy_seen, True, "")
 
-
-def _finish(logs, copy_seen, ok, reason):
-    """统一退出: copy_seen表明打开过文章页需Ctrl+W; 返回 (是否成功, 文本)"""
-    if copy_seen:
-        try:
-            pc.ctrl_key("W")
-        except Exception:
-            pass
-        logs.append("已检测过复制字样, Ctrl+W 关闭文章页")
-    text = "; ".join(logs)
-    if reason:
-        text = reason + " | " + text
-    return ok, text
-
-
 __all__ = ["init_wechat_window", "search_window_init", "search_query",
            "article_list_wait_stable", "init_app_window",
-           "article_data_collect"]
+           "article_data_collect",
+           "request_stop", "clear_stop", "stop_requested",
+           "bind_tasks_echo", "tasks_echo"]

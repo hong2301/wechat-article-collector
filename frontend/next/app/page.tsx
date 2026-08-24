@@ -150,6 +150,8 @@ export default function Home() {
   // 采集指标开关
   const [capture4metrics, setCapture4metrics] = useState(false);
   const [captureRead, setCaptureRead] = useState(false);
+  // 采集时保存HTML到本地(默认关)
+  const [saveHtml, setSaveHtml] = useState(false);
 
   // 采集配置记忆: localStorage 存储(窗口分离/4指标/阅读数/时间范围)
   useEffect(() => {
@@ -160,6 +162,7 @@ export default function Home() {
         if (typeof d.window_split === "boolean") setWindowSplit(d.window_split);
         if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
         if (typeof d.capture_read === "boolean") setCaptureRead(d.capture_read);
+        if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
         if (d.date_start && d.date_end) {
           setDateRange([dayjs(d.date_start), dayjs(d.date_end)]);
         }
@@ -176,12 +179,13 @@ export default function Home() {
         window_split: windowSplit,
         capture_4metrics: capture4metrics,
         capture_read: captureRead,
+        save_html: saveHtml,
         date_start: dateRange ? dateRange[0].format("YYYY-MM-DD") : "",
         date_end: dateRange ? dateRange[1].format("YYYY-MM-DD") : "",
       }));
     } catch { /* 忽略写入失败 */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowSplit, capture4metrics, captureRead, dateRange]);
+  }, [windowSplit, capture4metrics, captureRead, saveHtml, dateRange]);
 
   useEffect(() => {
     const probe = document.createElement("div");
@@ -316,6 +320,7 @@ export default function Home() {
       window_split: windowSplit,
       capture_4metrics: capture4metrics,
       capture_read: captureRead,
+      save_html: saveHtml,
     };
 
     (async () => {
@@ -497,6 +502,8 @@ export default function Home() {
           <Switch checked={capture4metrics} onChange={setCapture4metrics} />
           <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集阅读数</span>
           <Switch checked={captureRead} onChange={setCaptureRead} />
+          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存Html</span>
+          <Switch checked={saveHtml} onChange={setSaveHtml} />
         </div>
         {/* 设置按钮行(第三行) */}
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -649,6 +656,7 @@ export default function Home() {
             { label: "窗口分离", value: windowSplit ? "开" : "关" },
             { label: "采集4指标", value: capture4metrics ? "开" : "关" },
             { label: "采集阅读数", value: captureRead ? "开" : "关" },
+            { label: "保存Html", value: saveHtml ? "开" : "关" },
           ].map((row) => (
             <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
               <span style={{ width: 90, color: "#888" }}>{row.label}</span>

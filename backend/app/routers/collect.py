@@ -98,6 +98,7 @@ class CollectStart(BaseModel):
     window_split: bool = True  # 窗口分离
     capture_4metrics: bool = False  # 采集4指标
     capture_read: bool = False       # 采集阅读数
+    save_html: bool = False          # 保存文章为本地HTML(含图片)
 
 
 def _sse(data: dict):
@@ -151,7 +152,7 @@ def _collect_generate(payload: CollectStart):
             ok, text = tasks_service.article_list_wait_stable(
                 date_start=payload.date_start, date_end=payload.date_end,
                 biz=payload.biz, capture_4metrics=payload.capture_4metrics,
-                capture_read=payload.capture_read)
+                capture_read=payload.capture_read, save_html=payload.save_html)
             log_q.put(("log", f"[文章列表识别循环] {'成功' if ok else '失败'} | {text}"))
             log_q.put(("done", True, "采集流程结束"))
         except SystemExit:
@@ -171,7 +172,8 @@ def _collect_generate(payload: CollectStart):
            f"日期 {payload.date_start} ~ {payload.date_end} | "
            f"窗口分离={'开' if payload.window_split else '关'} | "
            f"4指标={'开' if payload.capture_4metrics else '关'} | "
-           f"阅读数={'开' if payload.capture_read else '关'}")
+           f"阅读数={'开' if payload.capture_read else '关'} | "
+           f"保存Html={'开' if payload.save_html else '关'}")
     yield _sse({"type": "log", "msg": "采集启动"})
     yield _sse({"type": "log", "msg": msg})
     yield _sse({"type": "task", "done": 0, "total": 1})
