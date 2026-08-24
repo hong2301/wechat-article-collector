@@ -7,7 +7,7 @@ import { HTML5Backend } from "react-dnd-html5-backend";
 import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, message, Modal, Spin, Progress, Empty, Switch } from "antd";
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
-import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined, SwapOutlined, RobotOutlined } from "@ant-design/icons";
+import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined, SwapOutlined, RobotOutlined, FolderOpenOutlined } from "@ant-design/icons";
 import PointsDialog from "./components/PointsDialog";
 import ScrollsDialog from "./components/ScrollsDialog";
 import AiDialog from "./components/AiDialog";
@@ -413,6 +413,13 @@ export default function Home() {
     setCollectOpen(false);
     load();
   }
+  // 打开下载数据文件夹(D:/article_data)
+  async function openDownloads() {
+    try {
+      const d = await (await fetch("http://127.0.0.1:8000/api/settings/open-downloads", { method: "POST" })).json();
+      if (!d.ok) message.error(d.error || "打开失败");
+    } catch { message.error("无法连接后端"); }
+  }
 
 
   const [calMonthKey, setCalMonthKey] = useState<string>("");
@@ -662,7 +669,8 @@ export default function Home() {
             </div>
             )}
 
-        <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 10, flexShrink: 0 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 10, flexShrink: 0 }}>
+          <Button size="small" icon={<FolderOpenOutlined />} onClick={openDownloads}>打开下载数据</Button>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 个公众号</Typography.Text>
         </div>
       </div>

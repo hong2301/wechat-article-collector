@@ -52,3 +52,16 @@ def save_ai_settings(payload: AiSettings):
         return {"ok": True, "count": len(models)}
     finally:
         conn.close()
+
+
+@router.post("/open-downloads")
+def open_downloads():
+    """打开文章下载文件夹(D:/article_data), 不存在则创建"""
+    import os
+    d = r"D:/article_data"
+    try:
+        os.makedirs(d, exist_ok=True)
+        os.startfile(d)
+        return {"ok": True, "dir": d}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
