@@ -4,7 +4,8 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import dayjs from "dayjs";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber, Spin, Switch } from "antd";
-import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined, FolderOpenOutlined, DownloadOutlined, ReloadOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined, FolderOpenOutlined, DownloadOutlined, ReloadOutlined, FileExcelOutlined } from "@ant-design/icons";
+import * as XLSX from "xlsx";
 
 const API = "http://127.0.0.1:8000/api/accounts";
 const ART_PREFIX = "https://mp.weixin.qq.com/s/";
@@ -335,6 +336,20 @@ export default function ArticlePage() {
         }
       }
     })();
+  }
+  // 导出文章列表为 xlsx
+  function exportExcel() {
+    if (shown.length === 0) { message.info("没有可导出的数据"); return; }
+    const rows = shown.map((a) => ({
+      "ID": a.id, "标题": a.title || "", "日期": a.date || "",
+      "art_biz": a.art_biz || "", "阅读": a.reads ?? "", "点赞": a.likes ?? "",
+      "转发": a.forwards ?? "", "喜欢": a.favorites ?? "", "评论": a.comments ?? "",
+      "原创": a.original || "", "IP属地": a.ip || "", "写入时间": a.write_time || "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "文章");
+    XLSX.writeFile(wb, `${name || "文章列表"}.xlsx`);
   }
   // 打开当前公众号的下载文件夹(D:/article_data/公众号名)
   async function openAccountDir() {
@@ -672,7 +687,10 @@ export default function ArticlePage() {
         </div>
         )}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 10, flexShrink: 0 }}>
-          <Button size="small" icon={<FolderOpenOutlined />} onClick={openAccountDir}>打开下载数据</Button>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <Button size="small" icon={<FolderOpenOutlined />} onClick={openAccountDir}>打开下载数据</Button>
+            <Button size="small" icon={<FileExcelOutlined />} onClick={exportExcel}>导出表格</Button>
+          </div>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 篇</Typography.Text>
         </div>
       </div>

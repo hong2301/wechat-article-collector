@@ -7,7 +7,8 @@ import { HTML5Backend } from "react-dnd-html5-backend";
 import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, message, Modal, Spin, Progress, Empty, Switch } from "antd";
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
-import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined, SwapOutlined, RobotOutlined, FolderOpenOutlined } from "@ant-design/icons";
+import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined, SwapOutlined, RobotOutlined, FolderOpenOutlined, FileExcelOutlined } from "@ant-design/icons";
+import * as XLSX from "xlsx";
 import PointsDialog from "./components/PointsDialog";
 import ScrollsDialog from "./components/ScrollsDialog";
 import AiDialog from "./components/AiDialog";
@@ -426,6 +427,18 @@ export default function Home() {
     setCollectOpen(false);
     load();
   }
+  // 导出公众号列表为 xlsx
+  function exportExcel() {
+    if (shown.length === 0) { message.info("没有可导出的数据"); return; }
+    const rows = shown.map((t) => ({
+      "ID": t.id, "公众号名称": t.name, "biz": t.biz || "",
+      "文章数": t.collected_count ?? 0, "状态": t.status || "", "备注": t.remark || "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "公众号");
+    XLSX.writeFile(wb, `公众号列表.xlsx`);
+  }
   // 打开下载数据文件夹(D:/article_data)
   async function openDownloads() {
     try {
@@ -691,7 +704,10 @@ export default function Home() {
             )}
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 10, flexShrink: 0 }}>
-          <Button size="small" icon={<FolderOpenOutlined />} onClick={openDownloads}>打开下载数据</Button>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <Button size="small" icon={<FolderOpenOutlined />} onClick={openDownloads}>打开下载数据</Button>
+            <Button size="small" icon={<FileExcelOutlined />} onClick={exportExcel}>导出表格</Button>
+          </div>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 个公众号</Typography.Text>
         </div>
       </div>
