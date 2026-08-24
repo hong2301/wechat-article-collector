@@ -123,6 +123,7 @@ export default function Home() {
   const tasksRef = useRef<Task[]>([]);
   const collectAbortRef = useRef<AbortController | null>(null);  // 采集SSE控制器
   const collectLogRef = useRef<HTMLDivElement>(null);            // 日志区(自动滚动)
+  const collectStartTsRef = useRef<number>(0);                  // 采集开始时间戳(毫秒)
   const [importing, setImporting] = useState(false);
   const [importingPct, setImportingPct] = useState(0);
   const [dragOver, setDragOver] = useState(false);
@@ -139,6 +140,7 @@ export default function Home() {
   const [collectStartTime, setCollectStartTime] = useState<string>("");
   const [collectCount, setCollectCount] = useState(0);
   const [collectLogs, setCollectLogs] = useState<string[]>([]);
+  const [speed, setSpeed] = useState(0);
   const [pointsOpen, setPointsOpen] = useState(false);
   const [scrollsOpen, setScrollsOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
@@ -305,6 +307,8 @@ export default function Home() {
     const link = `https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=${encodeURIComponent(task.biz || "")}`;
     setCollectStarted(true);
     setCollectStartTime(new Date().toLocaleTimeString("zh-CN", { hour12: false }));
+    collectStartTsRef.current = Date.now();
+    setSpeed(0);
     setCollectCount(0);
     setCollectLogs([`开始采集「${task.name || ""}」`]);
 
@@ -347,6 +351,10 @@ export default function Home() {
               const d = JSON.parse(block.slice(6));
               if (d.type === "log" && d.msg) {
                 setCollectLogs((p) => [...p, d.msg]);
+                // 前端统计: 复制到链接即算获取到文章
+                if (d.msg.includes("已复制链接") || d.msg.includes("已复制链接:")) {
+                  setCollectCount((c) => c + 1);
+                }
               } else if (d.type === "task" && d.done !== undefined) {
                 // 任务进度(单任务 0/1)
                 if (d.done >= 1) setCollectCount(d.done);
@@ -446,6 +454,13 @@ export default function Home() {
       collectLogRef.current.scrollTop = collectLogRef.current.scrollHeight;
     }
   }, [collectLogs]);
+  // 采集速度: 每获得一篇文章重算 篇/分
+  useEffect(() => {
+    if (collectCount > 0 && collectStartTsRef.current > 0) {
+      const mins = (Date.now() - collectStartTsRef.current) / 60000;
+      setSpeed(mins > 0 ? Math.round((collectCount / mins) * 10) / 10 : 0);
+    }
+  }, [collectCount]);
   function toggleSelect(id: number, checked: boolean) {
     setSelectedKeys((prev) => checked ? [...prev, id] : prev.filter((k) => k !== id));
   }
@@ -649,42 +664,61 @@ export default function Home() {
             <Button type="primary" onClick={confirmCollect}>确认</Button>
           </>
         )}
-        width={560}
+        width={collectStarted ? 920 : 560}
       >
-        {/* 采集条件卡片 */}
-        <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0", marginBottom: 12 }}>
-          {[
-            { label: "时间范围", value: dateRange ? `${dateRange[0].format("YYYY-MM-DD")} ~ ${dateRange[1].format("YYYY-MM-DD")}` : "全部" },
-            { label: "窗口分离", value: windowSplit ? "开" : "关" },
-            { label: "采集4指标", value: capture4metrics ? "开" : "关" },
-            { label: "采集阅读数", value: captureRead ? "开" : "关" },
-            { label: "保存Html", value: saveHtml ? "开" : "关" },
-          ].map((row) => (
-            <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
-              <span style={{ width: 90, color: "#888" }}>{row.label}</span>
-              <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
+        {/* 进行中: 采集设置 + 采集情况 左右两卡片 */}
+        {collectStarted ? (
+          <div style={{ display: "flex", gap: 12 }}>
+            {/* 左: 采集设置 */}
+            <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
+              <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0" }}>采集设置</div>
+              {[
+                { label: "时间范围", value: dateRange ? `${dateRange[0].format("YYYY-MM-DD")} ~ ${dateRange[1].format("YYYY-MM-DD")}` : "全部" },
+                { label: "窗口分离", value: windowSplit ? "开" : "关" },
+                { label: "采集4指标", value: capture4metrics ? "开" : "关" },
+                { label: "采集阅读数", value: captureRead ? "开" : "关" },
+                { label: "保存Html", value: saveHtml ? "开" : "关" },
+              ].map((row) => (
+                <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
+                  <span style={{ width: 90, color: "#888" }}>{row.label}</span>
+                  <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-
-        {/* 采集情况统计卡片(仅进行中显示) */}
-        {collectStarted && (
-          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "12px 14px", marginBottom: 10 }}>
-            <Typography.Text strong style={{ fontSize: 13 }}>采集情况</Typography.Text>
-            <div style={{ display: "flex", gap: 24, marginTop: 8, fontSize: 13, color: "#555" }}>
-              <span>开始时间: {collectStartTime}</span>
-              <span>已采集文章: {collectCount} 篇</span>
-              <span>采集速度: 0 篇/分</span>
+            {/* 右: 采集情况 */}
+            <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
+              <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0" }}>采集情况</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 14px", fontSize: 13, color: "#555" }}>
+                <div>开始时间: <span style={{ color: "#333" }}>{collectStartTime}</span></div>
+                <div>已采集文章: <span style={{ color: "#333", fontWeight: 600 }}>{collectCount} 篇</span></div>
+                <div>采集速度: <span style={{ color: "#333" }}>{speed} 篇/分</span></div>
+              </div>
             </div>
+          </div>
+        ) : (
+          // 确认阶段: 单一设置卡片
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0", marginBottom: 12 }}>
+            {[
+              { label: "时间范围", value: dateRange ? `${dateRange[0].format("YYYY-MM-DD")} ~ ${dateRange[1].format("YYYY-MM-DD")}` : "全部" },
+              { label: "窗口分离", value: windowSplit ? "开" : "关" },
+              { label: "采集4指标", value: capture4metrics ? "开" : "关" },
+              { label: "采集阅读数", value: captureRead ? "开" : "关" },
+              { label: "保存Html", value: saveHtml ? "开" : "关" },
+            ].map((row) => (
+              <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
+                <span style={{ width: 90, color: "#888" }}>{row.label}</span>
+                <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
+              </div>
+            ))}
           </div>
         )}
 
         {/* 日志区(仅进行中显示) */}
         {collectStarted && (
-          <div style={{ background: "#fafafa", border: "1px solid #eee", borderRadius: 8, padding: "10px 12px" }}>
+          <div style={{ background: "#fafafa", border: "1px solid #eee", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
             <Typography.Text strong style={{ fontSize: 13 }}>日志</Typography.Text>
             <div ref={collectLogRef} style={{
-              marginTop: 8, height: 200, overflow: "auto",
+              marginTop: 8, height: 220, overflow: "auto",
               background: "#1e1e1e", borderRadius: 6, padding: 8,
               fontFamily: "Consolas, monospace", fontSize: 12, color: "#d4d4d4", whiteSpace: "pre-wrap",
             }}>
