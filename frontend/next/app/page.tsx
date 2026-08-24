@@ -692,13 +692,16 @@ export default function Home() {
                 <span style={{ color: "#888" }}>(暂无日志)</span>
               ) : (
                 collectLogs.map((l, i) => {
-                  // 按 [tag] 前缀着色: async异步(蓝) step步骤(橙) ok成功(绿) fail失败(红) warn警告(黄)
-                  const m = l.match(/\[(async|step|ok|fail|warn)\]\s?([\s\S]*)/);
-                  const color = m ? {
-                    async: "#69b1ff", step: "#ffa940", ok: "#73d13d",
-                    fail: "#ff4d4f", warn: "#ffc53d",
-                  }[m[1]] : undefined;
-                  return <div key={i} style={m && color ? { color } : undefined}>{m ? m[2] : l}</div>;
+                  // [async:任务名] 异步统一青色; [step]橙 [ok]绿 [fail]红 [warn]黄
+                  const mAsync = l.match(/^\[async:([^\]]+)\]\s?([\s\S]*)/);
+                  const m = mAsync || l.match(/^\[(step|ok|fail|warn)\]\s?([\s\S]*)/);
+                  let text = l, color: string | undefined;
+                  if (mAsync) { color = "#36cfc9"; text = `[${mAsync[1]}] ${mAsync[2]}`; }
+                  else if (m) {
+                    color = { step: "#ffa940", ok: "#73d13d", fail: "#ff4d4f", warn: "#ffc53d" }[m[1]];
+                    text = m[2];
+                  }
+                  return <div key={i} style={color ? { color } : undefined}>{text}</div>;
                 })
               )}
             </div>

@@ -617,9 +617,10 @@ def _save_article_base(link, biz, list_reads=None, list_likes=None):
     先抓元信息(标题/时间/原创/ip) -> 带元信息写表; 抓取失败仅写链接
     返回 (new_id, name, art, 文本); 失败 new_id=None"""
     logs = []
-    tasks_echo("[async] 正在采集元数据...")
     try:
         art = extract_art_biz(link)
+        tag = f"元数据#{art[:10]}"
+        tasks_echo(f"[async:{tag}] 正在采集...")
         # 抓取文章元信息(网络请求, 失败不阻断, 失败仅写链接)
         meta = None
         try:
@@ -687,34 +688,41 @@ def _save_article_base(link, biz, list_reads=None, list_likes=None):
         except Exception as e:
             logs.append(f"列表阅读/赞写入失败: {e}")
 
-    tasks_echo(f"[ok] 元数据采集完成, 文章已写入 id={new_id}")
+    tasks_echo(f"[async:{tag}] 采集完成, 文章已写入 id={new_id}")
     return new_id, name, art, "; ".join(logs)
 
 
-def _save_html_block(link, name=""):
+def _save_html_block(link, name="", tag=""):
     """步骤3: 保存文章为本地HTML(公众号分类目录, 含图片本地化) - 独立流程
     后台异步执行(save_article_html 内含网络请求), 完成后回调日志"""
-    tasks_echo("[async] 正在保存Html...")
+    if not tag:
+        try:
+            tag = f"保存Html#{extract_art_biz(link)[:10]}"
+        except Exception:
+            tag = "保存Html"
+    tasks_echo(f"[async:{tag}] 正在保存...")
     try:
         html_path, info = save_article_html(link, account_name=name)
-        tasks_echo(f"[ok] 保存Html: {info}" if html_path else f"[fail] 保存Html失败: {info}")
+        ok_txt = "成功: " + info if html_path else "失败: " + info
+        tasks_echo(f"[async:{tag}] {ok_txt}")
     except Exception as e:
-        tasks_echo(f"[fail] 保存Html异常: {e}")
+        tasks_echo(f"[async:{tag}] 异常: {e}")
 
 def _bg_ai_metrics(shot_b64, api_key, model, biz, art):
     """后台线程任务: 豆包识图4指标(网络请求) -> 更新文章数据
     成功写指标值; 失败仍写截图base64(shot列)到文章表(按biz+art_biz匹配)"""
+    tag = f"4指标#{art[:10]}"
     try:
         metrics = None
         if shot_b64 and api_key and model:
-            tasks_echo("[async] 正在豆包识图4指标...")
+            tasks_echo(f"[async:{tag}] 正在豆包识图...")
             metrics = doubao_recognize_interact(shot_b64, api_key, model)
             if metrics is not None:
-                tasks_echo(f"[ok] 4指标: 点赞{metrics[0]} 转发{metrics[1]} 喜欢{metrics[2]} 留言{metrics[3]}")
+                tasks_echo(f"[async:{tag}] 点赞{metrics[0]} 转发{metrics[1]} 喜欢{metrics[2]} 留言{metrics[3]}")
             else:
-                tasks_echo("[fail] 豆包识图失败, 仅保存4指标截图")
+                tasks_echo(f"[async:{tag}] 识图失败, 仅保存截图")
         else:
-            tasks_echo("未配置AI模型或截图失败, 仅保存截图(如有)")
+            tasks_echo(f"[async:{tag}] 未配置AI模型或截图失败, 仅保存截图(如有)")
 
         # 更新文章数据: 成功写指标值; 失败只带 shot(base64)
         data = {"biz": biz, "art_biz": art}
@@ -730,11 +738,11 @@ def _bg_ai_metrics(shot_b64, api_key, model, biz, art):
             json=data, timeout=15,
         )
         if r.status_code == 200:
-            tasks_echo("文章数据已更新")
+            tasks_echo(f"[async:{tag}] 数据已更新")
         else:
-            tasks_echo(f"文章数据更新失败: HTTP {r.status_code}")
+            tasks_echo(f"[async:{tag}] 更新失败: HTTP {r.status_code}")
     except Exception as e:
-        tasks_echo(f"更新文章数据失败: {e}")
+        tasks_echo(f"[async:{tag}] 异常: {e}")
 
 
 def _collect_metrics(biz, art):
