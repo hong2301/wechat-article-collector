@@ -56,7 +56,8 @@ export default function ArticlePage() {
   const [capture4metrics, setCapture4metrics] = useState(false);
   const [captureRead, setCaptureRead] = useState(false);
   const [saveHtml, setSaveHtml] = useState(false);
-  // 从localStorage恢复更新设置(公众号页同 key)
+  const [cfgLoaded, setCfgLoaded] = useState(false);   // 恢复完成才允许写回
+  // 从localStorage恢复更新设置(独立key updateConfig)
   useEffect(() => {
     try {
       const d = JSON.parse(localStorage.getItem("updateConfig") || "{}");
@@ -65,16 +66,18 @@ export default function ArticlePage() {
       if (typeof d.capture_read === "boolean") setCaptureRead(d.capture_read);
       if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
     } catch { /* 忽略 */ }
+    setCfgLoaded(true);
   }, []);
-  // 变更写回localStorage
+  // 变更写回localStorage(恢复完成后生效, 避免初始默认值覆盖存储)
   useEffect(() => {
+    if (!cfgLoaded) return;
     try {
       const d = JSON.parse(localStorage.getItem("updateConfig") || "{}");
       d.window_split = windowSplit; d.capture_4metrics = capture4metrics;
       d.capture_read = captureRead; d.save_html = saveHtml;
       localStorage.setItem("updateConfig", JSON.stringify(d));
     } catch { /* 忽略 */ }
-  }, [windowSplit, capture4metrics, captureRead, saveHtml]);
+  }, [cfgLoaded, windowSplit, capture4metrics, captureRead, saveHtml]);
   const NUM_FIELDS = [
     { key: "reads", label: "阅读" },
     { key: "likes", label: "点赞" },
