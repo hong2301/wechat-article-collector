@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import dayjs from "dayjs";
-import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber, Spin } from "antd";
+import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber, Spin, Switch } from "antd";
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined, FolderOpenOutlined, DownloadOutlined, ReloadOutlined } from "@ant-design/icons";
 
 const API = "http://127.0.0.1:8000/api/accounts";
@@ -51,6 +51,30 @@ export default function ArticlePage() {
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
   const [quickActive, setQuickActive] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(true);
+  // 更新设置(与公众号页共享配置): 窗口分离/4指标/阅读数/保存Html
+  const [windowSplit, setWindowSplit] = useState(true);
+  const [capture4metrics, setCapture4metrics] = useState(false);
+  const [captureRead, setCaptureRead] = useState(false);
+  const [saveHtml, setSaveHtml] = useState(false);
+  // 从localStorage恢复更新设置(公众号页同 key)
+  useEffect(() => {
+    try {
+      const d = JSON.parse(localStorage.getItem("updateConfig") || "{}");
+      if (typeof d.window_split === "boolean") setWindowSplit(d.window_split);
+      if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
+      if (typeof d.capture_read === "boolean") setCaptureRead(d.capture_read);
+      if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
+    } catch { /* 忽略 */ }
+  }, []);
+  // 变更写回localStorage
+  useEffect(() => {
+    try {
+      const d = JSON.parse(localStorage.getItem("updateConfig") || "{}");
+      d.window_split = windowSplit; d.capture_4metrics = capture4metrics;
+      d.capture_read = captureRead; d.save_html = saveHtml;
+      localStorage.setItem("updateConfig", JSON.stringify(d));
+    } catch { /* 忽略 */ }
+  }, [windowSplit, capture4metrics, captureRead, saveHtml]);
   const NUM_FIELDS = [
     { key: "reads", label: "阅读" },
     { key: "likes", label: "点赞" },
@@ -350,6 +374,17 @@ export default function ArticlePage() {
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 0 8px" }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/")}>返回</Button>
         <Typography.Title level={5} style={{ margin: 0 }}>「{name || "..."}」的文章列表</Typography.Title>
+      </div>
+      {/* 更新设置开关行(与公众号页一致) */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px", margin: "0 0 12px", minHeight: 40 }}>
+        <span style={{ fontSize: 14, color: "#555" }}>窗口分离</span>
+        <Switch checked={windowSplit} onChange={setWindowSplit} />
+        <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集4指标</span>
+        <Switch checked={capture4metrics} onChange={setCapture4metrics} />
+        <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集阅读数</span>
+        <Switch checked={captureRead} onChange={setCaptureRead} />
+        <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存Html</span>
+        <Switch checked={saveHtml} onChange={setSaveHtml} />
       </div>
       {/* 筛选面板 */}
       <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "14px 18px", margin: "0 0 12px" }}>
