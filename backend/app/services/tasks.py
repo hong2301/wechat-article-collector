@@ -701,13 +701,54 @@ def _save_html_block(link, name=""):
     except Exception as e:
         tasks_echo(f"[fail] 保存Html异常: {e}")
 
+def _bg_ai_metrics(shot_b64, api_key, model, biz, art):
+    """后台线程任务: 豆包识图4指标(网络请求) -> 更新文章数据
+    成功写指标值; 失败仍写截图base64(shot列)到文章表(按biz+art_biz匹配)"""
+    try:
+        metrics = None
+        if shot_b64 and api_key and model:
+            tasks_echo("[async] 正在豆包识图4指标...")
+            metrics = doubao_recognize_interact(shot_b64, api_key, model)
+            if metrics is not None:
+                tasks_echo(f"[ok] 4指标: 点赞{metrics[0]} 转发{metrics[1]} 喜欢{metrics[2]} 留言{metrics[3]}")
+            else:
+                tasks_echo("[fail] 豆包识图失败, 仅保存4指标截图")
+        else:
+            tasks_echo("未配置AI模型或截图失败, 仅保存截图(如有)")
+
+        # 更新文章数据: 成功写指标值; 失败只带 shot(base64)
+        data = {"biz": biz, "art_biz": art}
+        if metrics is not None:
+            data.update({
+                "likes": str(metrics[0]), "forwards": str(metrics[1]),
+                "favorites": str(metrics[2]), "comments": str(metrics[3]),
+            })
+        if shot_b64:
+            data["shot"] = shot_b64
+        r = _requests.put(
+            "http://127.0.0.1:8000/api/accounts/articles-by-biz/save",
+            json=data, timeout=15,
+        )
+        if r.status_code == 200:
+            tasks_echo("文章数据已更新")
+        else:
+            tasks_echo(f"文章数据更新失败: HTTP {r.status_code}")
+    except Exception as e:
+        tasks_echo(f"更新文章数据失败: {e}")
+
+
 def _collect_metrics(biz, art):
-    """4指标采集: 截图30/31区域 -> 豆包识图(1次) -> 更新文章数据
-    成功写指标值; 失败仍写截图base64(shot列)到文章表, 不中断流程"""
+    """4指标采集: 截图30/31区域(主线程) -> 豆包识图异步提交(网络, 不阻塞)
+    截图后立即返回, 识图与更新由后台线程完成"""
     # 实时输出: 每步直接 tasks_echo
     p30 = _read_point(30)   # 4指标区域左上
     p31 = _read_point(31)   # 4指标区域右下
+    shot_b64 = None
     if p30 and p31:
+        # 页面稳定判断(30/31区域, 50次机会, 连续15次相同判稳定; 不稳定也继续执行)
+        ok_stable, info = wait_page_stable(
+            p30[0], p30[1], p31[0], p31[1], same_need=15, timeout=50, interval=0.1)
+        tasks_echo(f"4指标: 页面稳定={ok_stable}({info})")
         try:
             shot_path, shot_b64 = pc.screenshot(
                 p30[0], p30[1], p31[0], p31[1], img_format="png", as_base64=True)
@@ -737,36 +778,8 @@ def _collect_metrics(biz, art):
     except Exception:
         pass
 
-    metrics = None
-    if shot_b64 and api_key and model:
-        metrics = doubao_recognize_interact(shot_b64, api_key, model)
-        if metrics is not None:
-            tasks_echo(f"[ok] 4指标: 点赞{metrics[0]} 转发{metrics[1]} 喜欢{metrics[2]} 留言{metrics[3]}")
-        else:
-            tasks_echo("[fail] 豆包识图失败, 仅保存4指标截图")
-    else:
-        tasks_echo("未配置AI模型或截图失败, 仅保存截图(如有)")
-
-    # 更新文章数据: 成功写指标值; 失败只带 shot(base64)
-    data = {"biz": biz, "art_biz": art}
-    if metrics is not None:
-        data.update({
-            "likes": str(metrics[0]), "forwards": str(metrics[1]),
-            "favorites": str(metrics[2]), "comments": str(metrics[3]),
-        })
-    if shot_b64:
-        data["shot"] = shot_b64
-    try:
-        r = _requests.put(
-            "http://127.0.0.1:8000/api/accounts/articles-by-biz/save",
-            json=data, timeout=15,
-        )
-        if r.status_code == 200:
-            tasks_echo("文章数据已更新")
-        else:
-            tasks_echo(f"文章数据更新失败: HTTP {r.status_code}")
-    except Exception as e:
-        tasks_echo(f"更新文章数据失败: {e}")
+    # 豆包识图+写表整体异步提交(网络耗时, 不阻塞主流程)
+    _bg_executor.submit(_bg_ai_metrics, shot_b64, api_key, model, biz, art)
 
 
 def _collect_reads(collect_type, link, biz, art):
