@@ -75,7 +75,6 @@ export default function ArticlePage() {
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const tableWrapRef = useRef<HTMLDivElement>(null);
-  const [tableH, setTableH] = useState(400);
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
@@ -87,17 +86,6 @@ export default function ArticlePage() {
   }, []);
 
   // 测量表格容器高度 -> 行区滚动且底栏固定
-  useEffect(() => {
-    if (loading) return;   // 表格尚未渲染, 等加载完成后测
-    const el = tableWrapRef.current;
-    if (!el) return;
-    const upd = () => setTableH(el.clientHeight);
-    upd();
-    const ro = new ResizeObserver(upd);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [loading]);
-
   // 无日期的(新增)排最前(按id倒序), 有日期的按日期倒序
   function sortArticles(list: Article[]) {
     const noDate = list.filter((a) => !a.date).sort((a, b) => b.id - a.id);
@@ -352,8 +340,8 @@ export default function ArticlePage() {
           </Space>
         </div>
         ) : shown.length > 0 ? (
-        <div ref={tableWrapRef} style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden" }}>
-        <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" scroll={{ x: 1500, y: Math.max(100, tableH - 48) }}
+        <div ref={tableWrapRef} style={{ flex: 1, minHeight: 0, position: "relative", overflow: "auto" }}>
+        <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" sticky scroll={{ x: 1500 }}
           onChange={(_p: any, _f: any, sorter: any) => {
             const s = Array.isArray(sorter) ? sorter[0] : sorter;
             const key = s?.columnKey;

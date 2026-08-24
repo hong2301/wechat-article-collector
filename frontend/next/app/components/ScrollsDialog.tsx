@@ -295,12 +295,14 @@ export default function ScrollsDialog({
           )}
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }} onChange={onPick} />
         </div>
+        <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
         <Table
           rowKey="id" size="small" bordered loading={loading}
           dataSource={rows} pagination={false} columns={columns}
           locale={{ emptyText: <Empty description="暂无滚动配置" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
-          scroll={{ y: "calc(60vh - 120px)" }}
+          sticky scroll={{ x: true }}
         />
+        </div>
       </div>
 
       {/* 新增/修改弹窗 */}

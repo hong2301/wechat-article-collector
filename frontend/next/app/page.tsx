@@ -541,8 +541,9 @@ export default function Home() {
               </Space>
             </div>
             ) : shown.length > 0 ? (
+            <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
             <DndProvider backend={HTML5Backend}>
-            <Table className="home-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} bordered scroll={{ y: "calc(100vh - 255px)" }}
+            <Table className="home-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} bordered sticky scroll={{ x: true }}
               locale={{ emptyText: <Empty description={loadErr ? "加载失败，请重试" : "请添加一个公众号"} image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
               components={{ body: { row: DndRow } }}
               columns={[
@@ -597,13 +598,14 @@ export default function Home() {
               ]}
             />
             </DndProvider>
+            </div>
             ) : (
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 0" }}>
               <Empty description={loadErr ? "加载失败，请重试" : "请添加一个公众号"} image={Empty.PRESENTED_IMAGE_SIMPLE} />
             </div>
             )}
 
-        <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 10 }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 10, flexShrink: 0 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 个公众号</Typography.Text>
         </div>
       </div>

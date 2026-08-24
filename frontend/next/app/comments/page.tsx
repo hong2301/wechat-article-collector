@@ -53,7 +53,6 @@ export default function CommentsPage() {
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState(false);
   const tableWrapRef = useRef<HTMLDivElement>(null);
-  const [tableH, setTableH] = useState(400);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -73,17 +72,6 @@ export default function CommentsPage() {
     setName(q.get("name") || "");
     if (a) load(a);
   }, []);
-
-  useEffect(() => {
-    if (loading) return;   // 表格尚未渲染, 等加载完成后测
-    const el = tableWrapRef.current;
-    if (!el) return;
-    const upd = () => setTableH(el.clientHeight);
-    upd();
-    const ro = new ResizeObserver(upd);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [loading]);
 
   async function load(a: string) {
     setLoading(true);
@@ -231,8 +219,8 @@ export default function CommentsPage() {
           </Space>
         </div>
         ) : shown.length > 0 ? (
-        <div ref={tableWrapRef} style={{ flex: 1, minHeight: 0, position: "relative", overflow: "hidden" }}>
-          <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" scroll={{ x: 1200, y: Math.max(100, tableH - 48) }}
+        <div ref={tableWrapRef} style={{ flex: 1, minHeight: 0, position: "relative", overflow: "auto" }}>
+          <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" sticky scroll={{ x: 1200 }}
             rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
             locale={{ emptyText: <Empty description={loadErr ? "加载失败，请重试" : "暂无评论"} /> }}
             columns={[
