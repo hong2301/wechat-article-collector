@@ -748,7 +748,7 @@ def _save_html_block(link, name="", tag="", base_dir=None):
 
 def _bg_ai_metrics(shot_b64, api_key, model, biz, art):
     """后台线程任务: 豆包识图4指标(网络请求) -> 更新文章数据
-    成功写指标值; 失败仍写截图base64(shot列)到文章表(按biz+art_biz匹配)"""
+    成功写指标值(按biz+art_biz匹配)"""
     tag = f"4指标#{art[:10]}"
     try:
         metrics = None
@@ -758,19 +758,17 @@ def _bg_ai_metrics(shot_b64, api_key, model, biz, art):
             if metrics is not None:
                 tasks_echo(f"[async:{tag}] 点赞{metrics[0]} 转发{metrics[1]} 喜欢{metrics[2]} 留言{metrics[3]}")
             else:
-                tasks_echo(f"[async:{tag}] 识图失败, 仅保存截图")
+                tasks_echo(f"[async:{tag}] 识图失败")
         else:
-            tasks_echo(f"[async:{tag}] 未配置AI模型或截图失败, 仅保存截图(如有)")
+            tasks_echo(f"[async:{tag}] 未配置AI模型或截图失败")
 
-        # 更新文章数据: 成功写指标值; 失败只带 shot(base64)
+        # 更新文章数据: 成功写指标值
         data = {"biz": biz, "art_biz": art}
         if metrics is not None:
             data.update({
                 "likes": str(metrics[0]), "forwards": str(metrics[1]),
                 "favorites": str(metrics[2]), "comments": str(metrics[3]),
             })
-        if shot_b64:
-            data["shot"] = shot_b64
         r = _requests.put(
             "http://127.0.0.1:8000/api/accounts/articles-by-biz/save",
             json=data, timeout=15,

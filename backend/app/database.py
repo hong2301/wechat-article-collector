@@ -46,8 +46,6 @@ def init_db():
             favorites    TEXT DEFAULT '',
             comments     TEXT DEFAULT '',
             write_time   TEXT DEFAULT '',
-            shot         TEXT DEFAULT '',
-            read_shot    TEXT DEFAULT '',
             original     TEXT DEFAULT '',
             ip           TEXT DEFAULT ''
         );

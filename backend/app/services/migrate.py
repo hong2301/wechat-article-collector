@@ -25,12 +25,11 @@ def migrate_collected():
                 name = (r.get("公众号名称") or "").strip()
                 aid, biz = acc.get(name, (None, ""))
                 conn.execute(
-                    "INSERT INTO articles(account_id, biz, name, date, title, link, reads, likes, forwards, favorites, comments, write_time, shot, read_shot, original, ip) "
-                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO articles(account_id, biz, name, date, title, link, reads, likes, forwards, favorites, comments, write_time, original, ip) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (aid, biz, name, (r.get("日期") or ""), (r.get("标题") or ""), (r.get("链接") or ""),
                      (r.get("阅读") or ""), (r.get("点赞") or ""), (r.get("转发") or ""),
                      (r.get("喜欢") or ""), (r.get("评论") or ""), (r.get("写入时间") or ""),
-                     (r.get("互动截图") or ""), (r.get("阅读截图") or ""),
                      (r.get("是否原创") or ""), (r.get("IP属地") or "")))
                 n += 1
             conn.commit()
