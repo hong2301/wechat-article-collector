@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import dayjs from "dayjs";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber, Spin } from "antd";
-import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined, FolderOpenOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined, FolderOpenOutlined, DownloadOutlined, ReloadOutlined } from "@ant-design/icons";
 
 const API = "http://127.0.0.1:8000/api/accounts";
 const ART_PREFIX = "https://mp.weixin.qq.com/s/";
@@ -63,8 +63,14 @@ export default function ArticlePage() {
   );
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState(false);
+  const [dlKey, setDlKey] = useState<string>("");   // 正在下载的文章art_biz(空=无下载中)
   const [kw, setKw] = useState("");
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
+  const [dlOpen, setDlOpen] = useState(false);           // 下载选中弹窗
+  const [dlItems, setDlItems] = useState<{ art_biz: string; title: string; status: string; msg: string }[]>([]);
+  const [dlCount, setDlCount] = useState(0);             // 已完成数
+  const [dlRun, setDlRun] = useState(false);            // 下载中
+  const dlAbortRef = useRef<AbortController | null>(null);  // 下载取消控制
   const [addOpen, setAddOpen] = useState(false);
   const [newLink, setNewLink] = useState("");
   const [saving, setSaving] = useState(false);
@@ -103,6 +109,66 @@ export default function ArticlePage() {
       setLoadErr(false);
     } catch { message.error("加载失败"); setLoadErr(true); }
     finally { setLoading(false); }
+  }
+  // 下载当前文章为本地HTML(保存到对应公众号文件夹)
+  async function downloadHtml(a: Article) {
+    if (!a.art_biz) { message.warning("该文章无art_biz"); return; }
+    if (dlKey) { message.info("正在下载其他文章, 请稍候"); return; }
+    const link = `https://mp.weixin.qq.com/s/${a.art_biz}`;
+    setDlKey(a.art_biz);
+    const hint = message.loading("正在下载...", 0);
+    try {
+      const d = await (await fetch("http://127.0.0.1:8000/api/settings/save-article-html", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ link, account_name: name || "" }),
+      })).json();
+      hint();
+      if (d.ok) message.success("已保存: " + (d.info || d.path || ""));
+      else message.error(d.error || "保存失败");
+    } catch {
+      hint();
+      message.error("无法连接后端");
+    } finally { setDlKey(""); }
+  }
+  // 下载选中文章: 弹窗显示进度, 逐篇保存HTML到公众号文件夹
+  async function downloadSelected() {
+    if (selectedKeys.length === 0) { message.warning("请先勾选要下载的文章"); return; }
+    const rows = shown.filter((s) => selectedKeys.includes(s.id));
+    if (rows.length === 0) return;
+    const init = rows.map((r) => ({ art_biz: r.art_biz || "", title: (r.title || r.art_biz || "").slice(0, 24), status: "等待", msg: "" }));
+    setDlItems(init); setDlCount(0); setDlOpen(true); setDlRun(true);
+    dlAbortRef.current = new AbortController();
+    let done = 0;
+    for (let i = 0; i < rows.length; i++) {
+      if (dlAbortRef.current?.signal.aborted) break;  // 已取消
+      const a = rows[i];
+      if (!a.art_biz) {
+        setDlItems((p) => p.map((x, j) => j === i ? { ...x, status: "失败", msg: "无art_biz" } : x));
+        continue;
+      }
+      if (dlAbortRef.current?.signal.aborted) break;
+      setDlItems((p) => p.map((x, j) => j === i ? { ...x, status: "下载中" } : x));
+      try {
+        const link = `https://mp.weixin.qq.com/s/${a.art_biz}`;
+        const resp = await fetch("http://127.0.0.1:8000/api/settings/save-article-html", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ link, account_name: name || "" }),
+          signal: dlAbortRef.current?.signal,
+        });
+        const d = await resp.json();
+        if (d.ok) setDlItems((p) => p.map((x, j) => j === i ? { ...x, status: "成功", msg: (d.info || "").slice(0, 60) } : x));
+        else setDlItems((p) => p.map((x, j) => j === i ? { ...x, status: "失败", msg: d.error || "" } : x));
+      } catch (e: unknown) {
+        if ((e as Error)?.name === "AbortError") break;  // 用户取消
+        setDlItems((p) => p.map((x, j) => j === i ? { ...x, status: "失败", msg: "无法连接后端" } : x));
+      }
+      done++;
+      setDlCount(done);
+    }
+    setDlRun(false);
+    const cancelled = dlAbortRef.current?.signal.aborted;
+    if (cancelled) message.warning(`已取消, 完成 ${done} 篇`);
+    else message.success(`下载完成: ${done} 篇`);
   }
   // 打开当前公众号的下载文件夹(D:/article_data/公众号名)
   async function openAccountDir() {
@@ -296,11 +362,11 @@ export default function ArticlePage() {
             style={{ width: 280 }}
           />
           <Space size={4} wrap>
+            <Button size="small" type={dateRange === null && quickActive === null ? "primary" : "default"}
+              onClick={() => { setDateRange(null); setQuickActive(null); }}>全部</Button>
             <Button size="small" type={quickActive === "1" ? "primary" : "default"} onClick={() => toggleQuick(1, "1")}>今天</Button>
-            <Button size="small" type={quickActive === "3" ? "primary" : "default"} onClick={() => toggleQuick(3, "3")}>近三天</Button>
             <Button size="small" type={quickActive === "7" ? "primary" : "default"} onClick={() => toggleQuick(7, "7")}>近一周</Button>
             <Button size="small" type={quickActive === "30" ? "primary" : "default"} onClick={() => toggleQuick(30, "30")}>近一月</Button>
-            <Button size="small" type={quickActive === "365" ? "primary" : "default"} onClick={() => toggleQuick(365, "365")}>近一年</Button>
           </Space>
           {!collapsed && (
             <Input allowClear prefix={<SearchOutlined style={{ color: "#bfc7cf" }} />}
@@ -333,7 +399,8 @@ export default function ArticlePage() {
         onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) importFile(f); }}
         style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, minHeight: 300, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <Button type="primary" icon={<InboxOutlined />} onClick={() => message.info("采集选中(开发中)")}>采集选中</Button>
+          <Button type="primary" icon={<ReloadOutlined />} onClick={() => message.info("更新选中(开发中)")}>更新选中</Button>
+          <Button icon={<DownloadOutlined />} onClick={downloadSelected}>下载选中</Button>
           <div style={{ flex: 1 }} />
           <Button color="primary" variant="outlined" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>
           <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>
@@ -411,10 +478,11 @@ export default function ArticlePage() {
                 return <Tooltip title={t}><span style={{ cursor: "default" }}>{short}</span></Tooltip>;
               },
             },
-            { title: "操作", dataIndex: "op", width: 130, align: "center", fixed: "right",
+            { title: "操作", dataIndex: "op", width: 180, align: "center", fixed: "right",
               render: (_: unknown, r: Article) => (
                 <Space>
-                  <Button size="small" type="link" icon={<InboxOutlined />} onClick={() => message.info("采集功能开发中")}>采集</Button>
+                  <Button size="small" type="link" icon={<DownloadOutlined />} loading={dlKey === (r.art_biz || "")} onClick={() => downloadHtml(r)}>下载</Button>
+                  <Button size="small" type="link" icon={<ReloadOutlined />} onClick={() => message.info("更新功能开发中")}>更新</Button>
                   <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => del(r)}>删除</Button>
                 </Space>
               ) },
@@ -464,6 +532,24 @@ export default function ArticlePage() {
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>解析文件并识别文章链接…</Typography.Text>
           </div>
         )}
+      </Modal>
+
+      {/* 下载选中进度弹窗 */}
+      <Modal title={`下载进度 ${dlCount}/${dlItems.length}`} open={dlOpen}
+        footer={dlRun ? <Button danger onClick={() => { dlAbortRef.current?.abort(); setDlRun(false); setDlOpen(false); }}>取消</Button>
+                      : <Button type="primary" onClick={() => setDlOpen(false)}>关闭</Button>}
+        closable={false} mask={{ closable: false }} width={520}>
+        <Progress percent={dlItems.length ? Math.round((dlCount / dlItems.length) * 100) : 0}
+          status={dlRun ? "active" : "success"} />
+        <div style={{ maxHeight: 300, overflow: "auto", marginTop: 10, fontSize: 12 }}>
+          {dlItems.map((it, i) => (
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 0" }}>
+              <span style={{ width: 46, flexShrink: 0, color: it.status === "成功" ? "#52c41a" : it.status === "失败" ? "#ff4d4f" : it.status === "取消" ? "#999" : "#1677ff", fontWeight: 500 }}>{it.status}</span>
+              <span style={{ color: "#333", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.title}</span>
+              <span style={{ color: "#888", width: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.msg}</span>
+            </div>
+          ))}
+        </div>
       </Modal>
 
       <Modal title="新增文章" open={addOpen} onOk={saveNew} confirmLoading={saving} onCancel={() => setAddOpen(false)}

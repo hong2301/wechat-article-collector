@@ -86,3 +86,18 @@ def pick_dir(current: str = "D:/article_data"):
     finally:
         root.destroy()
     return {"ok": True, "dir": chosen or ""}
+
+
+@router.post("/save-article-html")
+def save_article_html_api(payload: dict = None):
+    """保存单篇文章为本地HTML(公众号分类目录, 含图片); payload: {link, account_name, base_dir}"""
+    from ..services.fetch_article import save_article_html
+    p = payload or {}
+    link = (p.get("link") or "").strip()
+    if not link:
+        return {"ok": False, "error": "缺少链接"}
+    path, info = save_article_html(link, account_name=(p.get("account_name") or ""),
+                                   base_dir=(p.get("base_dir") or None))
+    if path:
+        return {"ok": True, "path": path, "info": info}
+    return {"ok": False, "error": info}
