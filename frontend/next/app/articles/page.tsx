@@ -61,7 +61,7 @@ export default function ArticlePage() {
   const [captureComments, setCaptureComments] = useState(false);
   const [maxComments, setMaxComments] = useState<number | null>(null);
   const [maxLevel1, setMaxLevel1] = useState<number | null>(null);
-  const [maxLevel2, setMaxLevel2] = useState<number>(0);
+  const [maxLevel2, setMaxLevel2] = useState<number | null>(0);
   const [cfgLoaded, setCfgLoaded] = useState(false);   // 恢复完成才允许写回
   // 从localStorage恢复更新设置(独立key updateConfig)
   useEffect(() => {
@@ -72,9 +72,9 @@ export default function ArticlePage() {
       if (typeof d.capture_read === "boolean") setCaptureRead(d.capture_read);
       if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
       if (typeof d.capture_comments === "boolean") setCaptureComments(d.capture_comments);
-      if (typeof d.max_comments === "number") setMaxComments(d.max_comments);
-      if (typeof d.max_level1 === "number") setMaxLevel1(d.max_level1);
-      if (typeof d.max_level2 === "number") setMaxLevel2(d.max_level2);
+      if ("max_comments" in d) setMaxComments(d.max_comments);
+      if ("max_level1" in d) setMaxLevel1(d.max_level1);
+      if ("max_level2" in d) setMaxLevel2(d.max_level2);
     } catch { /* 忽略 */ }
     setCfgLoaded(true);
   }, []);
@@ -585,7 +585,7 @@ export default function ArticlePage() {
               onChange={(v) => setMaxLevel1(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 90 }} />
             <span style={{ fontSize: 13, color: "#555" }}>每级二级评论数</span>
             <InputNumber min={0} placeholder="无限" value={maxLevel2}
-              onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : 0)} style={{ width: 90 }} />
+              onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 90 }} />
           </div>
         )}
       </div>

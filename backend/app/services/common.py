@@ -128,3 +128,71 @@ def _finish(logs, copy_seen, ok, reason):
     if reason:
         text = reason if not text else f"{reason} | {text}"
     return ok, text
+
+
+def calc_comment_id(name, loc, t, likes, text, level):
+    """计算评论ID: 名称|地区|时间|点赞|正文|层级 -> md5 前16位"""
+    import hashlib
+    raw = f"{name}|{loc}|{t}|{likes}|{text}|{level}"
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def save_comments(art_biz, comment_list):
+    """写入评论到 comments 表(批量), 计算 comment_biz/parent_comment_biz
+    comment_list: [{名称,地区,时间,点赞数量,正文,层级,是否置顶,是否作者回复,是否作者点赞,回复文本}, ...]
+    返回: 写入条数"""
+    if not art_biz or not comment_list:
+        return 0
+    try:
+        from ..database import get_conn
+        l1_id = ""       # 当前所属一级评论ID
+        id_map = {}      # 名称 -> 评论ID(二级"回复某某"找父级)
+        fresh = []
+        for c in comment_list:
+            name = c.get("名称", "")
+            loc = c.get("地区", "")
+            t = c.get("时间", "")
+            likes = str(c.get("点赞数量", "0"))
+            text = c.get("正文", "")
+            level = int(c.get("层级", 1) or 1)
+            if cid := calc_comment_id(name, loc, t, likes, text, level):
+                # 层级/父级ID
+                if level == 1:
+                    l1_id = cid
+                parent = l1_id if level == 2 else ""
+                # 根据"回复某某"找父级(若有回复文本"回复XX：")
+                rtxt = c.get("回复文本", "") or ""
+                if level == 1 and rtxt.startswith("回复"):
+                    parent = id_map.get(rtxt.replace("回复", "", 1).split("：")[0].strip(), "")
+                id_map[name] = cid
+                fresh.append({
+                    "comment_biz": cid, "parent_comment_biz": parent, "art_biz": art_biz,
+                    "author": name, "content": text, "time": t, "likes": likes, "ip": loc,
+                    "is_author": 1 if c.get("是否作者") == "是" else 0,
+                    "is_top": 1 if c.get("是否置顶") == "是" else 0,
+                    "is_author_reply": 1 if c.get("是否作者回复") == "是" else 0,
+                    "is_author_like": 1 if c.get("是否作者点赞") == "是" else 0,
+                    "level": level, "is_first": 1 if level == 1 else 0,
+                })
+        if not fresh:
+            return 0
+        conn = get_conn()
+        try:
+            # 已存在的评论跳过(按 comment_biz 去重)
+            for c in fresh:
+                exists = conn.execute(
+                    "SELECT id FROM comments WHERE comment_biz=? AND art_biz=?",
+                    (c["comment_biz"], art_biz)).fetchone()
+                if exists:
+                    continue
+                conn.execute(
+                    "INSERT INTO comments(comment_biz, parent_comment_biz, art_biz, author, content, "
+                    "time, likes, ip, is_author, is_top, is_author_reply, is_author_like, level, is_first) "
+                    "VALUES(:comment_biz,:parent_comment_biz,:art_biz,:author,:content,:time,:likes,:ip,"
+                    ":is_author,:is_top,:is_author_reply,:is_author_like,:level,:is_first)", c)
+            conn.commit()
+        finally:
+            conn.close()
+        return len(fresh)
+    except Exception:
+        return 0

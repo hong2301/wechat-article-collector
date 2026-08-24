@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Tooltip, Spin, DatePicker, InputNumber, Input, Checkbox, Progress } from "antd";
+import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Tooltip, Spin, DatePicker, InputNumber, Input, Checkbox, Progress, Switch } from "antd";
 import { ArrowLeftOutlined, ReloadOutlined, PlusOutlined, ImportOutlined, DeleteOutlined, SearchOutlined, ClearOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 
@@ -63,16 +63,18 @@ export default function CommentsPage() {
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
   const [likesRange, setLikesRange] = useState<[number | null, number | null]>([null, null]);
   // 评论采集设置(独立存 commentConfig)
+  const [windowSplit, setWindowSplit] = useState(false);   // 窗口分离
   const [maxComments, setMaxComments] = useState<number | null>(null);
   const [maxLevel1, setMaxLevel1] = useState<number | null>(null);
-  const [maxLevel2, setMaxLevel2] = useState<number>(0);
+  const [maxLevel2, setMaxLevel2] = useState<number | null>(0);
   const [ccLoaded, setCcLoaded] = useState(false);
   useEffect(() => {
     try {
       const d = JSON.parse(localStorage.getItem("commentConfig") || "{}");
-      if (typeof d.max_comments === "number") setMaxComments(d.max_comments);
-      if (typeof d.max_level1 === "number") setMaxLevel1(d.max_level1);
-      if (typeof d.max_level2 === "number") setMaxLevel2(d.max_level2);
+      if (typeof d.window_split === "boolean") setWindowSplit(d.window_split);
+      if ("max_comments" in d) setMaxComments(d.max_comments);
+      if ("max_level1" in d) setMaxLevel1(d.max_level1);
+      if ("max_level2" in d) setMaxLevel2(d.max_level2);
     } catch { /* 忽略 */ }
     setCcLoaded(true);
   }, []);
@@ -80,10 +82,34 @@ export default function CommentsPage() {
     if (!ccLoaded) return;
     try {
       localStorage.setItem("commentConfig", JSON.stringify({
+        window_split: windowSplit,
         max_comments: maxComments, max_level1: maxLevel1, max_level2: maxLevel2,
       }));
     } catch { /* 忽略 */ }
-  }, [ccLoaded, maxComments, maxLevel1, maxLevel2]);
+  }, [ccLoaded, windowSplit, maxComments, maxLevel1, maxLevel2]);
+  // 评论采集弹窗
+  const [ccOpen, setCcOpen] = useState(false);
+  const [ccStarted, setCcStarted] = useState(false);
+  const [ccLogs, setCcLogs] = useState<string[]>([]);
+  const ccAbortRef = useRef<AbortController | null>(null);
+  const ccLogRef = useRef<HTMLDivElement>(null);
+  const [ccCount, setCcCount] = useState(0);       // 已采评论数
+  const [ccCount1, setCcCount1] = useState(0);     // 一级评论数
+  const [ccCount2, setCcCount2] = useState(0);     // 二级评论数
+  const [ccStartTs, setCcStartTs] = useState(0);
+  const [ccStartTime, setCcStartTime] = useState("");
+  const [ccSpeed, setCcSpeed] = useState(0);       // 条/秒
+  // 日志自动滚动
+  useEffect(() => {
+    if (ccLogRef.current) ccLogRef.current.scrollTop = ccLogRef.current.scrollHeight;
+  }, [ccLogs]);
+  // 采集速度(条/秒)
+  useEffect(() => {
+    if (ccStartTs > 0) {
+      const sec = (Date.now() - ccStartTs) / 1000;
+      setCcSpeed(sec > 0 ? ccCount / sec : 0);
+    }
+  }, [ccCount, ccStartTs]);
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
@@ -114,6 +140,70 @@ export default function CommentsPage() {
 
   function clearFilter() {
     setDateRange(null); setKw(""); setLikesRange([null, null]);
+  }
+
+  // 打开评论采集弹窗
+  function openCollect() {
+    setCcStarted(false);
+    setCcLogs([]);
+    setCcCount(0); setCcCount1(0); setCcCount2(0);
+    setCcOpen(true);
+  }
+  // 确认采集: 调后端 /api/collect/comments, SSE 接收日志
+  function confirmCommentCollect() {
+    if (!artBiz) { message.warning("无文章链接"); return; }
+    const link = `https://mp.weixin.qq.com/s/${artBiz}`;
+    setCcStarted(true);
+    setCcStartTs(Date.now());
+    setCcStartTime(new Date().toLocaleString("zh-CN", { hour12: false }));
+    setCcLogs([`开始采集评论「${title || artBiz}」`]);
+    const controller = new AbortController();
+    ccAbortRef.current = controller;
+    const payload = {
+      name: name || "", biz: biz || "", link,
+      window_split: windowSplit, capture_4metrics: false, capture_read: false,
+      save_html: false, save_dir: "",
+      max_comments: maxComments, max_level1: maxLevel1, max_level2: maxLevel2,
+    };
+    (async () => {
+      try {
+        const resp = await fetch("http://127.0.0.1:8000/api/collect/comments", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload), signal: controller.signal,
+        });
+        if (!resp.ok || !resp.body) throw new Error("采集接口失败");
+        const reader = resp.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let i2;
+          while ((i2 = buf.indexOf("\n\n")) !== -1) {
+            const block = buf.slice(0, i2); buf = buf.slice(i2 + 2);
+            if (!block.startsWith("data: ")) continue;
+            try {
+              const d = JSON.parse(block.slice(6));
+              if (d.type === "log" && d.msg) {
+                setCcLogs((p) => [...p, d.msg]);
+                // 前端统计: 评论数/一级/二级 由日志标记统计
+                if (d.msg.includes("评论已写入")) {
+                  if (d.msg.includes("二级")) setCcCount2((c) => c + 1);
+                  else if (d.msg.includes("一级")) setCcCount1((c) => c + 1);
+                  setCcCount((c) => c + 1);
+                }
+              } else if (d.type === "done") {
+                setCcLogs((p) => [...p, d.ok ? "✅ 评论采集完成" : `❌ 采集失败: ${d.reason || ""}`]);
+              }
+            } catch { /* 忽略坏帧 */ }
+          }
+        }
+        setCcLogs((p) => [...p, "⏹ 连接已断开"]);
+      } catch (e: unknown) {
+        if ((e as Error)?.name !== "AbortError") setCcLogs((p) => [...p, `❌ 接口异常: ${(e as Error)?.message || e}`]);
+      }
+    })();
   }
 
   // 过滤
@@ -198,7 +288,9 @@ export default function CommentsPage() {
       </div>
       {/* 评论采集设置卡片 */}
       <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px", margin: "0 0 12px", minHeight: 40 }}>
-        <span style={{ fontSize: 14, color: "#555" }}>文章评论数</span>
+        <span style={{ fontSize: 14, color: "#555" }}>窗口分离</span>
+        <Switch checked={windowSplit} onChange={setWindowSplit} />
+        <span style={{ marginLeft: 4, fontSize: 14, color: "#555" }}>文章评论数</span>
         <InputNumber min={0} placeholder="无限" value={maxComments ?? null}
           onChange={(v) => setMaxComments(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 110 }} />
         <span style={{ fontSize: 14, color: "#555" }}>一级评论数</span>
@@ -206,7 +298,7 @@ export default function CommentsPage() {
           onChange={(v) => setMaxLevel1(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 110 }} />
         <span style={{ fontSize: 14, color: "#555" }}>每级二级评论数</span>
         <InputNumber min={0} placeholder="无限" value={maxLevel2}
-          onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : 0)} style={{ width: 110 }} />
+          onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 110 }} />
       </div>
       {/* 筛选面板 */}
       <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "14px 18px", margin: "0 0 12px" }}>
@@ -238,7 +330,7 @@ export default function CommentsPage() {
         onDrop={(e) => { e.preventDefault(); setDragOver(false); if (Array.from(e.dataTransfer.types || []).includes("Files")) { const f = e.dataTransfer.files?.[0]; if (f) importFile(f); } }}
         style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, minHeight: shown.length ? 0 : undefined, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <Button type="primary" icon={<ReloadOutlined />} onClick={() => message.info("采集功能开发中")}>采集</Button>
+          <Button type="primary" icon={<ReloadOutlined />} onClick={openCollect}>采集</Button>
           <div style={{ flex: 1 }} />
           <Button color="primary" variant="outlined" icon={<PlusOutlined />} onClick={() => message.info("新增评论(开发中)")}>新增</Button>
           <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>
@@ -306,6 +398,79 @@ export default function CommentsPage() {
           <div style={{ margin: "10px 0" }}><Typography.Text type="secondary" style={{ fontSize: 12 }}>正在导入评论…</Typography.Text></div>
           <Progress percent={importingPct} status={importingPct >= 100 ? "success" : "active"} />
         </div>
+      </Modal>
+
+      {/* 评论采集弹窗: 确认阶段 -> 采集进行中 */}
+      <Modal
+        open={ccOpen}
+        title={ccStarted ? `正在采集「${title || artBiz}」评论` : "确认评论采集设置"}
+        onCancel={() => { if (ccStarted) { fetch("http://127.0.0.1:8000/api/collect/stop", { method: "POST" }).catch(() => {}); ccAbortRef.current?.abort(); } setCcOpen(false); }}
+        footer={ccStarted ? (
+          <Button onClick={() => setCcOpen(false)}>关闭</Button>
+        ) : (
+          <>
+            <Button onClick={() => setCcOpen(false)}>取消</Button>
+            <Button type="primary" onClick={confirmCommentCollect}>确认</Button>
+          </>
+        )}
+        width={ccStarted ? 880 : 520}
+      >
+        {ccStarted ? (
+          <div style={{ display: "flex", gap: 12 }}>
+            <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
+              <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0" }}>采集设置</div>
+              {[
+                { label: "文章评论数", value: maxComments == null ? "无限" : String(maxComments) },
+                { label: "一级评论数", value: maxLevel1 == null ? "无限" : String(maxLevel1) },
+                { label: "每级二级评论数", value: maxLevel2 == null ? "无限" : String(maxLevel2) },
+              ].map((row) => (
+                <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
+                  <span style={{ width: 110, color: "#888" }}>{row.label}</span>
+                  <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
+              <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0" }}>采集情况</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 14px", fontSize: 13, color: "#555" }}>
+                <div>开始时间: <span style={{ color: "#333" }}>{ccStartTime}</span></div>
+                <div>采集评论数: <span style={{ color: "#333", fontWeight: 600 }}>{ccCount}</span></div>
+                <div>一级评论数: <span style={{ color: "#333" }}>{ccCount1}</span></div>
+                <div>二级评论数: <span style={{ color: "#333" }}>{ccCount2}</span></div>
+                <div>采集速度: <span style={{ color: "#333" }}>{ccSpeed.toFixed(1)} 条/秒</span></div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
+            <div style={{ padding: "7px 14px", fontSize: 13 }}>
+              <span style={{ color: "#888" }}>文章评论数 </span>
+              <span style={{ color: "#333", fontWeight: 500 }}>{maxComments == null ? "无限" : String(maxComments)}</span>
+            </div>
+            <div style={{ padding: "7px 14px", fontSize: 13 }}>
+              <span style={{ color: "#888" }}>一级评论数 </span>
+              <span style={{ color: "#333", fontWeight: 500 }}>{maxLevel1 == null ? "无限" : String(maxLevel1)}</span>
+            </div>
+            <div style={{ padding: "7px 14px", fontSize: 13 }}>
+              <span style={{ color: "#888" }}>每级二级评论数 </span>
+              <span style={{ color: "#333", fontWeight: 500 }}>{maxLevel2 == null ? "无限" : String(maxLevel2)}</span>
+            </div>
+          </div>
+        )}
+        {ccStarted && (
+          <div style={{ background: "#fafafa", border: "1px solid #eee", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
+            <Typography.Text strong style={{ fontSize: 13 }}>日志</Typography.Text>
+            <div ref={ccLogRef} style={{
+              marginTop: 8, height: 220, overflow: "auto",
+              background: "#1e1e1e", borderRadius: 6, padding: 8,
+              fontFamily: "Consolas, monospace", fontSize: 12, color: "#d4d4d4", whiteSpace: "pre-wrap",
+            }}>
+              {ccLogs.length === 0 ? (<span style={{ color: "#888" }}>(暂无日志)</span>) : (
+                ccLogs.map((l, i) => <div key={i} style={{ color: "#cfcfcf" }}>{l}</div>)
+              )}
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

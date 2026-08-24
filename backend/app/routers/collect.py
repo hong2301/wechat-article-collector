@@ -114,6 +114,22 @@ class UpdateStart(BaseModel):
     save_dir: str = ""              # 保存HTML根目录(空=默认D:/article_data)
 
 
+class CommentStart(BaseModel):
+    """评论采集触发: 初始化窗口 -> 搜一搜查询文章链接 -> article_data_collect(带评论参数)"""
+    biz: str = ""            # 公众号 biz
+    name: str = ""           # 公众号名称
+    link: str = ""           # 文章链接
+    window_split: bool = True  # 窗口分离
+    capture_4metrics: bool = False  # 采集4指标
+    capture_read: bool = False       # 采集阅读数
+    save_html: bool = False          # 保存文章为本地HTML(含图片)
+    save_dir: str = ""              # 保存HTML根目录
+    max_comments: int | None = None # 文章最大评论采集数(空=无限)
+    max_level1: int | None = None   # 一级评论采集数(空=无限)
+    max_level2: int | None = 0      # 每级二级评论采集数(默认0=不采二级, null=无限)
+    capture_comments: bool = True   # 评论采集始终开启
+
+
 def _sse(data: dict):
     """转 SSE data 帧"""
     return "data: " + json.dumps(data, ensure_ascii=False) + "\n\n"
@@ -320,6 +336,102 @@ def _update_generate(payload: UpdateStart):
             yield _sse({"type": "log", "msg": item[1]})
 
 
+def _comment_generate(payload: CommentStart):
+    """评论采集流程: 窗口初始化 -> 搜一搜查询文章链接 -> article_data_collect(带评论参数)
+    独立于采集/更新流程, SSE 流式返回日志"""
+    log_q = queue.Queue()
+    lock = threading.Lock()
+    finished = threading.Event()
+
+    def hook(msg):
+        try:
+            log_q.put(("log", msg))
+        except Exception:
+            pass
+
+    def worker():
+        _worker_tid["tid"] = threading.get_ident()
+        prev_hook = tasks_service.bind_tasks_echo(hook)
+        try:
+            # 1) 微信窗口初始化
+            ok, text = tasks_service.init_wechat_window(window_split=payload.window_split)
+            log_q.put(("log", f"[微信窗口初始化] {'成功' if ok else '失败'} | {text}"))
+            if not ok:
+                log_q.put(("done", False, "微信窗口初始化失败")); return
+            # 2) 采集器窗口初始化
+            ok, text = tasks_service.init_app_window()
+            log_q.put(("log", f"[采集器窗口初始化] {'成功' if ok else '失败'} | {text}"))
+            if not ok:
+                log_q.put(("done", False, "采集器窗口初始化失败")); return
+            # 3) 搜一搜窗口初始化
+            ok, text = tasks_service.search_window_init(window_split=payload.window_split)
+            log_q.put(("log", f"[搜一搜窗口初始化] {'成功' if ok else '失败'} | {text}"))
+            if not ok:
+                log_q.put(("done", False, "搜一搜窗口初始化失败")); return
+            # 4) 搜一搜查询(文章链接)
+            ok, text = tasks_service.search_query(payload.link)
+            log_q.put(("log", f"[搜一搜查询] {'成功' if ok else '失败'} | {text}"))
+            if not ok:
+                log_q.put(("done", False, "搜一搜查询失败")); return
+            # 5) 文章数据采集(含评论采集, collect_type=2)
+            log_q.put(("log", "开始采集该文章评论..."))
+            ok, text = tasks_service.article_data_collect(
+                collect_type=2, capture_4metrics=payload.capture_4metrics,
+                capture_read=payload.capture_read, save_html=payload.save_html,
+                save_dir=payload.save_dir, biz=payload.biz,
+                capture_comments=True,
+                max_comments=payload.max_comments, max_level1=payload.max_level1,
+                max_level2=payload.max_level2)
+            log_q.put(("log", f"[评论采集流程] {'成功' if ok else '失败'} | {text}"))
+            log_q.put(("log", "等待后台异步任务完成..."))
+            tasks_service.wait_bg_done()
+            log_q.put(("done", True, "评论采集流程结束"))
+        except SystemExit:
+            log_q.put(("log", "评论采集已停止(强制中断)"))
+            log_q.put(("done", False, "user_stopped"))
+        except Exception as e:
+            log_q.put(("log", f"[异常] {e}"))
+            log_q.put(("done", False, str(e)))
+        finally:
+            _worker_tid["tid"] = None
+            tasks_service.bind_tasks_echo(prev_hook)
+            tasks_service.clear_stop()
+            finished.set()
+
+    tasks_service.clear_stop()
+    msg = (f"评论采集: {payload.name} | {payload.link[:50]} | "
+           f"文章评论数={payload.max_comments if payload.max_comments is not None else '无限'} | "
+           f"一级评论数={payload.max_level1 if payload.max_level1 is not None else '无限'} | "
+           f"每级二级评论数={payload.max_level2 if payload.max_level2 else '0'}")
+    yield _sse({"type": "log", "msg": "评论采集启动"})
+    yield _sse({"type": "log", "msg": msg})
+    yield _sse({"type": "task", "done": 0, "total": 1})
+    threading.Thread(target=worker, daemon=True).start()
+
+    last_sent = time.monotonic()
+    while not finished.is_set() or not log_q.empty():
+        try:
+            item = log_q.get(timeout=0.3)
+        except queue.Empty:
+            now = time.monotonic()
+            if now - last_sent >= 5:
+                yield _sse({"type": "keepalive"})
+                last_sent = now
+            continue
+        last_sent = time.monotonic()
+        with lock:
+            if item[0] == "log":
+                yield _sse({"type": "log", "msg": item[1]})
+            elif item[0] == "done":
+                yield _sse({"type": "done", "ok": item[1], "reason": item[2]})
+        if item[0] == "done":
+            break
+    while not log_q.empty():
+        item = log_q.get_nowait()
+        if item[0] == "log":
+            yield _sse({"type": "log", "msg": item[1]})
+
+
 @router.post("/stop")
 def collect_stop():
     """前端关闭采集窗口时调用: 强制中断采集线程(立即停止, 集中在此实现)"""
@@ -355,6 +467,26 @@ def collect_update(payload: UpdateStart):
     pc.enable_dpi_awareness()
     _start_esc_listener()
     generator = _update_generate(payload)
+
+    def wrap():
+        try:
+            yield from generator
+        finally:
+            tasks_service.request_stop()
+            _stop_esc_listener()
+    return StreamingResponse(
+        wrap(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/comments")
+def collect_comments(payload: CommentStart):
+    """评论采集: 独立流程(窗口初始化->搜一搜查询文章链接->article_data_collect带评论参数), SSE 返回日志"""
+    pc.enable_dpi_awareness()
+    _start_esc_listener()
+    generator = _comment_generate(payload)
 
     def wrap():
         try:

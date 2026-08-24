@@ -895,14 +895,180 @@ def _collect_reads(collect_type, link, biz, art):
                 _submit_bg(_bg_reads_ocr, png_path, (p32[0], p32[1]), biz, art)
 
 
+def _expand_reply_buttons(x1, y1, x2, y2, max_rounds=10):
+    """点击评论区'更多回复'按钮(如'38条回复')循环: 截图OCR找灰字'条回复'->点第一个->重截
+    直到不再出现; 返回最后一次截图路径(供识别)"""
+    from PIL import Image as _PIL
+    for rnd in range(1, max_rounds + 1):
+        shot, _ = pc.screenshot(x1, y1, x2, y2, img_format="png")
+        if not shot:
+            return None
+        items = ocr_service.ocr(_PIL.open(shot).convert("RGB"))
+        btns = []
+        for cx, cy, text, score, sbox, brightness in items:
+            t = (text or "").strip()
+            if "条回复" in t or ("回复" in t and "条" in t):
+                try:
+                    if 100 < brightness < 210:
+                        bx = x1 + int(sum(p[0] for p in sbox) / len(sbox))
+                        by = y1 + int(sum(p[1] for p in sbox) / len(sbox))
+                        btns.append((bx, by, t))
+                except Exception:
+                    continue
+        if not btns:
+            return shot
+        bx, by, txt = btns[0]
+        tasks_echo(f"评论采集: 点击'更多回复'按钮 {txt!r} @({bx},{by})")
+        pc.mouse_click(bx, by)
+        time.sleep(0.8)
+    return None
+
+
+def _bg_ai_comments(shot_path, art_biz, max_level1, max_level2):
+    """后台合成任务: 豆包识别评论 + OCR识别层级 -> 写评论表(异步, 不阻塞主流程)"""
+    from concurrent.futures import ThreadPoolExecutor
+    from PIL import Image as _PIL
+    from ..database import get_conn
+    tag = f"评论#{art_biz[:10]}"
+    try:
+        api_key = ""
+        try:
+            conn = get_conn()
+            try:
+                row = conn.execute("SELECT api_key FROM ai_model ORDER BY id LIMIT 1").fetchone()
+                api_key = (row["api_key"] or "") if row else ""
+            finally:
+                conn.close()
+        except Exception:
+            pass
+        shot_b64 = None
+        try:
+            import io as _io
+            import base64
+            img = _PIL.open(shot_path).convert("RGB")
+            buf = _io.BytesIO(); img.save(buf, format="WEBP", lossless=True, method=6)
+            shot_b64 = base64.b64encode(buf.getvalue()).decode()
+        except Exception:
+            shot_b64 = None
+        if not shot_b64 or not api_key:
+            tasks_echo(f"[async:{tag}] 无AI配置或截图失败, 评论识别跳过")
+            return
+        from .doubao_api import doubao_extract_comments as _dec
+
+        def _ocr_levels():
+            try:
+                img = _PIL.open(shot_path).convert("RGB")
+                import re as _re
+                items = ocr_service.ocr(img)
+                name_rows = []
+                for cx, cy, text, score, sbox, brightness in items:
+                    if _re.search(r"\d+月\d+日", text or "") or "作者" in (text or ""):
+                        x0 = min(p[0] for p in sbox); y0 = min(p[1] for p in sbox)
+                        name_rows.append((y0, x0, text))
+                if not name_rows:
+                    return []
+                name_rows.sort()
+                min_x = min(r[1] for r in name_rows)
+                return [2 if (r[1] - min_x) > 15 else 1 for r in name_rows]
+            except Exception:
+                return []
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            f_ai = ex.submit(_dec, shot_b64, api_key)
+            f_ocr = ex.submit(_ocr_levels)
+            comments = f_ai.result(timeout=60) or []
+            levels = f_ocr.result() or []
+        for i, c in enumerate(comments):
+            if i < len(levels):
+                c["层级"] = levels[i]
+        if not comments:
+            tasks_echo(f"[async:{tag}] 豆包未识别到评论")
+            return
+        if max_level1 is not None and max_level1 > 0:
+            comments = comments[:max_level1]
+        if max_level2 is not None and max_level2 >= 0:
+            comments = [c for c in comments if int(c.get("层级", 1) or 1) == 1 or max_level2 > 0]
+        if not comments:
+            tasks_echo(f"[async:{tag}] 无符合数量上限的评论")
+            return
+        from .common import save_comments
+        wrote = save_comments(art_biz, comments)
+        tasks_echo(f"[async:{tag}] 识别评论{len(comments)}条, 写入{wrote}条")
+    except Exception as e:
+        tasks_echo(f"[async:{tag}] 评论识别异常: {e}")
+
+
+def _collect_comments(collect_type, link, art, biz,
+                      max_comments=None, max_level1=None, max_level2=0):
+    """采集评论: 死循环(停止逻辑后补)。每轮:
+    1) 点点位34(评论按钮) -> 点位35/36稳定检测(60次/连续20) -> 截图
+    2) 展开'更多回复'按钮循环(点第一个直到没有)
+    3) 最后截图 -> 提交后台合成任务(AI识别+OCR层级+写库, 不等待)
+    4) 滚动配置id=5 -> 下一轮
+    参数: max_comments/max_level1/max_level2 同上"""
+    _mc = "无限" if max_comments is None else str(max_comments)
+    _m1 = "无限" if max_level1 is None else str(max_level1)
+    _m2 = "无限" if max_level2 is None else str(max_level2)
+    tasks_echo(f"评论采集: 开始(文章评论数={_mc}, 一级评论数={_m1}, 每级二级评论数={_m2})")
+    p34 = _read_point(34)   # 评论按钮
+    p35 = _read_point(35)   # 评论区左上
+    p36 = _read_point(36)   # 评论区右下
+    if not (p34 and p35 and p36):
+        tasks_echo("评论采集: 缺少点位34/35/36, 跳过")
+        return
+    pc.mouse_click(p34[0], p34[1])
+    tasks_echo(f"评论采集: 点击评论按钮({p34[0]},{p34[1]})")
+    time.sleep(0.5)
+
+    loop_n = 0
+    while True:
+        loop_n += 1
+        ok_stable, info = wait_page_stable(
+            p35[0], p35[1], p36[0], p36[1], same_need=20, timeout=60, interval=0.1)
+        tasks_echo(f"评论采集第{loop_n}轮: 评论区稳定={ok_stable}({info})")
+        if not ok_stable:
+            tasks_echo("评论采集: 评论区未稳定, 继续尝试...")
+
+        final_shot = _expand_reply_buttons(p35[0], p35[1], p36[0], p36[1])
+        if not final_shot:
+            final_shot, _b = pc.screenshot(p35[0], p35[1], p36[0], p36[1], img_format="png")
+
+        if final_shot:
+            _submit_bg(_bg_ai_comments, final_shot, art,
+                       max_level1, max_level2)
+            tasks_echo(f"评论采集第{loop_n}轮: 评论识别后台进行中...")
+
+        try:
+            from ..database import get_conn
+            conn = get_conn()
+            try:
+                row = conn.execute("SELECT distance, direction FROM scrolls WHERE id=5").fetchone()
+            finally:
+                conn.close()
+            s_dist = int(float(row["distance"])) if row else 0
+            s_dir = row["direction"] if row else "down"
+        except Exception:
+            s_dist, s_dir = 0, "down"
+        if s_dist > 0:
+            pc.scroll(p35[0], p35[1], s_dist, direction=s_dir)
+            tasks_echo(f"评论采集第{loop_n}轮: 滚动评论区 {s_dist}px")
+            time.sleep(0.5)
+
+
 def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=False,
-                         save_html=False, save_dir="", biz="", list_reads=None, list_likes=None):
+                         save_html=False, save_dir="", biz="", list_reads=None, list_likes=None,
+                         capture_comments=False, max_comments=None, max_level1=None, max_level2=0):
     """文章数据采集(编排主函数, 各块拆分到 _save_article_base
-    /_bg_meta_and_html/_collect_metrics/_collect_reads; 复制链接逻辑留本函数)。
-    参数: 同前(collect_type/capture_4metrics/capture_read/save_html/biz/list_reads/list_likes)
-    流程: 复制链接 -> 提取art_biz -> 步骤2写表(整体异步) -> 步骤3保存Html(并行异步)
-    -> 4指标 -> 阅读数(均不依赖写表结果, 直接用biz/art); 统一出口 _finish(Ctrl+W)。
-    异步设计: 写表与保存Html各自独立提交线程池异步执行, 主流程不等待网络耗时。
+    /_collect_metrics/_collect_reads/_collect_comments; 复制链接逻辑留本函数)。
+    参数:
+      collect_type / capture_4metrics / capture_read / save_html / save_dir
+      biz / list_reads / list_likes 同前
+      capture_comments 是否采集评论
+      max_comments     文章最大评论采集数(None=无限)
+      max_level1       一级评论采集数(None=无限)
+      max_level2       每级二级评论采集数(0=不采二级, None=无限)
+    流程: 复制链接 -> 提取art_biz -> 写表(异步) -> 保存Html(异步)
+    -> 4指标 -> 阅读数 -> 评论(需阅读数点位); 统一出口 _finish(Ctrl+W)。
+    异步设计: 写表/保存Html/豆包识图/阅读数OCR 丢线程池, 主流程不阻塞网络耗时。
     """
     logs = []
     copy_seen = False   # 标志: 是否检测到过"复制"字样
@@ -939,7 +1105,6 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
                                                 img_format="png")
                 if shot_path:
                     ocr_items = ocr_service.ocr(Image.open(shot_path))
-                    print(ocr_items)
                     copy_seen = any("复制" in (it[2] or "") for it in ocr_items)
                     step("OCR检测到复制字样" if copy_seen else "OCR未检测到复制字样")
             except Exception as e:
@@ -989,6 +1154,12 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
     if capture_read and list_reads is None:
         tasks_echo("[step] 正在采集阅读数...")
         _collect_reads(collect_type, link, biz, art)
+
+    # 6) 采集评论(开启时, 在阅读数之后)
+    if capture_comments:
+        tasks_echo("[step] 正在采集评论...")
+        _collect_comments(collect_type, link, art, biz,
+                          max_comments=max_comments, max_level1=max_level1, max_level2=max_level2)
 
     # 细节已实时输出, 最终只返回状态摘要
     return _finish([], copy_seen, True, "采集完成")

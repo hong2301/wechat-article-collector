@@ -164,7 +164,7 @@ export default function Home() {
   const [captureComments, setCaptureComments] = useState(false);   // 评论采集开关
   const [maxComments, setMaxComments] = useState<number | null>(null);   // 文章最大评论采集数(空=无限)
   const [maxLevel1, setMaxLevel1] = useState<number | null>(null);      // 一级评论数(空=无限)
-  const [maxLevel2, setMaxLevel2] = useState<number>(0);               // 每级二级评论采集数(默认0, 空=无限)
+  const [maxLevel2, setMaxLevel2] = useState<number | null>(0);               // 每级二级评论采集数(默认0, 空=无限)
   // 保存HTML根目录(存储路径, 默认D:/article_data)
   const [saveDir, setSaveDir] = useState("D:/article_data");
 
@@ -180,9 +180,9 @@ export default function Home() {
         if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
         if (typeof d.save_dir === "string" && d.save_dir) setSaveDir(d.save_dir);
         if (typeof d.capture_comments === "boolean") setCaptureComments(d.capture_comments);
-        if (typeof d.max_comments === "number") setMaxComments(d.max_comments);
-        if (typeof d.max_level1 === "number") setMaxLevel1(d.max_level1);
-        if (typeof d.max_level2 === "number") setMaxLevel2(d.max_level2);
+        if ("max_comments" in d) setMaxComments(d.max_comments);
+        if ("max_level1" in d) setMaxLevel1(d.max_level1);
+        if ("max_level2" in d) setMaxLevel2(d.max_level2);
         if (d.date_start && d.date_end) {
           setDateRange([dayjs(d.date_start), dayjs(d.date_end)]);
         }
@@ -628,7 +628,7 @@ export default function Home() {
               onChange={(v) => setMaxLevel1(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 90 }} />
             <span style={{ fontSize: 13, color: "#555" }}>每级二级评论数</span>
             <InputNumber min={0} placeholder="无限" value={maxLevel2}
-              onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : 0)} style={{ width: 90 }} />
+              onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 90 }} />
           </div>
         )}
         {/* 设置按钮行(第三行) */}
