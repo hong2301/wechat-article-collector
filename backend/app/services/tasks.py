@@ -13,6 +13,7 @@ import ctypes
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from ctypes import wintypes as wt
+from datetime import datetime
 import time
 import requests as _requests
 from PIL import Image
@@ -519,17 +520,17 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
                 date_out_count = 0
                 echo(f"第{loop_n}轮: 存在范围内文章, 继续")
             elif times:
-                # 全不在范围内: 优先看是否有时间点位在范围之后
-                if any(e and t > e for t in times):
+                # 全不在范围内: 时间若比范围早(已滚过范围) -> 累计停止
+                if any(s and t < s for t in times):
                     date_out_count = date_out_count + 1
-                    echo(f"第{loop_n}轮: 时间点位在日期范围之后({date_out_count}/3)")
+                    echo(f"第{loop_n}轮: 时间点位已过日期范围(比范围早)({date_out_count}/3)")
                     if date_out_count >= 3:
-                        echo("连续3次无日期范围文章, 停止")
-                        return False, "连续3次无日期范围文章"
+                        echo("连续3次已过日期范围, 停止")
+                        return False, "连续3次已过日期范围"
                 else:
-                    # 有在范围之前(范围还没到) -> 多滚动几次就会出现, 重置计数继续
+                    # 时间比范围晚(顶部还有更新的, 未滚到范围) -> 继续滚动
                     date_out_count = 0
-                    echo(f"第{loop_n}轮: 时间点位在日期范围之前(未到范围), 继续")
+                    echo(f"第{loop_n}轮: 时间点位在日期范围之后(未到范围), 继续")
             else:
                 date_out_count = 0       # 本轮无时间点位, 不判定, 重置
 
@@ -645,19 +646,22 @@ def _save_article_base(link, biz, list_reads=None, list_likes=None):
                 (biz, art)).fetchone()
             if exists:
                 new_id = exists["id"]
-                # 已存在: 有元信息时补全缺失字段
+                # 已存在: 有元信息时补全缺失字段, 每次都刷新写入时间
+                wt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 if meta:
                     conn.execute(
-                        "UPDATE articles SET title=?, date=?, original=?, ip=? WHERE id=?",
-                        (a_title, a_date, a_original, a_ip, new_id))
+                        "UPDATE articles SET title=?, date=?, original=?, ip=?, write_time=? WHERE id=?",
+                        (a_title, a_date, a_original, a_ip, wt, new_id))
                     logs.append(f"文章已存在, 更新元信息 id={new_id}")
                 else:
+                    conn.execute("UPDATE articles SET write_time=? WHERE id=?", (wt, new_id))
                     logs.append(f"文章已存在, 复用 id={new_id}")
             else:
+                wt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 cur = conn.execute(
-                    "INSERT INTO articles(account_id, name, date, title, original, ip, art_biz, biz) "
-                    "VALUES(?,?,?,?,?,?,?,?)",
-                    (account_id, name, a_date, a_title, a_original, a_ip, art, biz))
+                    "INSERT INTO articles(account_id, name, date, title, original, ip, art_biz, biz, write_time) "
+                    "VALUES(?,?,?,?,?,?,?,?,?)",
+                    (account_id, name, a_date, a_title, a_original, a_ip, art, biz, wt))
                 new_id = cur.lastrowid
                 logs.append(f"已写入文章表 id={new_id}")
             conn.commit()
