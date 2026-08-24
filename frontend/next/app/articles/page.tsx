@@ -57,6 +57,11 @@ export default function ArticlePage() {
   const [capture4metrics, setCapture4metrics] = useState(false);
   const [captureRead, setCaptureRead] = useState(false);
   const [saveHtml, setSaveHtml] = useState(false);
+  // 评论采集设置(独立key updateConfig)
+  const [captureComments, setCaptureComments] = useState(false);
+  const [maxComments, setMaxComments] = useState<number | null>(null);
+  const [maxLevel1, setMaxLevel1] = useState<number | null>(null);
+  const [maxLevel2, setMaxLevel2] = useState<number>(0);
   const [cfgLoaded, setCfgLoaded] = useState(false);   // 恢复完成才允许写回
   // 从localStorage恢复更新设置(独立key updateConfig)
   useEffect(() => {
@@ -66,6 +71,10 @@ export default function ArticlePage() {
       if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
       if (typeof d.capture_read === "boolean") setCaptureRead(d.capture_read);
       if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
+      if (typeof d.capture_comments === "boolean") setCaptureComments(d.capture_comments);
+      if (typeof d.max_comments === "number") setMaxComments(d.max_comments);
+      if (typeof d.max_level1 === "number") setMaxLevel1(d.max_level1);
+      if (typeof d.max_level2 === "number") setMaxLevel2(d.max_level2);
     } catch { /* 忽略 */ }
     setCfgLoaded(true);
   }, []);
@@ -76,9 +85,11 @@ export default function ArticlePage() {
       const d = JSON.parse(localStorage.getItem("updateConfig") || "{}");
       d.window_split = windowSplit; d.capture_4metrics = capture4metrics;
       d.capture_read = captureRead; d.save_html = saveHtml;
+      d.capture_comments = captureComments; d.max_comments = maxComments;
+      d.max_level1 = maxLevel1; d.max_level2 = maxLevel2;
       localStorage.setItem("updateConfig", JSON.stringify(d));
     } catch { /* 忽略 */ }
-  }, [cfgLoaded, windowSplit, capture4metrics, captureRead, saveHtml]);
+  }, [cfgLoaded, windowSplit, capture4metrics, captureRead, saveHtml, captureComments, maxComments, maxLevel1, maxLevel2]);
   const NUM_FIELDS = [
     { key: "reads", label: "阅读" },
     { key: "likes", label: "点赞" },
@@ -550,16 +561,33 @@ export default function ArticlePage() {
         <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/")}>返回</Button>
         <Typography.Title level={5} style={{ margin: 0 }}>「{name || "..."}」的文章列表</Typography.Title>
       </div>
-      {/* 更新设置开关行(与公众号页一致) */}
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px", margin: "0 0 12px", minHeight: 40 }}>
-        <span style={{ fontSize: 14, color: "#555" }}>窗口分离</span>
-        <Switch checked={windowSplit} onChange={setWindowSplit} />
-        <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集4指标</span>
-        <Switch checked={capture4metrics} onChange={setCapture4metrics} />
-        <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集阅读数</span>
-        <Switch checked={captureRead} onChange={setCaptureRead} />
-        <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存Html</span>
-        <Switch checked={saveHtml} onChange={setSaveHtml} />
+      {/* 更新设置卡片(开关行 + 评论采集设置行) */}
+      <div style={{ display: "flex", flexDirection: "column", background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px", margin: "0 0 12px" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minHeight: 32 }}>
+          <span style={{ fontSize: 14, color: "#555" }}>窗口分离</span>
+          <Switch checked={windowSplit} onChange={setWindowSplit} />
+          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集4指标</span>
+          <Switch checked={capture4metrics} onChange={setCapture4metrics} />
+          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集阅读数</span>
+          <Switch checked={captureRead} onChange={setCaptureRead} />
+          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存Html</span>
+          <Switch checked={saveHtml} onChange={setSaveHtml} />
+          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>评论采集</span>
+          <Switch checked={captureComments} onChange={setCaptureComments} />
+        </div>
+        {captureComments && (
+          <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", paddingTop: 10 }}>
+            <span style={{ fontSize: 13, color: "#555" }}>文章评论数</span>
+            <InputNumber min={0} placeholder="无限" value={maxComments ?? null}
+              onChange={(v) => setMaxComments(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 90 }} />
+            <span style={{ fontSize: 13, color: "#555" }}>一级评论数</span>
+            <InputNumber min={0} placeholder="无限" value={maxLevel1 ?? null}
+              onChange={(v) => setMaxLevel1(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 90 }} />
+            <span style={{ fontSize: 13, color: "#555" }}>每级二级评论数</span>
+            <InputNumber min={0} placeholder="无限" value={maxLevel2}
+              onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : 0)} style={{ width: 90 }} />
+          </div>
+        )}
       </div>
       {/* 筛选面板 */}
       <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "14px 18px", margin: "0 0 12px" }}>

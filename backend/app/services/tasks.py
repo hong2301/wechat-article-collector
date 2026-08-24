@@ -861,7 +861,7 @@ def _collect_reads(collect_type, link, biz, art):
     # 2) Ctrl+W 关闭当前页
     pc.ctrl_key("W")
     tasks_echo("阅读数: Ctrl+W 关闭")
-    time.sleep(0.5)
+    time.sleep(0.8)
     # 3) 点击搜一搜按钮(类型1=点位23 / 类型2=点位14), 等0.2s
     if collect_type in (1, 2):
         pc.mouse_click(p_sou[0], p_sou[1])
@@ -882,17 +882,17 @@ def _collect_reads(collect_type, link, biz, art):
         else:
             ok_stable, info = wait_page_stable(
                 p32[0], p32[1], p33[0], p33[1], same_need=20, timeout=50, interval=0.1)
-            if ok_stable:
-                # 稳定后: 截图 -> OCR识别丢后台异步(耗时), 识别到写文章表
-                png_path, b64 = pc.screenshot(
-                    p32[0], p32[1], p33[0], p33[1], img_format="png", as_base64=True)
-                if not b64:
-                    tasks_echo("阅读数: 稳定后截图失败")
-                else:
-                    tasks_echo("阅读数: 截图完成, OCR识别后台进行...")
-                    _submit_bg(_bg_reads_ocr, png_path, (p32[0], p32[1]), biz, art)
+            if not ok_stable:
+                # 未稳定也继续: 页面可能仍在加载/动, 不等稳定直接截图识别
+                tasks_echo(f"阅读数: 结果页未稳定({info}), 继续尝试识别...")
+            # 稳定或未稳定: 都截图 -> OCR识别丢后台异步, 识别到写文章表
+            png_path, b64 = pc.screenshot(
+                p32[0], p32[1], p33[0], p33[1], img_format="png", as_base64=True)
+            if not b64:
+                tasks_echo("阅读数: 稳定后截图失败")
             else:
-                tasks_echo(f"阅读数: 结果页未稳定({info}), 跳过识别")
+                tasks_echo("阅读数: 截图完成, OCR识别后台进行...")
+                _submit_bg(_bg_reads_ocr, png_path, (p32[0], p32[1]), biz, art)
 
 
 def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=False,

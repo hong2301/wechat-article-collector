@@ -62,6 +62,28 @@ export default function CommentsPage() {
   const [kw, setKw] = useState("");
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
   const [likesRange, setLikesRange] = useState<[number | null, number | null]>([null, null]);
+  // 评论采集设置(独立存 commentConfig)
+  const [maxComments, setMaxComments] = useState<number | null>(null);
+  const [maxLevel1, setMaxLevel1] = useState<number | null>(null);
+  const [maxLevel2, setMaxLevel2] = useState<number>(0);
+  const [ccLoaded, setCcLoaded] = useState(false);
+  useEffect(() => {
+    try {
+      const d = JSON.parse(localStorage.getItem("commentConfig") || "{}");
+      if (typeof d.max_comments === "number") setMaxComments(d.max_comments);
+      if (typeof d.max_level1 === "number") setMaxLevel1(d.max_level1);
+      if (typeof d.max_level2 === "number") setMaxLevel2(d.max_level2);
+    } catch { /* 忽略 */ }
+    setCcLoaded(true);
+  }, []);
+  useEffect(() => {
+    if (!ccLoaded) return;
+    try {
+      localStorage.setItem("commentConfig", JSON.stringify({
+        max_comments: maxComments, max_level1: maxLevel1, max_level2: maxLevel2,
+      }));
+    } catch { /* 忽略 */ }
+  }, [ccLoaded, maxComments, maxLevel1, maxLevel2]);
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search);
@@ -174,6 +196,18 @@ export default function CommentsPage() {
         <Button icon={<ArrowLeftOutlined />} onClick={() => router.push(`/articles?biz=${encodeURIComponent(biz)}&name=${encodeURIComponent(name)}`)}>返回</Button>
         <Typography.Title level={5} style={{ margin: 0 }}>「{title || "..."}」的评论列表</Typography.Title>
       </div>
+      {/* 评论采集设置卡片 */}
+      <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px", margin: "0 0 12px", minHeight: 40 }}>
+        <span style={{ fontSize: 14, color: "#555" }}>文章评论数</span>
+        <InputNumber min={0} placeholder="无限" value={maxComments ?? null}
+          onChange={(v) => setMaxComments(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 110 }} />
+        <span style={{ fontSize: 14, color: "#555" }}>一级评论数</span>
+        <InputNumber min={0} placeholder="无限" value={maxLevel1 ?? null}
+          onChange={(v) => setMaxLevel1(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 110 }} />
+        <span style={{ fontSize: 14, color: "#555" }}>每级二级评论数</span>
+        <InputNumber min={0} placeholder="无限" value={maxLevel2}
+          onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : 0)} style={{ width: 110 }} />
+      </div>
       {/* 筛选面板 */}
       <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "14px 18px", margin: "0 0 12px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", width: "100%" }}>
@@ -204,7 +238,7 @@ export default function CommentsPage() {
         onDrop={(e) => { e.preventDefault(); setDragOver(false); if (Array.from(e.dataTransfer.types || []).includes("Files")) { const f = e.dataTransfer.files?.[0]; if (f) importFile(f); } }}
         style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, minHeight: shown.length ? 0 : undefined, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <Button type="primary" icon={<ReloadOutlined />} onClick={() => message.info("重新采集(开发中)")}>重新采集</Button>
+          <Button type="primary" icon={<ReloadOutlined />} onClick={() => message.info("采集功能开发中")}>采集</Button>
           <div style={{ flex: 1 }} />
           <Button color="primary" variant="outlined" icon={<PlusOutlined />} onClick={() => message.info("新增评论(开发中)")}>新增</Button>
           <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>

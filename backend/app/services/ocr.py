@@ -175,7 +175,10 @@ def text_color(sbox, box=None):
 
 def extract_reads(text):
     """从文本中提取阅读数, 提取不到返回 None
-    如: '阅读730赞8' -> 730, '昨天 阅读 117' -> 117"""
+    如: '阅读730赞8' -> 730, '昨天 阅读 117' -> 117, '阅读10万+' -> 100000"""
+    m = re.search(r"阅读\s*(\d+(?:\.\d+)?)\s*万" , text or "")
+    if m:
+        return int(float(m.group(1)) * 10000)
     m = re.search(r"阅读\s*(\d+)", text or "")
     return int(m.group(1)) if m else None
 

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { DndProvider, useDrag, useDrop } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
-import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, message, Modal, Spin, Progress, Empty, Switch } from "antd";
+import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, message, Modal, Spin, Progress, Empty, Switch, InputNumber } from "antd";
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
 import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined, SwapOutlined, RobotOutlined, FolderOpenOutlined, FileExcelOutlined, UnorderedListOutlined } from "@ant-design/icons";
@@ -160,6 +160,11 @@ export default function Home() {
   const [captureRead, setCaptureRead] = useState(false);
   // 采集时保存HTML到本地(默认关)
   const [saveHtml, setSaveHtml] = useState(false);
+  // 评论采集设置
+  const [captureComments, setCaptureComments] = useState(false);   // 评论采集开关
+  const [maxComments, setMaxComments] = useState<number | null>(null);   // 文章最大评论采集数(空=无限)
+  const [maxLevel1, setMaxLevel1] = useState<number | null>(null);      // 一级评论数(空=无限)
+  const [maxLevel2, setMaxLevel2] = useState<number>(0);               // 每级二级评论采集数(默认0, 空=无限)
   // 保存HTML根目录(存储路径, 默认D:/article_data)
   const [saveDir, setSaveDir] = useState("D:/article_data");
 
@@ -174,6 +179,10 @@ export default function Home() {
         if (typeof d.capture_read === "boolean") setCaptureRead(d.capture_read);
         if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
         if (typeof d.save_dir === "string" && d.save_dir) setSaveDir(d.save_dir);
+        if (typeof d.capture_comments === "boolean") setCaptureComments(d.capture_comments);
+        if (typeof d.max_comments === "number") setMaxComments(d.max_comments);
+        if (typeof d.max_level1 === "number") setMaxLevel1(d.max_level1);
+        if (typeof d.max_level2 === "number") setMaxLevel2(d.max_level2);
         if (d.date_start && d.date_end) {
           setDateRange([dayjs(d.date_start), dayjs(d.date_end)]);
         }
@@ -192,12 +201,16 @@ export default function Home() {
         capture_read: captureRead,
         save_html: saveHtml,
         save_dir: saveDir,
+        capture_comments: captureComments,
+        max_comments: maxComments,
+        max_level1: maxLevel1,
+        max_level2: maxLevel2,
         date_start: dateRange ? dateRange[0].format("YYYY-MM-DD") : "",
         date_end: dateRange ? dateRange[1].format("YYYY-MM-DD") : "",
       }));
     } catch { /* 忽略写入失败 */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowSplit, capture4metrics, captureRead, saveHtml, saveDir, dateRange]);
+  }, [windowSplit, capture4metrics, captureRead, saveHtml, saveDir, captureComments, maxComments, maxLevel1, maxLevel2, dateRange]);
 
   useEffect(() => {
     const probe = document.createElement("div");
@@ -601,7 +614,23 @@ export default function Home() {
           <Switch checked={captureRead} onChange={setCaptureRead} />
           <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存Html</span>
           <Switch checked={saveHtml} onChange={setSaveHtml} />
+          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>评论采集</span>
+          <Switch checked={captureComments} onChange={setCaptureComments} />
         </div>
+        {/* 评论采集设置行(开关开时显示) */}
+        {captureComments && (
+          <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", minHeight: 32 }}>
+            <span style={{ fontSize: 13, color: "#555" }}>文章评论数</span>
+            <InputNumber min={0} placeholder="无限" value={maxComments ?? null}
+              onChange={(v) => setMaxComments(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 90 }} />
+            <span style={{ fontSize: 13, color: "#555" }}>一级评论数</span>
+            <InputNumber min={0} placeholder="无限" value={maxLevel1 ?? null}
+              onChange={(v) => setMaxLevel1(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 90 }} />
+            <span style={{ fontSize: 13, color: "#555" }}>每级二级评论数</span>
+            <InputNumber min={0} placeholder="无限" value={maxLevel2}
+              onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : 0)} style={{ width: 90 }} />
+          </div>
+        )}
         {/* 设置按钮行(第三行) */}
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Button icon={<ProfileOutlined />} onClick={() => setPointsOpen(true)}>点位设置</Button>
