@@ -11,6 +11,7 @@
 
 import ctypes
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 from ctypes import wintypes as wt
 import time
 import requests as _requests
@@ -36,6 +37,9 @@ WECHAT_APPEX = "WeChatAppEx.exe"    # 微信小程序/外部App容器进程
 # 采集器(前端)相关
 APP_TITLE = "微信公众号采集器"      # 前端窗口标题(打包后名称)
 APP_EXE = "electron.exe"           # 前端壳进程
+
+# 后台异步执行器: 网络类任务(元信息抓取/保存HTML)丢线程池, 不阻塞主采集流程
+_bg_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="bg")
 
 
 def init_wechat_window(window_split=False):
@@ -609,12 +613,14 @@ def init_app_window():
 
 
 def _save_article_base(link, biz, list_reads=None, list_likes=None):
-    """写文章表: 抓取元信息(标题/时间/原创/ip) + 写入(已存在则补全) + 列表阅读/赞更新
-    返回 (new_id, name, 文本); 失败 new_id=None"""
+    """步骤2: 写文章表(完整同步逻辑, 被整体异步提交)
+    先抓元信息(标题/时间/原创/ip) -> 带元信息写表; 抓取失败仅写链接
+    返回 (new_id, name, art, 文本); 失败 new_id=None"""
     logs = []
+    tasks_echo("[async] 正在采集元数据...")
     try:
         art = extract_art_biz(link)
-        # 抓取文章元信息(网络请求, 失败不阻断, 只记录)
+        # 抓取文章元信息(网络请求, 失败不阻断, 失败仅写链接)
         meta = None
         try:
             meta = fetch_article(link)
@@ -681,27 +687,24 @@ def _save_article_base(link, biz, list_reads=None, list_likes=None):
         except Exception as e:
             logs.append(f"列表阅读/赞写入失败: {e}")
 
+    tasks_echo(f"[ok] 元数据采集完成, 文章已写入 id={new_id}")
     return new_id, name, art, "; ".join(logs)
 
 
-def _save_html_block(link, name):
-    """保存文章为本地HTML(公众号分类目录, 含图片本地化), 返回日志文本"""
-    logs = []
+def _save_html_block(link, name=""):
+    """步骤3: 保存文章为本地HTML(公众号分类目录, 含图片本地化) - 独立流程
+    后台异步执行(save_article_html 内含网络请求), 完成后回调日志"""
+    tasks_echo("[async] 正在保存Html...")
     try:
         html_path, info = save_article_html(link, account_name=name)
-        if html_path:
-            logs.append(f"保存Html: {info}")
-        else:
-            logs.append(f"保存Html失败: {info}")
+        tasks_echo(f"[ok] 保存Html: {info}" if html_path else f"[fail] 保存Html失败: {info}")
     except Exception as e:
-        logs.append(f"保存Html异常: {e}")
-    return "; ".join(logs)
-
+        tasks_echo(f"[fail] 保存Html异常: {e}")
 
 def _collect_metrics(biz, art):
     """4指标采集: 截图30/31区域 -> 豆包识图(1次) -> 更新文章数据
     成功写指标值; 失败仍写截图base64(shot列)到文章表, 不中断流程"""
-    logs = []
+    # 实时输出: 每步直接 tasks_echo
     p30 = _read_point(30)   # 4指标区域左上
     p31 = _read_point(31)   # 4指标区域右下
     if p30 and p31:
@@ -709,13 +712,13 @@ def _collect_metrics(biz, art):
             shot_path, shot_b64 = pc.screenshot(
                 p30[0], p30[1], p31[0], p31[1], img_format="png", as_base64=True)
             if not shot_b64:
-                logs.append("4指标区域截图失败")
+                tasks_echo("4指标区域截图失败")
                 shot_b64 = None
         except Exception as e:
-            logs.append(f"4指标区域截图失败: {e}")
+            tasks_echo(f"4指标区域截图失败: {e}")
             shot_b64 = None
     else:
-        logs.append("缺少点位30/31(4指标区域), 跳过4指标")
+        tasks_echo("缺少点位30/31(4指标区域), 跳过4指标")
         shot_b64 = None
 
     # 从 ai_model 表取 key + 模型; 未配置则跳过识图只留截图
@@ -738,11 +741,11 @@ def _collect_metrics(biz, art):
     if shot_b64 and api_key and model:
         metrics = doubao_recognize_interact(shot_b64, api_key, model)
         if metrics is not None:
-            logs.append(f"4指标: 点赞{metrics[0]} 转发{metrics[1]} 喜欢{metrics[2]} 留言{metrics[3]}")
+            tasks_echo(f"[ok] 4指标: 点赞{metrics[0]} 转发{metrics[1]} 喜欢{metrics[2]} 留言{metrics[3]}")
         else:
-            logs.append("豆包识图失败, 仅保存4指标截图")
+            tasks_echo("[fail] 豆包识图失败, 仅保存4指标截图")
     else:
-        logs.append("未配置AI模型或截图失败, 仅保存截图(如有)")
+        tasks_echo("未配置AI模型或截图失败, 仅保存截图(如有)")
 
     # 更新文章数据: 成功写指标值; 失败只带 shot(base64)
     data = {"biz": biz, "art_biz": art}
@@ -759,48 +762,47 @@ def _collect_metrics(biz, art):
             json=data, timeout=15,
         )
         if r.status_code == 200:
-            logs.append("文章数据已更新")
+            tasks_echo("文章数据已更新")
         else:
-            logs.append(f"文章数据更新失败: HTTP {r.status_code}")
+            tasks_echo(f"文章数据更新失败: HTTP {r.status_code}")
     except Exception as e:
-        logs.append(f"更新文章数据失败: {e}")
-    return "; ".join(logs)
+        tasks_echo(f"更新文章数据失败: {e}")
 
 
-def _collect_reads(collect_type, link, new_id):
+def _collect_reads(collect_type, link, biz, art):
     """采集阅读数: 滚到底->Ctrl+W->搜一搜按钮->粘贴链接->回车->稳定检测OCR识别
-    列表页已识别到阅读数时主函数跳过高不此调用"""
-    logs = []
+    写库按 biz+art_biz 匹配, 不依赖写表结果; 列表页已识别到阅读数时主函数跳过高不此调用"""
+    # 实时输出: 每步直接 tasks_echo
     p15 = _read_point(15)
     p23 = _read_point(23)
     if not p15 or not p23:
-        logs.append(f"阅读数: 缺少点位15={bool(p15)}/23={bool(p23)}, 跳过阅读数采集")
-        return "; ".join(logs)
+        tasks_echo(f"[warn] 阅读数: 缺少点位15={bool(p15)}/23={bool(p23)}, 跳过阅读数采集")
+        return
     # 1) 鼠标移到文章列表左上(点位15), 向下滚动5000px(0.5s内完成)
     pc.scroll(p15[0], p15[1], 50000, direction="down", duration=0.5)
-    logs.append("阅读数: 在点位15滚动5000px")
+    tasks_echo("阅读数: 在点位15滚动5000px")
     time.sleep(0.5)
     # 2) Ctrl+W 关闭当前页
     pc.ctrl_key("W")
-    logs.append("阅读数: Ctrl+W 关闭")
+    tasks_echo("阅读数: Ctrl+W 关闭")
     time.sleep(0.5)
     # 3) 采集类型1: 点击搜一搜按钮(点位23), 等0.2s
     if collect_type == 1:
         pc.mouse_click(p23[0], p23[1])
-        logs.append(f"阅读数: 点击搜一搜按钮(点位23)({p23[0]},{p23[1]})")
+        tasks_echo(f"阅读数: 点击搜一搜按钮(点位23)({p23[0]},{p23[1]})")
         time.sleep(0.2)
         # 4) 剪贴板粘贴复制的链接(与搜一搜查询一致), 等0.2s, 回车
         pc.set_clipboard_text(link)
         pc.ctrl_key("V")
-        logs.append("阅读数: 剪贴板粘贴链接")
+        tasks_echo("阅读数: 剪贴板粘贴链接")
         time.sleep(0.2)
         pc.key_press(pc.VK_RETURN)
-        logs.append("阅读数: 按回车")
+        tasks_echo("阅读数: 按回车")
         # 回车后: 页面稳定检测(点位32/33区域, 50次机会, 连续30次相同) -> OCR提取阅读数
         p32 = _read_point(32)
         p33 = _read_point(33)
         if not (p32 and p33):
-            logs.append("缺少点位32/33(阅读数区域), 跳过阅读数识别")
+            tasks_echo("缺少点位32/33(阅读数区域), 跳过阅读数识别")
         else:
             ok_stable, info = wait_page_stable(
                 p32[0], p32[1], p33[0], p33[1], same_need=30, timeout=50, interval=0.1)
@@ -809,32 +811,38 @@ def _collect_reads(collect_type, link, new_id):
                 png_path, b64 = pc.screenshot(
                     p32[0], p32[1], p33[0], p33[1], img_format="png", as_base64=True)
                 if not b64:
-                    logs.append("阅读数: 稳定后截图失败")
+                    tasks_echo("阅读数: 稳定后截图失败")
                 else:
                     items = ocr_service.ocr(Image.open(png_path).convert("RGB"))
                     reads = _extract_read_from_items(items, (p32[0], p32[1]))
                     if reads is not None:
-                        logs.append(f"阅读数: 识别到阅读数 {reads}")
-                        _save_reads(new_id, reads, logs)
+                        tasks_echo(f"[ok] 阅读数: 识别到阅读数 {reads}")
+                        _save_reads(biz, art, reads)
                     else:
-                        logs.append("阅读数: OCR未找到'阅读'+数字或颜色不符")
+                        tasks_echo("[warn] 阅读数: OCR未找到'阅读'+数字或颜色不符")
             else:
-                logs.append(f"阅读数: 结果页未稳定({info}), 跳过识别")
-    return "; ".join(logs)
+                tasks_echo(f"阅读数: 结果页未稳定({info}), 跳过识别")
 
 
 def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=False,
                          save_html=False, biz="", list_reads=None, list_likes=None):
     """文章数据采集(编排主函数, 各块拆分到 _save_article_base
-    /_save_html_block/_collect_metrics/_collect_reads; 复制链接逻辑留本函数)。
+    /_bg_meta_and_html/_collect_metrics/_collect_reads; 复制链接逻辑留本函数)。
     参数: 同前(collect_type/capture_4metrics/capture_read/save_html/biz/list_reads/list_likes)
-    入口检查触发类型, 依次执行: 复制链接 -> 写表(元信息+列表阅读/赞) -> 保存Html
-    -> 4指标 -> 阅读数; 统一出口 _finish(Ctrl+W)。
+    流程: 复制链接 -> 提取art_biz -> 步骤2写表(整体异步) -> 步骤3保存Html(并行异步)
+    -> 4指标 -> 阅读数(均不依赖写表结果, 直接用biz/art); 统一出口 _finish(Ctrl+W)。
+    异步设计: 写表与保存Html各自独立提交线程池异步执行, 主流程不等待网络耗时。
     """
     logs = []
     copy_seen = False   # 标志: 是否检测到过"复制"字样
+
+    def step(msg):
+        """步骤日志: 实时转发(带[step]标记) + 入汇总"""
+        logs.append(msg)
+        tasks_echo(f"[step] {msg}")
+
     if collect_type == 0:
-        logs.append("触发类型不确定, 无法采集")
+        step("触发类型不确定, 无法采集")
         return _finish(logs, copy_seen, False, "触发类型不确定, 无法采集")
 
     # 1) 获取复制链接: 点18(3点菜单) -> OCR检测复制字样 -> 点27 -> 读剪贴板60次
@@ -843,11 +851,11 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
     p28 = _read_point(28)   # 复制链接区域左上
     p29 = _read_point(29)   # 复制链接区域右下
     if not p18 or not p27:
-        logs.append("缺少点位18/27(3点/复制链接)")
+        step("缺少点位18/27(3点/复制链接)")
         return _finish(logs, copy_seen, False, "缺少点位18/27(3点/复制链接)")
     link = None
     pc.clear_clipboard()
-    logs.append(f"点击点位18(3点)({p18[0]},{p18[1]})")
+    step(f"点击点位18(3点)({p18[0]},{p18[1]})")
     pc.mouse_click(p18[0], p18[1])
     # 截图点位28-29区域, OCR 检测是否有"复制"字样
     if p28 and p29:
@@ -857,12 +865,12 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
             if shot_path:
                 ocr_items = ocr_service.ocr(Image.open(shot_path))
                 copy_seen = any("复制" in (it[2] or "") for it in ocr_items)
-                logs.append("OCR检测到复制字样" if copy_seen else "OCR未检测到复制字样")
+                step("OCR检测到复制字样" if copy_seen else "OCR未检测到复制字样")
         except Exception as e:
-            logs.append(f"复制链接OCR检测失败: {e}")
+            step(f"复制链接OCR检测失败: {e}")
     if copy_seen:
         # 检测到"复制": 点击复制链接(点位27), 读剪贴板60次
-        logs.append(f"点击点位27(复制链接)({p27[0]},{p27[1]})")
+        step(f"点击点位27(复制链接)({p27[0]},{p27[1]})")
         pc.mouse_click(p27[0], p27[1])
         for _i in range(1, 60):
             time.sleep(0.1)
@@ -870,36 +878,42 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
             if v:
                 link = v
                 break
-        logs.append(f"已复制链接: {link[:60]}" if link else "未读取到剪贴板链接")
+        step(f"已复制链接: {link[:60]}" if link else "未读取到剪贴板链接")
     else:
         # 未检测到"复制": 再点击点位18, 等0.2秒, 本轮流程结束(无链接)
-        logs.append(f"再次点击点位18(3点)({p18[0]},{p18[1]}), 等0.2s")
+        step(f"再次点击点位18(3点)({p18[0]},{p18[1]}), 等0.2s")
         pc.mouse_click(p18[0], p18[1])
         time.sleep(0.2)
         pc.clear_clipboard()
     if not link:
-        logs.append("未获取到链接, 本轮结束")
+        step("未获取到链接, 本轮结束")
         return _finish(logs, copy_seen, False, "未获取到链接")
 
-    # 2) 写文章表(元信息 + 列表阅读/赞)
-    new_id, name, art, text = _save_article_base(link, biz, list_reads, list_likes)
-    logs.append(text)
-    if not new_id:
-        return _finish(logs, copy_seen, False, "写入文章表失败")
+    # art_biz 同步提取(供 4指标/阅读数 使用, 不依赖写表)
+    art = extract_art_biz(link)
+    if not art:
+        step("链接提取art_biz失败")
+        return _finish(logs, copy_seen, False, "链接提取art_biz失败")
 
-    # 3) 保存Html(开启时)
-    if save_html and name:
-        logs.append(_save_html_block(link, name))
+    # 2) 写文章表(完整流程: 抓元信息->写表, 整体异步提交, 不阻塞后续)
+    _bg_executor.submit(_save_article_base, link, biz, list_reads, list_likes)
+
+    # 3) 保存Html(独立流程, 并行异步)
+    if save_html:
+        _bg_executor.submit(_save_html_block, link)  # 开始/完成日志由后台函数输出
 
     # 4) 4指标(开启时)
     if capture_4metrics:
-        logs.append(_collect_metrics(biz, art))
+        tasks_echo("[step] 正在采集4指标...")
+        _collect_metrics(biz, art)
 
     # 5) 采集阅读数(开启且列表无阅读数时)
     if capture_read and list_reads is None:
-        logs.append(_collect_reads(collect_type, link, new_id))
+        tasks_echo("[step] 正在采集阅读数...")
+        _collect_reads(collect_type, link, biz, art)
 
-    return _finish(logs, copy_seen, True, "")
+    # 细节已实时输出, 最终只返回状态摘要
+    return _finish([], copy_seen, True, "采集完成")
 __all__ = ["init_wechat_window", "search_window_init", "search_query",
            "article_list_wait_stable", "init_app_window",
            "article_data_collect",

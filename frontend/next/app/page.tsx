@@ -691,7 +691,15 @@ export default function Home() {
               {collectLogs.length === 0 ? (
                 <span style={{ color: "#888" }}>(暂无日志)</span>
               ) : (
-                collectLogs.map((l, i) => <div key={i}>{l}</div>)
+                collectLogs.map((l, i) => {
+                  // 按 [tag] 前缀着色: async异步(蓝) step步骤(橙) ok成功(绿) fail失败(红) warn警告(黄)
+                  const m = l.match(/\[(async|step|ok|fail|warn)\]\s?([\s\S]*)/);
+                  const color = m ? {
+                    async: "#69b1ff", step: "#ffa940", ok: "#73d13d",
+                    fail: "#ff4d4f", warn: "#ffc53d",
+                  }[m[1]] : undefined;
+                  return <div key={i} style={m && color ? { color } : undefined}>{m ? m[2] : l}</div>;
+                })
               )}
             </div>
           </div>

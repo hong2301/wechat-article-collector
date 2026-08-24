@@ -10,6 +10,7 @@ import time
 from . import computer as pc
 from ..database import get_conn
 from .ocr import _region_grayish, extract_reads
+from .robot import tasks_echo
 
 
 def wait_page_stable(x1, y1, x2, y2, same_need=15, timeout=30, interval=0.1):
@@ -94,18 +95,24 @@ def _extract_read_from_items(items, box):
     return None
 
 
-def _save_reads(article_id, reads, logs):
-    """更新文章表 reads 字段"""
+def _save_reads(biz, art, reads, logs=None):
+    """更新文章表 reads 字段(按 biz+art_biz 匹配); 日志实时输出或收集(logs可选)"""
+    def _out(msg):
+        if logs is not None:
+            logs.append(msg)
+        else:
+            tasks_echo(msg)
     try:
         conn = get_conn()
         try:
-            conn.execute("UPDATE articles SET reads=? WHERE id=?", (reads, article_id))
+            conn.execute("UPDATE articles SET reads=? WHERE biz=? AND art_biz=?",
+                         (reads, biz, art))
             conn.commit()
-            logs.append(f"阅读数已写入 article id={article_id}: {reads}")
+            _out(f"阅读数已写入(art={art}): {reads}")
         finally:
             conn.close()
     except Exception as e:
-        logs.append(f"阅读数写入失败: {e}")
+        _out(f"阅读数写入失败: {e}")
 
 
 def _finish(logs, copy_seen, ok, reason):
@@ -118,5 +125,5 @@ def _finish(logs, copy_seen, ok, reason):
         logs.append("已检测过复制字样, Ctrl+W 关闭文章页")
     text = "; ".join(logs)
     if reason:
-        text = reason + " | " + text
+        text = reason if not text else f"{reason} | {text}"
     return ok, text
