@@ -408,6 +408,11 @@ export default function Home() {
       }
     })();
   }
+  // 关闭采集弹窗: 收起界面 + 刷新公众号列表(文章统计更新)
+  function closeCollect() {
+    setCollectOpen(false);
+    load();
+  }
 
 
   const [calMonthKey, setCalMonthKey] = useState<string>("");
@@ -693,13 +698,13 @@ export default function Home() {
         title={collectStarted ? `正在采集「${collectTask?.name || ""}」 (${queueIdx}/${queue.length})` : queue.length > 1 ? `确认采集设置 (共 ${queue.length} 个)` : "确认采集设置"}
         onCancel={() => {
           collectAbortRef.current?.abort();
-          setCollectOpen(false);
+          closeCollect();
         }}
         footer={collectStarted ? (
-          <Button onClick={() => setCollectOpen(false)}>{collectDone ? "关闭" : "收起"}</Button>
+          <Button onClick={closeCollect}>{collectDone ? "关闭" : "收起"}</Button>
         ) : (
           <>
-            <Button onClick={() => setCollectOpen(false)}>取消</Button>
+            <Button onClick={closeCollect}>取消</Button>
             <Button type="primary" onClick={confirmCollect}>确认</Button>
           </>
         )}
