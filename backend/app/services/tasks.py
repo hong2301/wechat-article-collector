@@ -810,8 +810,9 @@ def _bg_reads_ocr(png_path, box, biz, art):
     独立异步执行, 不阻塞主流程; 日志实时转发"""
     tag = f"阅读数#{art[:10]}"
     try:
-        items = ocr_service.ocr(Image.open(png_path).convert("RGB"))
-        reads = _extract_read_from_items(items, box)
+        img = Image.open(png_path).convert("RGB")
+        items = ocr_service.ocr(img)
+        reads = _extract_read_from_items(items, box, img=img)
         if reads is not None:
             tasks_echo(f"[async:{tag}] 识别到阅读数 {reads}")
             _save_reads(biz, art, reads)

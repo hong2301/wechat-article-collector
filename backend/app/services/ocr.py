@@ -106,31 +106,40 @@ def _text_brightness(crop):
         return 255.0
 
 
-def _region_sample(sbox, box):
-    """通用: 截取 sbox 区域(屏幕坐标 box+offset) 并返回深色像素采样列表
-    返回: [RGB元组,...]; box 为空/失败返回 None"""
+def _region_sample(sbox, box=None, img=None):
+    """通用: 截取 sbox 区域像素采样(深色像素)
+    img 给定时从该 PIL 图裁剪(sbox相对图内+box偏移对应图区域), 否则 ImageGrab 抓当前屏幕
+    返回: [RGB元组,...]; 失败返回 None"""
     if not sbox or len(sbox) < 4 or box is None:
         return None
     try:
-        from PIL import ImageGrab
-        xs = [p[0] for p in sbox]
-        ys = [p[1] for p in sbox]
-        abs_box = (box[0] + min(xs), box[1] + min(ys),
-                   box[0] + max(xs), box[1] + max(ys))
-        img = ImageGrab.grab(bbox=abs_box).convert("RGB")
-        w, h = img.size
-        samples = [img.getpixel((x, y)) for y in range(0, h, 2)
-                   for x in range(0, w, 2)]
+        if img is not None:
+            # sbox 相对截图坐标(截图时OCR基于该图), 直接用, 不加box偏移
+            crop = img.crop((min(p[0] for p in sbox), min(p[1] for p in sbox),
+                             max(p[0] for p in sbox), max(p[1] for p in sbox)))
+            samples = [crop.getpixel((x, y)) for y in range(0, crop.size[1], 2)
+                       for x in range(0, crop.size[0], 2)]
+        else:
+            from PIL import ImageGrab
+            xs = [p[0] for p in sbox]
+            ys = [p[1] for p in sbox]
+            abs_box = (box[0] + min(xs), box[1] + min(ys),
+                       box[0] + max(xs), box[1] + max(ys))
+            img = ImageGrab.grab(bbox=abs_box).convert("RGB")
+            w, h = img.size
+            samples = [img.getpixel((x, y)) for y in range(0, h, 2)
+                       for x in range(0, w, 2)]
         dark = [p for p in samples if sum(p) < 650]   # 深色像素(文字)
         return dark if dark else None
     except Exception:
         return None
 
 
-def _region_grayish(sbox, box=None):
+def _region_grayish(sbox, box=None, img=None):
     """判断 sbox 区域主色是否为灰色系(时间点位文字: 三通道接近, 中等亮度)
-    返回 True/False; box 为空或失败返回 None(不判定/不阻断)"""
-    dark = _region_sample(sbox, box)
+    返回 True/False; box 为空或失败返回 None(不判定/不阻断)
+    img 给定时基于该图像素, 否则 ImageGrab 抓屏幕"""
+    dark = _region_sample(sbox, box, img)
     if not dark:
         return None
     r = sum(p[0] for p in dark) / len(dark)
@@ -162,11 +171,6 @@ def text_color(sbox, box=None):
     if avg < 60 and spread < 60:
         return "black"
     return "other"
-
-
-def _region_grayish(sbox, box=None):
-    """兼容: 是否灰色系(时间点位/文章标记文字)"""
-    return text_color(sbox, box) == "gray"
 
 
 def extract_reads(text):

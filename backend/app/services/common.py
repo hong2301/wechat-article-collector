@@ -69,15 +69,16 @@ def _read_point(pid):
         return None
 
 
-def _extract_read_from_items(items, box):
+def _extract_read_from_items(items, box, img=None):
     """从OCR结果中提取阅读数: 文本含'阅读'+数字, 且该文本区域灰字颜色校验通过。
+    img 给定时基于该图像素取色(异步识别屏幕已流转, 不能用ImageGrab), 否则抓当前屏幕
     返回: 阅读数(int) 或 None
     """
     ox, oy = box
     items = list(items or [])
     for i, (cx, cy, text, score, sbox, brightness) in enumerate(items):
         if "阅读" in (text or ""):
-            gray = _region_grayish(sbox, (ox, oy))
+            gray = _region_grayish(sbox, (ox, oy), img)
             if gray is False:
                 continue   # 颜色不是灰色系 -> 排除
             # 优先: 本段提取数字(阅读 730 / 阅读730)
