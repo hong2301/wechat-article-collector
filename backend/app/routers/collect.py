@@ -168,6 +168,8 @@ def _collect_generate(payload: CollectStart):
                 capture_read=payload.capture_read, save_html=payload.save_html,
                 save_dir=payload.save_dir)
             log_q.put(("log", f"[文章列表识别循环] {'成功' if ok else '失败'} | {text}"))
+            log_q.put(("log", "等待后台异步任务完成..."))
+            tasks_service.wait_bg_done()
             log_q.put(("done", True, "采集流程结束"))
         except SystemExit:
             log_q.put(("log", "采集已停止(强制中断)"))
@@ -268,6 +270,8 @@ def _update_generate(payload: UpdateStart):
                 capture_read=payload.capture_read, save_html=payload.save_html,
                 save_dir=payload.save_dir, biz=payload.biz)
             log_q.put(("log", f"[文章数据更新] {'成功' if ok else '失败'} | {text}"))
+            log_q.put(("log", "等待后台异步任务完成..."))
+            tasks_service.wait_bg_done()
             log_q.put(("done", True, "更新流程结束"))
         except SystemExit:
             log_q.put(("log", "更新已停止(强制中断)"))

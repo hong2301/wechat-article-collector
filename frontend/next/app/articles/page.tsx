@@ -250,6 +250,11 @@ export default function ArticlePage() {
     setUpdStarted(true);
     runUpd(0);
   }
+  // 关闭更新弹窗: 收起界面 + 刷新文章列表(更新数据后重新拉取)
+  function closeUpd() {
+    setUpdOpen(false);
+    reload();
+  }
   // 停止更新: 通知后端中止 + 断开SSE, 按钮变关闭
   function stopUpdate() {
     fetch("http://127.0.0.1:8000/api/collect/stop", { method: "POST" }).catch(() => {});
@@ -735,16 +740,16 @@ export default function ArticlePage() {
       <Modal
         open={updOpen}
         title={updStarted ? `正在更新「${updTask?.title || updTask?.art_biz || ""}」 (${updIdx}/${updQueue.length || 1})` : updQueue.length > 1 ? `确认更新设置 (共 ${updQueue.length} 个)` : "确认更新设置"}
-        onCancel={() => { if (updStarted) { stopUpdate(); return; } setUpdOpen(false); }}
+        onCancel={() => { if (updStarted) { stopUpdate(); return; } closeUpd(); }}
         footer={updStarted ? (
           updStopped ? (
-            <Button type="primary" onClick={() => setUpdOpen(false)}>关闭</Button>
+            <Button type="primary" onClick={closeUpd}>关闭</Button>
           ) : (
             <Button danger onClick={stopUpdate}>停止</Button>
           )
         ) : (
           <>
-            <Button onClick={() => setUpdOpen(false)}>取消</Button>
+            <Button onClick={closeUpd}>取消</Button>
             <Button type="primary" onClick={confirmUpdate}>确认</Button>
           </>
         )}

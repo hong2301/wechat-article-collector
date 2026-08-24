@@ -43,6 +43,16 @@ APP_EXE = "electron.exe"           # 前端壳进程
 _bg_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="bg")
 
 
+def wait_bg_done(timeout=120):
+    """等待所有后台异步任务完成(自动停止时调用, 确保写表/保存Html/4指标/阅读数OCR收尾)
+    主动停止不调用(后台任务不强等); 完成后重建执行器供下次使用"""
+    global _bg_executor
+    try:
+        _bg_executor.shutdown(wait=True, cancel_futures=False)
+    finally:
+        _bg_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="bg")
+
+
 def init_wechat_window(window_split=False):
     """微信窗口初始化: 确保 WeChatAppEx 被关闭、Weixin 存在且在左半屏。
     参数:
