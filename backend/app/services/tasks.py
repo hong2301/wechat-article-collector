@@ -419,7 +419,7 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             if btn:
                 echo(f"识别到'余下'加载更多按钮: {btn[2]!r} @({btn[0]},{btn[1]}), 点击后重新截图")
                 pc.mouse_click(btn[0], btn[1])
-                time.sleep(0.6)
+                time.sleep(0.3)
                 # 点击后: 重新截图+OCR(替换本轮items, 继续下面的分类)
                 shot_path2, _b64 = pc.screenshot(x1, y1, x2, y2, img_format="png")
                 if shot_path2:
@@ -795,6 +795,22 @@ def _collect_metrics(biz, art):
     _bg_executor.submit(_bg_ai_metrics, shot_b64, api_key, model, biz, art)
 
 
+def _bg_reads_ocr(png_path, box, biz, art):
+    """后台线程任务: 阅读数截图OCR识别(耗时) -> 识别到写文章表
+    独立异步执行, 不阻塞主流程; 日志实时转发"""
+    tag = f"阅读数#{art[:10]}"
+    try:
+        items = ocr_service.ocr(Image.open(png_path).convert("RGB"))
+        reads = _extract_read_from_items(items, box)
+        if reads is not None:
+            tasks_echo(f"[async:{tag}] 识别到阅读数 {reads}")
+            _save_reads(biz, art, reads)
+        else:
+            tasks_echo(f"[async:{tag}] OCR未找到'阅读'+数字或颜色不符")
+    except Exception as e:
+        tasks_echo(f"[async:{tag}] 阅读数OCR异常: {e}")
+
+
 def _collect_reads(collect_type, link, biz, art):
     """采集阅读数: 滚到底->Ctrl+W->搜一搜按钮->粘贴链接->回车->稳定检测OCR识别
     写库按 biz+art_biz 匹配, 不依赖写表结果; 列表页已识别到阅读数时主函数跳过高不此调用"""
@@ -826,28 +842,23 @@ def _collect_reads(collect_type, link, biz, art):
         time.sleep(0.2)
         pc.key_press(pc.VK_RETURN)
         tasks_echo("阅读数: 按回车")
-        # 回车后: 页面稳定检测(点位32/33区域, 50次机会, 连续30次相同) -> OCR提取阅读数
+        # 回车后: 页面稳定检测(点位32/33区域, 50次机会, 连续20次相同) -> OCR提取阅读数
         p32 = _read_point(32)
         p33 = _read_point(33)
         if not (p32 and p33):
             tasks_echo("缺少点位32/33(阅读数区域), 跳过阅读数识别")
         else:
             ok_stable, info = wait_page_stable(
-                p32[0], p32[1], p33[0], p33[1], same_need=30, timeout=50, interval=0.1)
+                p32[0], p32[1], p33[0], p33[1], same_need=20, timeout=50, interval=0.1)
             if ok_stable:
-                # 稳定后: 截图OCR提取阅读数
+                # 稳定后: 截图 -> OCR识别丢后台异步(耗时), 识别到写文章表
                 png_path, b64 = pc.screenshot(
                     p32[0], p32[1], p33[0], p33[1], img_format="png", as_base64=True)
                 if not b64:
                     tasks_echo("阅读数: 稳定后截图失败")
                 else:
-                    items = ocr_service.ocr(Image.open(png_path).convert("RGB"))
-                    reads = _extract_read_from_items(items, (p32[0], p32[1]))
-                    if reads is not None:
-                        tasks_echo(f"[ok] 阅读数: 识别到阅读数 {reads}")
-                        _save_reads(biz, art, reads)
-                    else:
-                        tasks_echo("[warn] 阅读数: OCR未找到'阅读'+数字或颜色不符")
+                    tasks_echo("阅读数: 截图完成, OCR识别后台进行...")
+                    _bg_executor.submit(_bg_reads_ocr, png_path, (p32[0], p32[1]), biz, art)
             else:
                 tasks_echo(f"阅读数: 结果页未稳定({info}), 跳过识别")
 
@@ -873,7 +884,7 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         step("触发类型不确定, 无法采集")
         return _finish(logs, copy_seen, False, "触发类型不确定, 无法采集")
 
-    # 1) 获取复制链接: 点18(3点菜单) -> OCR检测复制字样 -> 点27 -> 读剪贴板60次
+    # 1) 获取复制链接(2次机会): 点18(3点菜单) -> OCR检测复制字样 -> 点27 -> 读剪贴板60次
     p18 = _read_point(18)   # 文章右上角3点
     p27 = _read_point(27)   # 点击复制链接
     p28 = _read_point(28)   # 复制链接区域左上
@@ -882,39 +893,46 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         step("缺少点位18/27(3点/复制链接)")
         return _finish(logs, copy_seen, False, "缺少点位18/27(3点/复制链接)")
     link = None
-    pc.clear_clipboard()
-    step(f"点击点位18(3点)({p18[0]},{p18[1]})")
-    pc.mouse_click(p18[0], p18[1])
-    # 截图点位28-29区域, OCR 检测是否有"复制"字样
-    if p28 and p29:
-        try:
-            shot_path, _b64 = pc.screenshot(p28[0], p28[1], p29[0], p29[1],
-                                            img_format="png")
-            if shot_path:
-                ocr_items = ocr_service.ocr(Image.open(shot_path))
-                copy_seen = any("复制" in (it[2] or "") for it in ocr_items)
-                step("OCR检测到复制字样" if copy_seen else "OCR未检测到复制字样")
-        except Exception as e:
-            step(f"复制链接OCR检测失败: {e}")
-    if copy_seen:
-        # 检测到"复制": 点击复制链接(点位27), 读剪贴板60次
-        step(f"点击点位27(复制链接)({p27[0]},{p27[1]})")
-        pc.mouse_click(p27[0], p27[1])
-        for _i in range(1, 60):
-            time.sleep(0.1)
-            v = pc.read_clipboard_text()
-            if v:
-                link = v
-                break
-        step(f"已复制链接: {link[:60]}" if link else "未读取到剪贴板链接")
-    else:
-        # 未检测到"复制": 再点击点位18, 等0.2秒, 本轮流程结束(无链接)
-        step(f"再次点击点位18(3点)({p18[0]},{p18[1]}), 等0.2s")
-        pc.mouse_click(p18[0], p18[1])
-        time.sleep(0.2)
+    for _try in range(1, 3):
+        step(f"--- 复制链接 第{_try}次 ---")
+        copy_seen = False   # 每次循环重置, 避免沿用上次残留
         pc.clear_clipboard()
+        step(f"点击点位18(3点)({p18[0]},{p18[1]})")
+        pc.mouse_click(p18[0], p18[1])
+        time.sleep(0.5)   # 等菜单弹出, 否则截图时菜单未出现会误判无复制
+        # 截图点位28-29区域, OCR 检测是否有"复制"字样
+        if p28 and p29:
+            try:
+                shot_path, _b64 = pc.screenshot(p28[0], p28[1], p29[0], p29[1],
+                                                img_format="png")
+                if shot_path:
+                    ocr_items = ocr_service.ocr(Image.open(shot_path))
+                    print(ocr_items)
+                    copy_seen = any("复制" in (it[2] or "") for it in ocr_items)
+                    step("OCR检测到复制字样" if copy_seen else "OCR未检测到复制字样")
+            except Exception as e:
+                step(f"复制链接OCR检测失败: {e}")
+        if copy_seen:
+            # 检测到"复制": 点击复制链接(点位27), 读剪贴板60次
+            step(f"点击点位27(复制链接)({p27[0]},{p27[1]})")
+            pc.mouse_click(p27[0], p27[1])
+            for _i in range(1, 60):
+                time.sleep(0.1)
+                v = pc.read_clipboard_text()
+                if v:
+                    link = v
+                    break
+            step(f"已复制链接: {link[:60]}" if link else "未读取到剪贴板链接")
+        else:
+            # 未检测到"复制": 再点击点位18, 等0.2秒
+            step(f"再次点击点位18(3点)({p18[0]},{p18[1]}), 等0.2s")
+            pc.mouse_click(p18[0], p18[1])
+            time.sleep(0.5)
+            pc.clear_clipboard()
+        if link:
+            break   # 已拿到链接, 跳出
     if not link:
-        step("未获取到链接, 本轮结束")
+        step("2次复制链接均未获取到, 本轮结束")
         return _finish(logs, copy_seen, False, "未获取到链接")
 
     # art_biz 同步提取(供 4指标/阅读数 使用, 不依赖写表)

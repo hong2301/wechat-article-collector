@@ -278,7 +278,7 @@ export default function ScrollsDialog({
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) importFile(f); }}
         style={{
-          display: "flex", flexDirection: "column", gap: 10,
+          display: "flex", flexDirection: "column", gap: 10, height: "62vh",
           border: dragOver ? "2px dashed #1565c0" : "2px dashed transparent",
           borderRadius: 8, padding: 4, transition: ".2s", background: dragOver ? "#eef4ff" : "transparent",
         }}

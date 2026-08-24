@@ -143,6 +143,7 @@ export default function Home() {
   const [queue, setQueue] = useState<Task[]>([]);   // 采集队列(采集选中/单条)
   const [queueIdx, setQueueIdx] = useState(0);      // 当前正在采集的队列下标
   const [collectDone, setCollectDone] = useState(false); // 全部采集完成(弹窗保留可关)
+  const [collectStopped, setCollectStopped] = useState(false); // 已手动停止(按钮变关闭)
   const collectRunRef = useRef(false);              // 是否采集中(队列运行中)
   const [speed, setSpeed] = useState(0);
   const [pointsOpen, setPointsOpen] = useState(false);
@@ -324,6 +325,7 @@ export default function Home() {
   // 确认采集: 确认设置后按队列启动采集(每个任务完整走流程)
   function confirmCollect() {
     if (queue.length === 0) return;
+    setCollectStopped(false);
     setCollectStarted(true);
     runOne(0);
   }
@@ -412,6 +414,12 @@ export default function Home() {
         }
       }
     })();
+  }
+  // 停止采集: 通知后端中止 + 断开SSE, 按钮变关闭
+  function stopCollect() {
+    fetch("http://127.0.0.1:8000/api/collect/stop", { method: "POST" }).catch(() => {});
+    collectAbortRef.current?.abort();
+    setCollectStopped(true);
   }
   // 关闭采集弹窗: 收起界面 + 刷新公众号列表(文章统计更新)
   function closeCollect() {
@@ -718,11 +726,15 @@ export default function Home() {
         open={collectOpen}
         title={collectStarted ? `正在采集「${collectTask?.name || ""}」 (${queueIdx}/${queue.length})` : queue.length > 1 ? `确认采集设置 (共 ${queue.length} 个)` : "确认采集设置"}
         onCancel={() => {
-          collectAbortRef.current?.abort();
+          if (collectStarted) { stopCollect(); return; }
           closeCollect();
         }}
         footer={collectStarted ? (
-          <Button onClick={closeCollect}>{collectDone ? "关闭" : "收起"}</Button>
+          collectStopped || collectDone ? (
+            <Button type="primary" onClick={closeCollect}>关闭</Button>
+          ) : (
+            <Button danger onClick={stopCollect}>停止</Button>
+          )
         ) : (
           <>
             <Button onClick={closeCollect}>取消</Button>

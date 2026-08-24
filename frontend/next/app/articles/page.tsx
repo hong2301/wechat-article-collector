@@ -103,12 +103,26 @@ export default function ArticlePage() {
   const [updStarted, setUpdStarted] = useState(false);
   const [updTask, setUpdTask] = useState<Article | null>(null);
   const [updLogs, setUpdLogs] = useState<string[]>([]);
+  const [updQueue, setUpdQueue] = useState<Article[]>([]);   // 更新队列(单篇=1个)
+  const [updIdx, setUpdIdx] = useState(0);                   // 当前队列下标
+  const [updCount, setUpdCount] = useState(0);               // 已更新文章数
+  const [updStartTs, setUpdStartTs] = useState(0);           // 开始时间戳
+  const [updStartTime, setUpdStartTime] = useState("");     // 开始时间显示
+  const [updSpeed, setUpdSpeed] = useState(0);               // 更新速度(篇/分)
   const updAbortRef = useRef<AbortController | null>(null);
+  const [updStopped, setUpdStopped] = useState(false);   // 是否已停止(停止后按钮变关闭)
   const updLogRef = useRef<HTMLDivElement>(null);
   // 更新日志自动滚动
   useEffect(() => {
     if (updLogRef.current) updLogRef.current.scrollTop = updLogRef.current.scrollHeight;
   }, [updLogs]);
+  // 更新速度: 每完成一篇重算
+  useEffect(() => {
+    if (updCount > 0 && updStartTs > 0) {
+      const mins = (Date.now() - updStartTs) / 60000;
+      setUpdSpeed(mins > 0 ? Math.round((updCount / mins) * 10) / 10 : 0);
+    }
+  }, [updCount]);
   const [addOpen, setAddOpen] = useState(false);
   const [newLink, setNewLink] = useState("");
   const [saving, setSaving] = useState(false);
@@ -208,19 +222,58 @@ export default function ArticlePage() {
     if (cancelled) message.warning(`已取消, 完成 ${done} 篇`);
     else message.success(`下载完成: ${done} 篇`);
   }
-  // 单篇更新: 打开更新确认弹窗
+  // 单篇更新: 打开更新确认弹窗(队列=1个)
   function openUpdate(a: Article) {
+    setUpdQueue([a]);
+    setUpdIdx(0);
     setUpdTask(a);
     setUpdStarted(false);
     setUpdLogs([]);
     setUpdOpen(true);
   }
-  // 确认更新: 走后端单篇更新流程(collect_type=2)
+  // 更新选中: 选中文章批量入队
+  function openUpdateSelected() {
+    if (selectedKeys.length === 0) { message.warning("请先勾选要更新的文章"); return; }
+    const rows = shown.filter((s) => selectedKeys.includes(s.id));
+    if (rows.length === 0) return;
+    setUpdQueue(rows);
+    setUpdIdx(0);
+    setUpdTask(rows[0]);
+    setUpdStarted(false);
+    setUpdLogs([]);
+    setUpdOpen(true);
+  }
+  // 确认更新: 按队列启动(多个串行完整更新流程)
   function confirmUpdate() {
-    const a = updTask;
-    if (!a || !a.art_biz) { message.warning("无文章链接"); return; }
+    if (updQueue.length === 0) return;
+    setUpdStopped(false);
     setUpdStarted(true);
-    setUpdLogs([`开始更新「${a.title || a.art_biz || ""}」`]);
+    runUpd(0);
+  }
+  // 停止更新: 通知后端中止 + 断开SSE, 按钮变关闭
+  function stopUpdate() {
+    fetch("http://127.0.0.1:8000/api/collect/stop", { method: "POST" }).catch(() => {});
+    updAbortRef.current?.abort();
+    setUpdStopped(true);
+  }
+  // 更新队列第 idx 个: 调后端 /api/collect/update(独立更新流程), done 后自动下一个
+  function runUpd(idx: number) {
+    const a = updQueue[idx];
+    if (!a) {
+      message.success("全部更新完成");
+      return;
+    }
+    setUpdIdx(idx);
+    setUpdTask(a);
+    if (idx === 0) {
+      setUpdStartTs(Date.now());
+      setUpdStartTime(new Date().toLocaleString("zh-CN", { hour12: false }));
+      setUpdCount(0); setUpdSpeed(0);
+      setUpdLogs([`开始更新「${a.title || a.art_biz || ""}」`]);
+    } else {
+      setUpdLogs((p) => [...p, `--- 开始更新「${a.title || a.art_biz || ""}」(${idx + 1}/${updQueue.length}) ---`]);
+    }
+    if (!a.art_biz) { setUpdLogs((p) => [...p, "❌ 无文章链接"]); setUpdCount((c) => c + 1); runUpd(idx + 1); return; }
     const link = `https://mp.weixin.qq.com/s/${a.art_biz}`;
     const controller = new AbortController();
     updAbortRef.current = controller;
@@ -235,6 +288,7 @@ export default function ArticlePage() {
       save_dir: "",
     };
     (async () => {
+      let finished = false;
       try {
         const resp = await fetch("http://127.0.0.1:8000/api/collect/update", {
           method: "POST", headers: { "Content-Type": "application/json" },
@@ -254,14 +308,21 @@ export default function ArticlePage() {
             if (!block.startsWith("data: ")) continue;
             try {
               const d = JSON.parse(block.slice(6));
-              if (d.type === "log" && d.msg) setUpdLogs((p) => [...p, d.msg]);
-              else if (d.type === "done") {
+              if (d.type === "log" && d.msg) {
+                setUpdLogs((p) => [...p, d.msg]);
+              } else if (d.type === "done") {
+                finished = true;
                 setUpdLogs((p) => [...p, d.ok ? "✅ 更新完成" : `❌ 更新失败: ${d.reason || ""}`]);
+                // 处理完成才算一篇
+                setUpdCount((c) => c + 1);
               }
             } catch { /* 忽略坏帧 */ }
           }
         }
         setUpdLogs((p) => [...p, "⏹ 连接已断开"]);
+        if (finished && updAbortRef.current === controller) {
+          runUpd(idx + 1);
+        }
       } catch (e: unknown) {
         if ((e as Error)?.name !== "AbortError") {
           setUpdLogs((p) => [...p, `❌ 更新接口异常: ${(e as Error)?.message || e}`]);
@@ -509,7 +570,7 @@ export default function ArticlePage() {
         onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) importFile(f); }}
         style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, minHeight: 300, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <Button type="primary" icon={<ReloadOutlined />} onClick={() => message.info("更新选中(开发中)")}>更新选中</Button>
+          <Button type="primary" icon={<ReloadOutlined />} onClick={openUpdateSelected}>更新选中</Button>
           <Button icon={<DownloadOutlined />} onClick={downloadSelected}>下载选中</Button>
           <div style={{ flex: 1 }} />
           <Button color="primary" variant="outlined" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>
@@ -673,10 +734,14 @@ export default function ArticlePage() {
       {/* 更新弹窗: 确认阶段 -> 更新进行中 */}
       <Modal
         open={updOpen}
-        title={updStarted ? `正在更新「${updTask?.title || updTask?.art_biz || ""}」` : "确认更新设置"}
-        onCancel={() => { updAbortRef.current?.abort(); setUpdOpen(false); }}
+        title={updStarted ? `正在更新「${updTask?.title || updTask?.art_biz || ""}」 (${updIdx}/${updQueue.length || 1})` : updQueue.length > 1 ? `确认更新设置 (共 ${updQueue.length} 个)` : "确认更新设置"}
+        onCancel={() => { if (updStarted) { stopUpdate(); return; } setUpdOpen(false); }}
         footer={updStarted ? (
-          <Button onClick={() => setUpdOpen(false)}>收起</Button>
+          updStopped ? (
+            <Button type="primary" onClick={() => setUpdOpen(false)}>关闭</Button>
+          ) : (
+            <Button danger onClick={stopUpdate}>停止</Button>
+          )
         ) : (
           <>
             <Button onClick={() => setUpdOpen(false)}>取消</Button>
@@ -701,11 +766,16 @@ export default function ArticlePage() {
                 </div>
               ))}
             </div>
+            {updQueue.length > 1 && (
             <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
               <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0" }}>更新情况</div>
               <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 14px", fontSize: 13, color: "#555" }}>
+                <div>开始时间: <span style={{ color: "#333" }}>{updStartTime}</span></div>
+                <div>已更新文章: <span style={{ color: "#333", fontWeight: 600 }}>{updCount} 篇</span></div>
+                <div>更新速度: <span style={{ color: "#333" }}>{updSpeed} 篇/分</span></div>
               </div>
             </div>
+            )}
           </div>
         ) : (
           <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
