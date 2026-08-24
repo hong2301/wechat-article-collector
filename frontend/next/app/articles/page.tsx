@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import dayjs from "dayjs";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber, Spin } from "antd";
-import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined, FolderOpenOutlined } from "@ant-design/icons";
 
 const API = "http://127.0.0.1:8000/api/accounts";
 const ART_PREFIX = "https://mp.weixin.qq.com/s/";
@@ -103,6 +103,14 @@ export default function ArticlePage() {
       setLoadErr(false);
     } catch { message.error("加载失败"); setLoadErr(true); }
     finally { setLoading(false); }
+  }
+  // 打开当前公众号的下载文件夹(D:/article_data/公众号名)
+  async function openAccountDir() {
+    if (!name) { message.info("暂无公众号名"); return; }
+    try {
+      const d = await (await fetch(`http://127.0.0.1:8000/api/settings/open-downloads?sub=${encodeURIComponent(name)}`, { method: "POST" })).json();
+      if (!d.ok) message.error(d.error || "打开失败");
+    } catch { message.error("无法连接后端"); }
   }
 
   // 取列值(空值恒最前)
@@ -418,7 +426,8 @@ export default function ArticlePage() {
           <Empty description={loadErr ? "加载失败，请重试" : "暂无文章"} />
         </div>
         )}
-        <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 10, flexShrink: 0 }}>
+          <Button size="small" icon={<FolderOpenOutlined />} onClick={openAccountDir}>打开下载数据</Button>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 篇</Typography.Text>
         </div>
       </div>

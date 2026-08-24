@@ -55,10 +55,13 @@ def save_ai_settings(payload: AiSettings):
 
 
 @router.post("/open-downloads")
-def open_downloads():
-    """打开文章下载文件夹(D:/article_data), 不存在则创建"""
+def open_downloads(sub: str = ""):
+    """打开文章下载文件夹(D:/article_data), sub给定公众号名则打开对应子文件夹
+    不存在则创建"""
     import os
     d = r"D:/article_data"
+    if sub:
+        d = os.path.join(d, sub)
     try:
         os.makedirs(d, exist_ok=True)
         os.startfile(d)
