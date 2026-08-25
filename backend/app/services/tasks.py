@@ -44,6 +44,8 @@ APP_EXE = "electron.exe"           # 前端壳进程
 _bg_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="bg")
 _bg_futures = []          # 已提交的后台 future 集合(完成后移除)
 _bg_futures_lock = threading.Lock()
+_comment_stats = {}       # 评论采集计数: {art: {"l1":, "l2":, "total":}}
+_comment_stats_lock = threading.Lock()
 
 
 def _submit_bg(fn, *args, **kwargs):
@@ -1045,6 +1047,15 @@ def _bg_ai_comments(shot_b64s, art_biz, max_level1, max_level2, shot_x=None):
         from .common import save_comments
         wrote = save_comments(art_biz, comments)
         tasks_echo(f"[async:{tag}] 识别评论{len(comments)}条, 写入{wrote}条")
+        # 更新采集计数(一级/二级/总数)
+        with _comment_stats_lock:
+            st = _comment_stats.setdefault(art_biz, {"l1": 0, "l2": 0, "total": 0})
+            for c in comments:
+                st["total"] += 1
+                if int(c.get("层级", 1) or 1) == 2:
+                    st["l2"] += 1
+                else:
+                    st["l1"] += 1
     except Exception as e:
         tasks_echo(f"[async:{tag}] 评论识别异常: {e}")
 
@@ -1081,7 +1092,9 @@ def _collect_comments(collect_type, link, art, biz,
     time.sleep(0.5)
 
     loop_n = 0
-    prev_b64 = None   # 上一轮截图(与本轮拼接读取, 避免截断误判)
+    prev_b64 = None      # 上一轮截图(与本轮拼接读取, 避免截断误判)
+    prev_shot_sign = None   # 上一轮截图签名(连续相同即可判定无更多评论)
+    same_shot_count = 0     # 连续相同截图轮数
     while True:
         loop_n += 1
         ok_stable, info = wait_page_stable(
@@ -1094,6 +1107,13 @@ def _collect_comments(collect_type, link, art, biz,
         # 展开后: 重新截图识别(转base64即时传递, 避免shot.png被后续覆盖)
         _path, shot_b64 = pc.screenshot(p35[0], p35[1], p36[0], p36[1], img_format="png", as_base64=True)
         if shot_b64:
+            # 兜底判断: 截图与上一轮相同(连续3次无变化 = 无更多评论), 滚动后判断处处理
+            _sign = shot_b64[-500:]   # 取尾部签名(内容变化时随之变化)
+            if prev_shot_sign == _sign:
+                same_shot_count += 1
+            else:
+                same_shot_count = 1
+            prev_shot_sign = _sign
             # 多图拼接: [上一轮, 本轮] 一起给AI(评论跨图截断时拼接读取)
             _sub = [prev_b64, shot_b64] if prev_b64 else [shot_b64]
             _submit_bg(_bg_ai_comments, _sub, art,
@@ -1112,6 +1132,27 @@ def _collect_comments(collect_type, link, art, biz,
             s_dir = row["direction"] if row else "down"
         except Exception:
             s_dist, s_dir = 0, "down"
+
+        # ---- 停止条件判断(滚动前) ----
+        with _comment_stats_lock:
+            st = _comment_stats.get(art, {"l1": 0, "l2": 0, "total": 0})
+            _l1, _l2, _total = st["l1"], st["l2"], st["total"]
+        # 1) 设置上限(优先级: 一级 -> 二级 -> 文章总数)
+        _hit = None
+        if max_level1 is not None and max_level1 > 0 and _l1 >= max_level1:
+            _hit = f"一级评论数已达上限({_l1}/{max_level1})"
+        elif max_level2 is not None and max_level2 > 0 and _l2 >= max_level2:
+            _hit = f"每级二级评论数已达上限({_l2}/{max_level2})"
+        elif max_comments is not None and max_comments > 0 and _total >= max_comments:
+            _hit = f"文章评论数已达上限({_total}/{max_comments})"
+        if _hit:
+            tasks_echo(f"评论采集: {_hit}, 停止")
+            break
+        # 2) 兜底: 连续3次准备采集的截图相同 = 无更多评论
+        if same_shot_count >= 3:
+            tasks_echo(f"评论采集: 连续3次截图相同({same_shot_count}/3), 无更多评论, 停止")
+            break
+
         if s_dist > 0:
             pc.scroll(p35[0], p35[1], s_dist, direction=s_dir)
             tasks_echo(f"评论采集第{loop_n}轮: 滚动评论区 {s_dist}px")
