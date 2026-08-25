@@ -82,6 +82,7 @@ export default function CommentsPage() {
       if ("max_comments" in d) setMaxComments(d.max_comments);
       if ("max_level1" in d) setMaxLevel1(d.max_level1);
       if ("max_level2" in d) setMaxLevel2(d.max_level2);
+      if (d.date_start && d.date_end) setDateRange([dayjs(d.date_start), dayjs(d.date_end)]);
     } catch { /* 忽略 */ }
     setCcLoaded(true);
   }, []);
@@ -91,9 +92,11 @@ export default function CommentsPage() {
       localStorage.setItem("commentConfig", JSON.stringify({
         window_split: windowSplit,
         max_comments: maxComments, max_level1: maxLevel1, max_level2: maxLevel2,
+        date_start: dateRange ? dateRange[0].format("YYYY-MM-DD") : "",
+        date_end: dateRange ? dateRange[1].format("YYYY-MM-DD") : "",
       }));
     } catch { /* 忽略 */ }
-  }, [ccLoaded, windowSplit, maxComments, maxLevel1, maxLevel2]);
+  }, [ccLoaded, windowSplit, maxComments, maxLevel1, maxLevel2, dateRange]);
   // 评论采集弹窗
   const [ccOpen, setCcOpen] = useState(false);
   const [ccStarted, setCcStarted] = useState(false);

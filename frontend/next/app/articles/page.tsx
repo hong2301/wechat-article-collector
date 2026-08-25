@@ -81,6 +81,8 @@ export default function ArticlePage() {
       if ("max_comments" in d) setMaxComments(d.max_comments);
       if ("max_level1" in d) setMaxLevel1(d.max_level1);
       if ("max_level2" in d) setMaxLevel2(d.max_level2);
+      if (d.date_start && d.date_end) setDateRange([dayjs(d.date_start), dayjs(d.date_end)]);
+      if (d.quick) setQuickActive(d.quick);
     } catch { /* 忽略 */ }
     setCfgLoaded(true);
   }, []);
@@ -93,9 +95,12 @@ export default function ArticlePage() {
       d.capture_read = captureRead; d.save_html = saveHtml;
       d.capture_comments = captureComments; d.max_comments = maxComments;
       d.max_level1 = maxLevel1; d.max_level2 = maxLevel2;
+      d.date_start = dateRange ? dateRange[0].format("YYYY-MM-DD") : "";
+      d.date_end = dateRange ? dateRange[1].format("YYYY-MM-DD") : "";
+      d.quick = quickActive;
       localStorage.setItem("updateConfig", JSON.stringify(d));
     } catch { /* 忽略 */ }
-  }, [cfgLoaded, windowSplit, capture4metrics, captureRead, saveHtml, captureComments, maxComments, maxLevel1, maxLevel2]);
+  }, [cfgLoaded, windowSplit, capture4metrics, captureRead, saveHtml, captureComments, maxComments, maxLevel1, maxLevel2, dateRange, quickActive]);
   const NUM_FIELDS = [
     { key: "reads", label: "阅读" },
     { key: "likes", label: "点赞" },
