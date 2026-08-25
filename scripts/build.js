@@ -13,7 +13,7 @@ const path = require('path')
 const withClean = process.argv.includes('--clean')
 
 const ROOT = path.join(__dirname, '..')
-const RELEASE = 'C:/Users/86150/Desktop/微信公众号ocr采集器/release'
+const RELEASE = path.join(ROOT, 'release')
 const ELECTRON_DIR = path.join(ROOT, 'frontend', 'electron')
 const ELECTRON_BUILD = path.join(ROOT, 'frontend', 'build')          // electron-builder 中间输出
 const WIN_UNPACKED = path.join(ELECTRON_BUILD, 'win-unpacked')

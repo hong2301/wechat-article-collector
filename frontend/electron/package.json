@@ -1,6 +1,6 @@
 {
   "name": "wechat-collector-electron",
-  "version": "3.1.0",
+  "version": "4.0.0",
   "main": "main.js",
   "scripts": {
     "dev": "concurrently -k -n next,electron -c blue,green \"npm run dev:next\" \"npm run dev:wait\"",
@@ -20,7 +20,7 @@
     "appId": "com.wechat.collector",
     "productName": "WeChatCollector",
     "directories": {
-      "output": "C:/Users/86150/Desktop/微信公众号ocr采集器/project-new/frontend/build"
+      "output": "../build"
     },
     "files": [
       "main.js",
