@@ -183,6 +183,9 @@ export default function ArticlePage() {
         if (hi != null) qs.set(`max_${f.key}`, String(hi));
       }
       if (accFilter.length && !accFilter.includes("__all__")) qs.set("accs", accFilter.join(","));
+      // 排序(acc_name 映射后端 name)
+      qs.set("order_by", sortInfo.key === "acc_name" ? "name" : sortInfo.key);
+      qs.set("order_dir", sortInfo.order === "ascend" ? "asc" : "desc");
       const r = await fetch(`${API}/articles-by-biz?${qs.toString()}`);
       const d = await r.json();
       setName(d.name || "");
@@ -427,29 +430,11 @@ export default function ArticlePage() {
     if (key === "date" || key === "write_time") return typeof v === "string" ? v.trim() : String(v);
     return v;
   }
-  const sorted = useMemo(() => {
-    const key = sortInfo.key;
-    const dir = sortInfo.order === "descend" ? -1 : 1;
-    const arr = [...articles];
-    const numCmp = (av: any, bv: any) => {
-      const aEmpty = av === "" || av == null, bEmpty = bv === "" || bv == null;
-      if (aEmpty || bEmpty) { if (aEmpty && bEmpty) return 0; return aEmpty ? -1 : 1; }
-      const an = Number(av), bn = Number(bv);
-      return (Number.isFinite(an) && Number.isFinite(bn)) ? an - bn : String(av).localeCompare(String(bv), "zh");
-    };
-    arr.sort((a, b) => {
-      const r = numCmp(colVal(a, key), colVal(b, key)) * dir;
-      if (r !== 0) return r;
-      // 次排序: 日期(降序)
-      const at = new Date(String(a.date || "")).getTime();
-      const bt = new Date(String(b.date || "")).getTime();
-      return (Number.isFinite(bt) ? bt : 0) - (Number.isFinite(at) ? at : 0);
-    });
-    return arr;
-  }, [articles, sortInfo]);
+  // 排序已后端化, 直接用接口已排序数据
+  const sorted = articles;
 
-  // 筛选已后端化, shown 直接用已排序数据
-  const shown = useMemo(() => sorted, [sorted]);
+  // 筛选后端化, shown=已排序数据
+  const shown = articles;
   // 日期快捷范围
   function toggleQuick(days: number, key: string) {
     if (quickActive === key) {
@@ -474,6 +459,9 @@ export default function ArticlePage() {
   // 筛选变化重载(回第1页)
   useEffect(() => { setPage(1); if (biz !== undefined && biz !== null) reload(); /* eslint-disable-next-line */ },
     [dateRange, kw, ranges, accFilter]);
+  // 排序变化重载(回第1页)
+  useEffect(() => { setPage(1); if (biz !== undefined && biz !== null) reload(); /* eslint-disable-next-line */ },
+    [sortInfo]);
   // 初始自动计算每页条数
   useEffect(() => { setPageSize(calcPageSize()); }, []);
 

@@ -169,6 +169,24 @@ class SortPayload(BaseModel):
     ids: List[int]
 
 
+_ORDER_WHITELIST = {
+    "date": "date", "title": "title", "read": "CAST(reads AS REAL)",
+    "reads": "CAST(reads AS REAL)", "like": "CAST(likes AS REAL)", "likes": "CAST(likes AS REAL)",
+    "forwards": "CAST(forwards AS REAL)", "favorite": "CAST(favorites AS REAL)",
+    "favorites": "CAST(favorites AS REAL)", "comment": "CAST(comments AS REAL)",
+    "comments": "CAST(comments AS REAL)", "write_time": "write_time",
+    "name": "name", "acc_name": "name", "time": "time", "level": "level",
+    "author": "author", "id": "id", "ip": "ip",
+}
+
+
+def _order_sql(order_by, order_dir):
+    """白名单排序字段->SQL, 防注入"""
+    col = _ORDER_WHITELIST.get((order_by or "").strip(), "date")
+    d = "ASC" if (order_dir or "").strip().lower() == "asc" else "DESC"
+    return f"{col} {d}"
+
+
 
 @router.get("/articles-by-biz")
 def account_articles_by_biz(biz: str = "", page: int = 0, page_size: int = 20,
@@ -178,9 +196,10 @@ def account_articles_by_biz(biz: str = "", page: int = 0, page_size: int = 20,
                             min_forwards: str = "", max_forwards: str = "",
                             min_favorites: str = "", max_favorites: str = "",
                             min_comments: str = "", max_comments: str = "",
-                            ips: str = "", accs: str = ""):
+                            ips: str = "", accs: str = "",
+                            order_by: str = "date", order_dir: str = "desc"):
     """biz=该公众号返其文章; biz=all或空 返回全部文章(含公众号名)
-    page>0 返回 {total, items}; 支持日期/标题/数值/IP/公众号筛选"""
+    page>0 返回 {total, items}; 支持日期/标题/数值/IP/公众号筛选; order_by/order_dir 后端排序"""
     where = []
     params = []
     if biz and biz != "all":
@@ -213,7 +232,7 @@ def account_articles_by_biz(biz: str = "", page: int = 0, page_size: int = 20,
     sql = "SELECT * FROM articles"
     if where:
         sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY date DESC, id DESC"
+    sql += " ORDER BY " + _order_sql(order_by, order_dir) + ", id DESC"
     conn = get_conn()
     try:
         rows = conn.execute(sql, params).fetchall()
@@ -254,8 +273,9 @@ def account_articles_by_biz(biz: str = "", page: int = 0, page_size: int = 20,
 def article_comments(art_biz: str = "", page: int = 0, page_size: int = 20,
                      date_start: str = "", date_end: str = "", kw: str = "",
                      min_likes: str = "", max_likes: str = "",
-                     ips: str = "", levels: str = ""):
-    """按文章id(art_biz)返回评论列表; page>0 返回 {total, items}; 支持日期/关键词/点赞/IP/层级筛选"""
+                     ips: str = "", levels: str = "",
+                     order_by: str = "time", order_dir: str = "desc"):
+    """按文章id(art_biz)返回评论列表; page>0 返回 {total, items}; 支持日期/关键词/点赞/IP/层级筛选; 后端排序"""
     if not art_biz:
         raise HTTPException(400, "缺少 art_biz")
     where = ["art_biz=?"]
@@ -286,7 +306,7 @@ def article_comments(art_biz: str = "", page: int = 0, page_size: int = 20,
     try:
         rows = conn.execute(
             "SELECT * FROM comments WHERE " + " AND ".join(where) +
-            " ORDER BY is_top DESC, time DESC, id ASC", params).fetchall()
+            " ORDER BY is_top DESC, " + _order_sql(order_by, order_dir) + ", id ASC", params).fetchall()
     finally:
         conn.close()
     arts = [{
