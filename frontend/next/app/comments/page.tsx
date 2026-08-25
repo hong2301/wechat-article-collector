@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Tooltip, Spin, DatePicker, InputNumber, Input, Checkbox, Progress, Switch } from "antd";
+import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Tooltip, Spin, DatePicker, InputNumber, Input, Checkbox, Progress, Switch, Select } from "antd";
 import { ArrowLeftOutlined, ReloadOutlined, PlusOutlined, ImportOutlined, DeleteOutlined, SearchOutlined, ClearOutlined, FileExcelOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import dayjs from "dayjs";
@@ -63,6 +63,8 @@ export default function CommentsPage() {
   const [kw, setKw] = useState("");
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
   const [likesRange, setLikesRange] = useState<[number | null, number | null]>([null, null]);
+  const [ipFilter, setIpFilter] = useState<string[]>(["__all__"]);   // IP多选(含'全部')
+  const [levelFilter, setLevelFilter] = useState<string[]>(["__all__"]); // 层级多选(含'全部')
   // 评论采集设置(独立存 commentConfig)
   const [windowSplit, setWindowSplit] = useState(false);   // 窗口分离
   const [maxComments, setMaxComments] = useState<number | null>(null);
@@ -164,11 +166,13 @@ export default function CommentsPage() {
 
 
   const hasFilter = useMemo(() => {
-    return !!(dateRange || kw.trim() || likesRange[0] != null || likesRange[1] != null);
+    return !!(dateRange || kw.trim() || likesRange[0] != null || likesRange[1] != null
+      || (ipFilter.length > 0 && !ipFilter.includes("__all__")) || (levelFilter.length > 0 && !levelFilter.includes("__all__")));
   }, [dateRange, kw, likesRange]);
 
   function clearFilter() {
     setDateRange(null); setKw(""); setLikesRange([null, null]);
+    setIpFilter(["__all__"]); setLevelFilter(["__all__"]);
   }
 
   // 打开评论采集弹窗
@@ -254,9 +258,14 @@ export default function CommentsPage() {
       }
       const q = kw.trim().toLowerCase();
       if (q && !((c.author || "").toLowerCase().includes(q) || (c.content || "").toLowerCase().includes(q))) return false;
+      // IP多选(含'全部'或空=不过滤)
+      if (ipFilter.length > 0 && !ipFilter.includes("__all__") && !ipFilter.includes(c.ip || "")) return false;
+      // 层级多选(含'全部'或空=不过滤)
+      if (levelFilter.length > 0 && !levelFilter.includes("__all__")
+          && !levelFilter.includes(String(c.level ?? 1))) return false;
       return true;
     });
-  }, [comments, dateRange, likesRange, kw]);
+  }, [comments, dateRange, likesRange, kw, ipFilter, levelFilter]);
 
   async function importFile(f: File) {
     setImporting(true); setImportingPct(0);
@@ -317,18 +326,22 @@ export default function CommentsPage() {
         <Typography.Title level={5} style={{ margin: 0 }}>「{title || "..."}」的评论列表</Typography.Title>
       </div>
       {/* 评论采集设置卡片 */}
-      <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px", margin: "0 0 12px", minHeight: 40 }}>
-        <span style={{ fontSize: 14, color: "#555" }}>窗口分离</span>
-        <Switch checked={windowSplit} onChange={setWindowSplit} />
-        <span style={{ marginLeft: 4, fontSize: 14, color: "#555" }}>文章评论数</span>
-        <InputNumber min={0} placeholder="无限" value={maxComments ?? null}
-          onChange={(v) => setMaxComments(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 110 }} />
-        <span style={{ fontSize: 14, color: "#555" }}>一级评论数</span>
-        <InputNumber min={0} placeholder="无限" value={maxLevel1 ?? null}
-          onChange={(v) => setMaxLevel1(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 110 }} />
-        <span style={{ fontSize: 14, color: "#555" }}>每级二级评论数</span>
-        <InputNumber min={0} placeholder="无限" value={maxLevel2}
-          onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 110 }} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 10, background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px", margin: "0 0 12px" }}>
+        <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 14, color: "#555" }}>文章评论数</span>
+          <InputNumber min={0} placeholder="无限" value={maxComments ?? null}
+            onChange={(v) => setMaxComments(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 110 }} />
+          <span style={{ fontSize: 14, color: "#555" }}>一级评论数</span>
+          <InputNumber min={0} placeholder="无限" value={maxLevel1 ?? null}
+            onChange={(v) => setMaxLevel1(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 110 }} />
+          <span style={{ fontSize: 14, color: "#555" }}>每级二级评论数</span>
+          <InputNumber min={0} placeholder="无限" value={maxLevel2}
+            onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 110 }} />
+        </div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <span style={{ fontSize: 14, color: "#555" }}>窗口分离</span>
+          <Switch checked={windowSplit} onChange={setWindowSplit} />
+        </div>
       </div>
       {/* 筛选面板 */}
       <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "14px 18px", margin: "0 0 12px" }}>
@@ -348,6 +361,33 @@ export default function CommentsPage() {
             <Typography.Text style={{ fontSize: 13, whiteSpace: "nowrap" }}>点赞</Typography.Text>
             <NumRange value={likesRange} onChange={setLikesRange} />
           </Space>
+        </div>
+        {/* 第二行: IP/层级多选 */}
+        <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginTop: 10 }}>
+          <Select
+            mode="multiple" allowClear placeholder="IP"
+            value={ipFilter}
+            onChange={(v: any[]) => setIpFilter(v && v.includes("__all__") ? ["__all__"] : (v || []))}
+            style={{ minWidth: 180, maxWidth: 300 }}
+            options={[
+              { value: "__all__", label: "全部IP" },
+              ...Array.from(new Set(comments.map((c) => c.ip || ""))).filter(Boolean)
+                .map((ip) => ({ value: String(ip), label: String(ip) })),
+            ]}
+            maxTagCount="responsive"
+          />
+          <Select
+            mode="multiple" allowClear placeholder="层级"
+            value={levelFilter}
+            onChange={(v: any[]) => setLevelFilter(v && v.includes("__all__") ? ["__all__"] : (v || []))}
+            style={{ minWidth: 160, maxWidth: 240 }}
+            options={[
+              { value: "__all__", label: "全部层级" },
+              { value: "1", label: "一级" },
+              { value: "2", label: "二级" },
+            ]}
+            maxTagCount="responsive"
+          />
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 8 }}>
           {hasFilter ? <Button size="small" type="link" onClick={clearFilter}><ClearOutlined /> 清除筛选</Button> : null}
