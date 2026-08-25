@@ -20,17 +20,22 @@
     "appId": "com.wechat.collector",
     "productName": "WeChatCollector",
     "directories": {
-      "output": "C:/Users/86150/Desktop/微信公众号ocr采集器/frontend/build"
+      "output": "C:/Users/86150/Desktop/微信公众号ocr采集器/project-new/frontend/build"
     },
     "files": [
       "main.js",
       "icon.png",
       "out/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "extra/backend",
+        "to": "backend"
+      }
+    ],
     "win": {
       "target": [
-        "dir",
-        "portable"
+        "dir"
       ],
       "icon": "icon.ico"
     },

@@ -58,6 +58,7 @@ export default function CommentsPage() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState(false);
+  const retryRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const tableWrapRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -135,7 +136,10 @@ export default function CommentsPage() {
 
   async function load(a: string) {
     setLoading(true);
+    clearTimeout(retryRef.current);
     try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 6000);
       const qs = new URLSearchParams({ art_biz: a, page: String(page), page_size: String(pageSize) });
       if (dateRange) { qs.set("date_start", dateRange[0].format("YYYY-MM-DD")); qs.set("date_end", dateRange[1].format("YYYY-MM-DD")); }
       if (kw.trim()) qs.set("kw", kw.trim());
@@ -143,12 +147,13 @@ export default function CommentsPage() {
       if (likesRange[1] != null) qs.set("max_likes", String(likesRange[1]));
       if (ipFilter.length && !ipFilter.includes("__all__")) qs.set("ips", ipFilter.join(","));
       if (levelFilter.length && !levelFilter.includes("__all__")) qs.set("levels", levelFilter.join(","));
-      const r = await fetch(`${API}/comments?${qs.toString()}`);
+      const r = await fetch(`${API}/comments?${qs.toString()}`, { signal: ctrl.signal });
       const d = await r.json();
+      clearTimeout(to);
       setComments(d.items ?? d.comments ?? []);
       setTotal(d.total ?? (d.comments ? d.comments.length : 0));
       setLoadErr(false);
-    } catch { message.error("加载失败"); setLoadErr(true); }
+    } catch { message.error("加载失败，自动重试中"); setLoadErr(true); retryRef.current = setTimeout(() => load(a), 3000); }
     finally { setLoading(false); }
   }
   function reload() { if (artBiz) load(artBiz); }

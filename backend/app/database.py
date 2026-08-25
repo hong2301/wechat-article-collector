@@ -5,7 +5,9 @@ import os
 import sqlite3
 
 _BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DB_PATH = os.path.join(_BASE, "data", "collector.db")
+# 数据目录: 优先环境变量(打包版由 Electron 指定 exe 旁 data/), 开发时回退项目根 data/
+_DATA_DIR = os.environ.get("WECHAT_COLLECTOR_DATA_DIR") or os.path.join(_BASE, "data")
+DB_PATH = os.path.join(_DATA_DIR, "collector.db")
 
 
 def get_conn():

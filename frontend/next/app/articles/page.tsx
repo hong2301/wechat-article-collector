@@ -115,6 +115,7 @@ export default function ArticlePage() {
   const [accFilter, setAccFilter] = useState<string[]>([]);  // 公众号多选(全部文章模式), 空=全选
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState(false);
+  const retryRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [dlKey, setDlKey] = useState<string>("");   // 正在下载的文章art_biz(空=无下载中)
   const [kw, setKw] = useState("");
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -178,7 +179,10 @@ export default function ArticlePage() {
 
   async function load(b: string) {
     setLoading(true);
+    clearTimeout(retryRef.current);
     try {
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 6000);
       const qs = new URLSearchParams({ biz: b, page: String(page), page_size: String(pageSize) });
       // 筛选参数
       if (dateRange) { qs.set("date_start", dateRange[0].format("YYYY-MM-DD")); qs.set("date_end", dateRange[1].format("YYYY-MM-DD")); }
@@ -192,8 +196,9 @@ export default function ArticlePage() {
       // 排序(acc_name 映射后端 name)
       qs.set("order_by", sortInfo.key === "acc_name" ? "name" : sortInfo.key);
       qs.set("order_dir", sortInfo.order === "ascend" ? "asc" : "desc");
-      const r = await fetch(`${API}/articles-by-biz?${qs.toString()}`);
+      const r = await fetch(`${API}/articles-by-biz?${qs.toString()}`, { signal: ctrl.signal });
       const d = await r.json();
+      clearTimeout(to);
       setName(d.name || "");
       const arts = d.items ?? d.articles ?? [];
       setTotal(d.total ?? (d.articles ? d.articles.length : 0));
@@ -207,7 +212,7 @@ export default function ArticlePage() {
         setAccFilter([]);
       }
       setLoadErr(false);
-    } catch { message.error("加载失败"); setLoadErr(true); }
+    } catch { message.error("加载失败，自动重试中"); setLoadErr(true); retryRef.current = setTimeout(() => load(b), 3000); }
     finally { setLoading(false); }
   }
   // 下载当前文章为本地HTML(保存到对应公众号文件夹)

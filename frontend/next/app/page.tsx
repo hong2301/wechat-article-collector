@@ -118,6 +118,7 @@ export default function Home() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState(false);
+  const retryRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [addOpen, setAddOpen] = useState(false);
   const [name, setName] = useState("");
   const [biz, setBiz] = useState("");
@@ -230,17 +231,22 @@ export default function Home() {
 
   async function load() {
     setLoading(true);
+    clearTimeout(retryRef.current);
     try {
-      const r = await fetch(`${API}?page=${page}&page_size=${pageSize}&q=${encodeURIComponent(query.trim())}`);
+      const ctrl = new AbortController();
+      const to = setTimeout(() => ctrl.abort(), 6000);
+      const r = await fetch(`${API}?page=${page}&page_size=${pageSize}&q=${encodeURIComponent(query.trim())}`, { signal: ctrl.signal });
+      clearTimeout(to);
       const d = await r.json();
       if (Array.isArray(d)) { setTasks(d); setTotal(d.length); }
       else { setTasks(d.items || []); setTotal(d.total || 0); }
       setLoadErr(false);
     }
-    catch { message.error("无法连接后端"); setLoadErr(true); }
+    catch { message.error("无法连接后端，自动重试中"); setLoadErr(true); retryRef.current = setTimeout(() => load(), 3000); }
     finally { setLoading(false); }
   }
   useEffect(() => { load(); }, [page, pageSize, query]);
+  useEffect(() => () => clearTimeout(retryRef.current), []);
   // 采集弹窗显示=隐藏任务栏, 关闭=恢复
   useEffect(() => { if (collectOpen) hideTaskbar(); else showTaskbar(); /* eslint-disable-next-line */ }, [collectOpen]);
   // 初始自动计算每页条数

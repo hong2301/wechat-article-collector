@@ -1,0 +1,52 @@
+# -*- coding: utf-8 -*-
+"""打包 FastAPI 后端为单目录可执行程序 (PyInstaller onedir)
+
+产物: backend/dist/collector-backend/
+  由 Electron 在 resources/backend 下随 app 一起分发并 spawn 启动
+
+用法:
+  cd backend && python build_backend.py
+"""
+import os
+import shutil
+import subprocess
+import sys
+
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+DIST = os.path.join(BACKEND_DIR, "dist", "collector-backend")
+
+def main():
+    # 清理旧产物
+    for p in (DIST, os.path.join(BACKEND_DIR, "build"), os.path.join(BACKEND_DIR, "collector-backend.spec")):
+        if os.path.exists(p):
+            shutil.rmtree(p, ignore_errors=True)
+
+    cmd = [
+        sys.executable, "-m", "PyInstaller",
+        "--noconfirm", "--clean",
+        "--name", "collector-backend",
+        "--onedir",
+        "--distpath", os.path.join(BACKEND_DIR, "dist"),
+        "--workpath", os.path.join(BACKEND_DIR, "build"),
+        "--specpath", os.path.join(BACKEND_DIR),
+        "--paths", BACKEND_DIR,
+        # uvicorn 动态加载子模块
+        "--collect-all", "uvicorn",
+        "--collect-submodules", "fastapi",
+        # OCR 引擎(模型文件在包内) + onnxruntime(DLL)
+        "--collect-all", "rapidocr_onnxruntime",
+        "--collect-all", "onnxruntime",
+        "--hidden-import", "PIL.ImageGrab",
+        "--hidden-import", "uvicorn.logging",
+        "--hidden-import", "uvicorn.loops.auto",
+        "--hidden-import", "uvicorn.protocols.http.auto",
+        "--hidden-import", "uvicorn.protocols.websockets.auto",
+        os.path.join(BACKEND_DIR, "run_packaged.py"),
+    ]
+    print(" ".join(cmd))
+    subprocess.run(cmd, check=True)
+    print(f"[build_backend] 完成: {DIST}")
+    print(f"   入口: {os.path.join(DIST, 'collector-backend.exe')}")
+
+if __name__ == "__main__":
+    main()

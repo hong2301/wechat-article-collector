@@ -7,8 +7,8 @@
     "dev": "concurrently -k -n backend,frontend -c green,blue \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "python backend/run.py",
     "dev:frontend": "npm --prefix frontend run dev",
-    "package:frontend": "npm --prefix frontend/next run export",
-    "package": "npm run package:frontend && echo '生产打包: 配置 electron-builder 后运行'"
+    "build": "node scripts/build.js",
+    "release": "node scripts/build.js"
   },
   "devDependencies": {
     "concurrently": "^10.0.5"

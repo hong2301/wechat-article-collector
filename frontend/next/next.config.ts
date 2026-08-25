@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
   // 静态导出(生产时 Electron loadFile 加载 out/index.html)
   output: "export",
   images: { unoptimized: true },
+  // 资源相对路径: Electron 用 file:// 协议加载时 /_next 绝对路径会指向盘根目录导致 404
+  assetPrefix: "./",
 };
 
 export default nextConfig;

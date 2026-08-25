@@ -45,9 +45,12 @@ electron/out/
 frontend/next/node_modules/
 frontend/next/.next/
 frontend/next/out/
+frontend/next/tsconfig.tsbuildinfo
 frontend/electron/node_modules/
 frontend/electron/dist/
 frontend/electron/out/
+frontend/electron/extra/
+release_v2/
 # Python 后端
 backend/__pycache__/
 node_modules/
