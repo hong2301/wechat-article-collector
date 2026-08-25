@@ -147,6 +147,9 @@ export default function Home() {
   const [collectStopped, setCollectStopped] = useState(false); // 已手动停止(按钮变关闭)
   const collectRunRef = useRef(false);              // 是否采集中(队列运行中)
   const [speed, setSpeed] = useState(0);
+  // 评论采集统计(仅采集情况卡, 前端读日志)
+  const [collectComments, setCollectComments] = useState(0);  // 已采集评论数
+  const [collectCommentSpeed, setCollectCommentSpeed] = useState(0); // 条/分
   const [pointsOpen, setPointsOpen] = useState(false);
   const [scrollsOpen, setScrollsOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
@@ -322,6 +325,7 @@ export default function Home() {
     setCollectStarted(false);
     setCollectDone(false);
     setCollectCount(0);
+    setCollectComments(0); setCollectCommentSpeed(0);
     setCollectLogs([]);
     setCollectOpen(true);
   }
@@ -333,6 +337,7 @@ export default function Home() {
     setCollectStarted(false);
     setCollectDone(false);
     setCollectCount(0);
+    setCollectComments(0); setCollectCommentSpeed(0);
     setCollectLogs([]);
     setCollectOpen(true);
   }
@@ -357,6 +362,7 @@ export default function Home() {
       collectStartTsRef.current = Date.now();
       setSpeed(0);
       setCollectCount(0);
+      setCollectComments(0); setCollectCommentSpeed(0);
       setCollectLogs([`开始采集「${task.name || ""}」`]);
     } else {
       setCollectLogs((p) => [...p, `--- 开始采集「${task.name || ""}」(${idx + 1}/${queue.length}) ---`]);
@@ -407,6 +413,11 @@ export default function Home() {
               if (d.type === "log" && d.msg) {
                 setCollectLogs((p) => [...p, d.msg]);
                 if (d.msg.includes("禁用鼠标和键盘")) message.warning("⚠️ 采集期间禁用鼠标和键盘，按 ESC 可停止");
+                // 评论采集统计: 日志 '写入N条' 累加(速度由effect计算)
+                if (d.msg.includes("写入") && d.msg.includes("评论#")) {
+                  const m = d.msg.match(/写入(\d+)条/);
+                  if (m) setCollectComments((c) => c + Number(m[1]));
+                }
                 // 前端统计: 复制到链接即算获取到文章
                 if (d.msg.includes("已复制链接") || d.msg.includes("已复制链接:")) {
                   setCollectCount((c) => c + 1);
@@ -560,6 +571,13 @@ export default function Home() {
       setSpeed(mins > 0 ? Math.round((collectCount / mins) * 10) / 10 : 0);
     }
   }, [collectCount]);
+  // 评论采集速度: 每写入评论重算 条/分
+  useEffect(() => {
+    if (collectComments > 0 && collectStartTsRef.current > 0) {
+      const mins = (Date.now() - collectStartTsRef.current) / 60000;
+      setCollectCommentSpeed(mins > 0 ? Math.round((collectComments / mins) * 10) / 10 : 0);
+    }
+  }, [collectComments]);
   function toggleSelect(id: number, checked: boolean) {
     setSelectedKeys((prev) => checked ? [...prev, id] : prev.filter((k) => k !== id));
   }
@@ -825,6 +843,12 @@ export default function Home() {
                 <div>开始时间: <span style={{ color: "#333" }}>{collectStartTime}</span></div>
                 <div>已采集文章: <span style={{ color: "#333", fontWeight: 600 }}>{collectCount} 篇</span></div>
                 <div>采集速度: <span style={{ color: "#333" }}>{speed} 篇/分</span></div>
+                {captureComments && (
+                  <>
+                    <div>已采集评论: <span style={{ color: "#333", fontWeight: 600 }}>{collectComments} 条</span></div>
+                    <div>评论速度: <span style={{ color: "#333" }}>{collectCommentSpeed} 条/分</span></div>
+                  </>
+                )}
               </div>
             </div>
           </div>
