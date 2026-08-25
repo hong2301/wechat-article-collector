@@ -106,21 +106,24 @@ COMMENTS_PROMPT = """\
 只输出JSON数组，不要输出其他说明文字。数组为空时输出[]。"""
 
 
-def doubao_extract_comments(shot_b64, api_key, timeout=30):
+def doubao_extract_comments(shot_b64s, api_key, timeout=30):
     """豆包识图从评论区截图提取评论
-    返回: list[dict] 每条含 名称/地区/时间/点赞数量/正文/层级/是否置顶/是否作者回复/是否作者点赞/回复文本
-    失败返回 []"""
+    shot_b64s: 单张base64 或 多张base64列表(交错截图拼接读取, 避免截断)
+    返回: list[dict]; 失败返回 []"""
     try:
         import requests as _req
-        b64 = shot_b64
-        if "," in b64:
-            b64 = b64.split(",", 1)[1]
+        if isinstance(shot_b64s, str):
+            shot_b64s = [shot_b64s]
+        contents = []
+        for b64 in shot_b64s:
+            b = b64
+            if "," in b:
+                b = b.split(",", 1)[1]
+            contents.append({"type": "input_image", "image_url": "data:image/webp;base64," + b})
+        contents.append({"type": "input_text", "text": COMMENTS_PROMPT})
         payload = {
             "model": "doubao-seed-2-0-mini-260428",
-            "input": [{"role": "user", "content": [
-                {"type": "input_image", "image_url": "data:image/webp;base64," + b64},
-                {"type": "input_text", "text": COMMENTS_PROMPT},
-            ]}],
+            "input": [{"role": "user", "content": contents}],
         }
         headers = {"Authorization": "Bearer " + api_key,
                    "Content-Type": "application/json"}

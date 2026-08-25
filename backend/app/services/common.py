@@ -130,6 +130,36 @@ def _finish(logs, copy_seen, ok, reason):
     return ok, text
 
 
+def merge_comment_shots(top_b64, bot_b64):
+    """拼接两张相邻评论区截图(上下重叠)为完整一张
+    top=上方图, bot=下方图(滚动后); 找重叠行k后拼 top + bot[k:]
+    返回 PIL Image 或 None"""
+    try:
+        import io, base64
+        from PIL import Image
+        def _img(b):
+            sb = b.split(",", 1)[1] if "," in b else b
+            return Image.open(io.BytesIO(base64.b64decode(sb))).convert("RGB")
+        top = _img(top_b64); bot = _img(bot_b64)
+        if top.size[0] != bot.size[0]:
+            return None
+        import numpy as np
+        t = np.array(top); b = np.array(bot)
+        best_k, best_diff = 1, 1e18
+        max_k = min(300, t.shape[0], b.shape[0])
+        for k in range(1, max_k):
+            d = float(np.abs(t[-k:, :, :].astype(int) - b[:k, :, :].astype(int)).mean())
+            if d < best_diff:
+                best_diff, best_k = d, k
+        if best_diff > 20:
+            merged = np.vstack([t, b])          # 无明显重叠: 直接叠加
+        else:
+            merged = np.vstack([t, b[best_k:]])  # 去重叠拼接
+        return Image.fromarray(merged)
+    except Exception:
+        return None
+
+
 def calc_comment_id(name, loc, t, likes, text, level):
     """计算评论ID: 名称|地区|时间|点赞|正文|层级 -> md5 前16位"""
     import hashlib

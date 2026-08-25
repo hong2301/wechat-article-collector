@@ -962,8 +962,8 @@ def _expand_reply_buttons(x1, y1, x2, y2, max_rounds=3):
     return True
 
 
-def _bg_ai_comments(shot_b64, art_biz, max_level1, max_level2, shot_x=None):
-    """后台合成任务: 豆包识别评论(base64入参) + OCR识别层级 -> 写评论表(异步)"""
+def _bg_ai_comments(shot_b64s, art_biz, max_level1, max_level2, shot_x=None):
+    """后台合成任务: 豆包识别评论(多图base64拼接) + OCR识别层级 -> 写评论表(异步)"""
     from concurrent.futures import ThreadPoolExecutor
     from PIL import Image as _PIL
     from ..database import get_conn
@@ -979,21 +979,37 @@ def _bg_ai_comments(shot_b64, art_biz, max_level1, max_level2, shot_x=None):
                 conn.close()
         except Exception:
             pass
-        if not shot_b64 or not api_key:
+        if isinstance(shot_b64s, str):
+            shot_b64s = [shot_b64s]
+        shot_b64s = [b for b in shot_b64s if b]
+        if not shot_b64s or not api_key:
             tasks_echo(f"[async:{tag}] 无AI配置或截图失败, 评论识别跳过")
             return
+        # 多图(上一轮+本轮)拼接为一张完整图
+        from .common import merge_comment_shots
+        if len(shot_b64s) >= 2:
+            merged_img = merge_comment_shots(shot_b64s[0], shot_b64s[1])
+        else:
+            merged_img = None
+        if merged_img is not None:
+            import io as _io, base64
+            _buf = _io.BytesIO(); merged_img.save(_buf, format="PNG")
+            shot_b64s = [_buf.getvalue()]
+            _buf2 = _io.BytesIO(); merged_img.save(_buf2, format="WEBP", lossless=True, method=6)
+            _ai_b64 = "data:image/webp;base64," + base64.b64encode(_buf2.getvalue()).decode()
+        else:
+            _ai_b64 = shot_b64s[0]
         from .doubao_api import doubao_extract_comments as _dec
 
         def _ocr_levels():
             try:
-                _sb = shot_b64.split(",", 1)[1] if "," in shot_b64 else shot_b64
                 import io as _io, base64
-                img = _PIL.open(_io.BytesIO(base64.b64decode(_sb))).convert("RGB")
                 import re as _re
-                items = ocr_service.ocr(img)
                 name_rows = []
+                _sb = shot_b64s[0].split(",", 1)[1] if "," in shot_b64s[0] else shot_b64s[0]
+                img = _PIL.open(_io.BytesIO(base64.b64decode(_sb))).convert("RGB")
+                items = ocr_service.ocr(img)
                 for cx, cy, text, score, sbox, brightness in items:
-                    # 评论名称行: 含相对时间(昨天/X天前/X小时前/X月X日/今天)的短文本
                     if _re.search(r"昨天|前天|\d+天前|\d+小时前|\d+分钟前|\d+月\d+日|今天", text or "") and len((text or "").strip()) < 30:
                         x0 = min(p[0] for p in sbox); y0 = min(p[1] for p in sbox)
                         name_rows.append((y0, x0, text))
@@ -1001,15 +1017,13 @@ def _bg_ai_comments(shot_b64, art_biz, max_level1, max_level2, shot_x=None):
                     return []
                 name_rows.sort()
                 if shot_x is not None:
-                    # 绝对判断: 一级评论名称行贴截图左边缘(距shot_x<=20px), 明显右移=二级
                     return [2 if x0 > 20 else 1 for _, x0, _ in name_rows]
-                # 无shot_x兜底: 图内最左基准
                 min_x = min(r[1] for r in name_rows)
                 return [2 if (r[1] - min_x) > 15 else 1 for r in name_rows]
             except Exception:
                 return []
         with ThreadPoolExecutor(max_workers=2) as ex:
-            f_ai = ex.submit(_dec, shot_b64, api_key)
+            f_ai = ex.submit(_dec, _ai_b64, api_key)
             f_ocr = ex.submit(_ocr_levels)
             comments = f_ai.result(timeout=60) or []
             levels = f_ocr.result() or []
@@ -1018,7 +1032,7 @@ def _bg_ai_comments(shot_b64, art_biz, max_level1, max_level2, shot_x=None):
                 c["层级"] = levels[i]
         if not comments:
             tasks_echo(f"[async:{tag}] 豆包未识别到评论")
-            _save_debug_shot_b64(shot_b64, "豆包", tag)
+            _save_debug_shot_b64(shot_b64s[0], "豆包", tag)
             return
         if max_level1 is not None and max_level1 > 0:
             comments = comments[:max_level1]
@@ -1026,7 +1040,7 @@ def _bg_ai_comments(shot_b64, art_biz, max_level1, max_level2, shot_x=None):
             comments = [c for c in comments if int(c.get("层级", 1) or 1) == 1 or max_level2 > 0]
         if not comments:
             tasks_echo(f"[async:{tag}] 无符合数量上限的评论")
-            _save_debug_shot_b64(shot_b64, "豆包", tag)
+            _save_debug_shot_b64(shot_b64s[0], "豆包", tag)
             return
         from .common import save_comments
         wrote = save_comments(art_biz, comments)
@@ -1067,6 +1081,7 @@ def _collect_comments(collect_type, link, art, biz,
     time.sleep(0.5)
 
     loop_n = 0
+    prev_b64 = None   # 上一轮截图(与本轮拼接读取, 避免截断误判)
     while True:
         loop_n += 1
         ok_stable, info = wait_page_stable(
@@ -1079,9 +1094,12 @@ def _collect_comments(collect_type, link, art, biz,
         # 展开后: 重新截图识别(转base64即时传递, 避免shot.png被后续覆盖)
         _path, shot_b64 = pc.screenshot(p35[0], p35[1], p36[0], p36[1], img_format="png", as_base64=True)
         if shot_b64:
-            _submit_bg(_bg_ai_comments, shot_b64, art,
+            # 多图拼接: [上一轮, 本轮] 一起给AI(评论跨图截断时拼接读取)
+            _sub = [prev_b64, shot_b64] if prev_b64 else [shot_b64]
+            _submit_bg(_bg_ai_comments, _sub, art,
                        max_level1, max_level2, shot_x=p35[0])
             tasks_echo(f"评论采集第{loop_n}轮: 评论识别后台进行中...")
+            prev_b64 = shot_b64
 
         try:
             from ..database import get_conn
