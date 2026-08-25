@@ -10,6 +10,7 @@ export interface SettingsIssues {
 export function useSettingsIssues() {
   const [points, setPoints] = useState<string[]>([]);
   const [scrolls, setScrolls] = useState<string[]>([]);
+  const [ai, setAi] = useState<string[]>([]);
   const [tick, setTick] = useState(0);
 
   const refresh = () => setTick((t) => t + 1);
@@ -39,9 +40,18 @@ export function useSettingsIssues() {
           })
           .map((s: any) => `「${s.name || `#${s.id}`}」滚动距离${(!String(s.distance ?? "").trim() || Number(s.distance) === 0) ? "未填写" : "无效"}`));
       } catch { setScrolls([]); }
+      // AI模型: key空/无模型ID/无厂商 -> 报红
+      try {
+        const d = await (await fetch("http://127.0.0.1:8000/api/settings/ai")).json();
+        const issues: string[] = [];
+        if (!String(d.api_key || "").trim()) issues.push("未填写 API Key");
+        if (!Array.isArray(d.models) || d.models.length === 0) issues.push("未选择模型ID");
+        if (!String(d.provider || "").trim()) issues.push("未选择厂商");
+        setAi(issues);
+      } catch { setAi([]); }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tick]);
 
-  return { points, scrolls, refresh };
+  return { points, scrolls, ai, refresh };
 }

@@ -247,6 +247,11 @@ export default function Home() {
   // (校验由 useSettingsIssues hook 处理)
   // 采集弹窗显示=隐藏任务栏, 关闭=恢复
   useEffect(() => { if (collectOpen) hideTaskbar(); else showTaskbar(); /* eslint-disable-next-line */ }, [collectOpen]);
+  // AI模型报红: 强制关闭4指标/评论采集
+  useEffect(() => {
+    if (si.ai.length > 0) { setCapture4metrics(false); setCaptureComments(false); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [si.ai]);
   // 初始自动计算每页条数
   useEffect(() => { setPageSize(calcPageSize()); }, []);
 
@@ -650,14 +655,26 @@ export default function Home() {
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minHeight: 32 }}>
           <span style={{ fontSize: 14, color: "#555" }}>窗口分离</span>
           <Switch checked={windowSplit} onChange={setWindowSplit} />
-          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集4指标</span>
-          <Switch checked={capture4metrics} onChange={setCapture4metrics} />
+          <Tooltip
+            title={si.ai.length > 0 ? `AI模型未配置，4指标采集不可用:\n${si.ai.join("\n")}` : undefined}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span style={{ marginLeft: 12, fontSize: 14, color: si.ai.length > 0 ? "#ff4d4f" : "#555" }}>采集4指标</span>
+              {si.ai.length > 0 && <ExclamationCircleOutlined style={{ color: "#ff4d4f" }} />}
+            </span>
+            <Switch checked={capture4metrics} disabled={si.ai.length > 0} onChange={setCapture4metrics} />
+          </Tooltip>
           <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集阅读数</span>
           <Switch checked={captureRead} onChange={setCaptureRead} />
           <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存Html</span>
           <Switch checked={saveHtml} onChange={setSaveHtml} />
-          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>评论采集</span>
-          <Switch checked={captureComments} onChange={setCaptureComments} />
+          <Tooltip
+            title={si.ai.length > 0 ? `AI模型未配置，评论采集不可用:\n${si.ai.join("\n")}` : undefined}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span style={{ marginLeft: 12, fontSize: 14, color: si.ai.length > 0 ? "#ff4d4f" : "#555" }}>评论采集</span>
+              {si.ai.length > 0 && <ExclamationCircleOutlined style={{ color: "#ff4d4f" }} />}
+            </span>
+            <Switch checked={captureComments} disabled={si.ai.length > 0} onChange={setCaptureComments} />
+          </Tooltip>
         </div>
         {/* 评论采集设置行(开关开时显示) */}
         {captureComments && (
@@ -689,12 +706,18 @@ export default function Home() {
               icon={si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <SwapOutlined />}
               onClick={() => setScrollsOpen(true)}>滚动设置</Button>
           </Tooltip>
-          <Button icon={<RobotOutlined />} onClick={() => setAiOpen(true)}>AI模型</Button>
+          <Tooltip
+            title={si.ai.length > 0 ? `AI模型设置不完整，需配置后才能正常使用:\n${si.ai.join("\n")}` : undefined}
+            placement="bottom">
+            <Button danger={si.ai.length > 0}
+              icon={si.ai.length > 0 ? <ExclamationCircleOutlined /> : <RobotOutlined />}
+              onClick={() => setAiOpen(true)}>AI模型</Button>
+          </Tooltip>
           <Button onClick={pickSaveDir}>存储路径: {saveDir}</Button>
         </div>
       </div>
       <PointsDialog open={pointsOpen} onClose={() => { setPointsOpen(false); si.refresh(); }} />
-      <AiDialog open={aiOpen} onClose={() => setAiOpen(false)} />
+      <AiDialog open={aiOpen} onClose={() => { setAiOpen(false); si.refresh(); }} />
       <ScrollsDialog open={scrollsOpen} onClose={() => { setScrollsOpen(false); si.refresh(); }} />
       <div className="dropzone"
            onDragOver={(e) => { e.preventDefault(); if (Array.from(e.dataTransfer.types || []).includes("Files")) setDragOver(true); }}

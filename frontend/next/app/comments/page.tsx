@@ -423,9 +423,9 @@ export default function CommentsPage() {
         style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, minHeight: shown.length ? 0 : undefined, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Tooltip
-            title={si.points.length + si.scrolls.length > 0 ? `点位/滚动设置有残缺，需补全后才能采集评论:\n${[...si.points, ...si.scrolls].join("\n")}` : undefined}>
-            <Button type="primary" disabled={si.points.length + si.scrolls.length > 0}
-              icon={si.points.length + si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <ReloadOutlined />}
+            title={si.points.length + si.scrolls.length + si.ai.length > 0 ? `采集前需补全以下设置:\n${[...si.points, ...si.scrolls, ...(si.ai.length ? [`AI模型未配置: ${si.ai.join("、")}`] : [])].join("\n")}` : undefined}>
+            <Button type="primary" disabled={si.points.length + si.scrolls.length + si.ai.length > 0}
+              icon={si.points.length + si.scrolls.length + si.ai.length > 0 ? <ExclamationCircleOutlined /> : <ReloadOutlined />}
               onClick={openCollect}>采集</Button>
           </Tooltip>
           <div style={{ flex: 1 }} />

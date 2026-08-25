@@ -477,6 +477,11 @@ export default function ArticlePage() {
   useEffect(() => { setPageSize(calcPageSize()); }, []);
   // 更新弹窗显示=隐藏任务栏, 关闭=恢复
   useEffect(() => { if (updOpen) hideTaskbar(); else showTaskbar(); /* eslint-disable-next-line */ }, [updOpen]);
+  // AI模型报红: 强制关闭4指标/评论采集
+  useEffect(() => {
+    if (si.ai.length > 0) { setCapture4metrics(false); setCaptureComments(false); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [si.ai]);
 
   async function importFile(f: File) {
     setImporting(true); setImportingPct(0); setFailedLinks([]); setDupRows([]);
@@ -585,14 +590,26 @@ export default function ArticlePage() {
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minHeight: 32 }}>
           <span style={{ fontSize: 14, color: "#555" }}>窗口分离</span>
           <Switch checked={windowSplit} onChange={setWindowSplit} />
-          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集4指标</span>
-          <Switch checked={capture4metrics} onChange={setCapture4metrics} />
+          <Tooltip
+            title={si.ai.length > 0 ? `AI模型未配置，4指标采集不可用:\n${si.ai.join("\n")}` : undefined}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span style={{ marginLeft: 12, fontSize: 14, color: si.ai.length > 0 ? "#ff4d4f" : "#555" }}>采集4指标</span>
+              {si.ai.length > 0 && <ExclamationCircleOutlined style={{ color: "#ff4d4f" }} />}
+            </span>
+            <Switch checked={capture4metrics} disabled={si.ai.length > 0} onChange={setCapture4metrics} />
+          </Tooltip>
           <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集阅读数</span>
           <Switch checked={captureRead} onChange={setCaptureRead} />
           <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存Html</span>
           <Switch checked={saveHtml} onChange={setSaveHtml} />
-          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>评论采集</span>
-          <Switch checked={captureComments} onChange={setCaptureComments} />
+          <Tooltip
+            title={si.ai.length > 0 ? `AI模型未配置，评论采集不可用:\n${si.ai.join("\n")}` : undefined}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span style={{ marginLeft: 12, fontSize: 14, color: si.ai.length > 0 ? "#ff4d4f" : "#555" }}>评论采集</span>
+              {si.ai.length > 0 && <ExclamationCircleOutlined style={{ color: "#ff4d4f" }} />}
+            </span>
+            <Switch checked={captureComments} disabled={si.ai.length > 0} onChange={setCaptureComments} />
+          </Tooltip>
         </div>
         {captureComments && (
           <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", paddingTop: 10 }}>
