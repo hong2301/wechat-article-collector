@@ -796,8 +796,9 @@ export default function Home() {
         {collectStarted ? (
           <div style={{ display: "flex", gap: 12 }}>
             {/* 左: 采集设置 */}
-            <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
-              <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0" }}>采集设置</div>
+            <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0", maxHeight: 220, display: "flex", flexDirection: "column" }}>
+              <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0", flexShrink: 0 }}>采集设置</div>
+              <div style={{ overflow: "auto", flex: 1, minHeight: 0 }}>
               {[
                 { label: "时间范围", value: dateRange ? `${dateRange[0].format("YYYY-MM-DD")} ~ ${dateRange[1].format("YYYY-MM-DD")}` : "全部" },
                 { label: "窗口分离", value: windowSplit ? "开" : "关" },
@@ -814,11 +815,12 @@ export default function Home() {
                   <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
                 </div>
               ))}
+              </div>
             </div>
             {/* 右: 采集情况 */}
-            <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
-              <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0" }}>采集情况</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 14px", fontSize: 13, color: "#555" }}>
+            <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0", maxHeight: 220, display: "flex", flexDirection: "column" }}>
+              <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0", flexShrink: 0 }}>采集情况</div>
+              <div style={{ overflow: "auto", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 10, padding: "10px 14px" }}>
                 <div>开始时间: <span style={{ color: "#333" }}>{collectStartTime}</span></div>
                 <div>已采集文章: <span style={{ color: "#333", fontWeight: 600 }}>{collectCount} 篇</span></div>
                 <div>采集速度: <span style={{ color: "#333" }}>{speed} 篇/分</span></div>
