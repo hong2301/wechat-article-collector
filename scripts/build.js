@@ -75,8 +75,11 @@ try {
     fs.cpSync(path.join(WIN_UNPACKED, entry), path.join(RELEASE, entry), { recursive: true })
   }
 
-  // 7. 生成模板数据库到 release/data
-  run(`python scripts/make_template_db.py "${RELEASE}/data"`)
+  // 7. 复制静态模板数据库到 release/data(含 深圳本地宝3篇文章+评论 测试数据)
+  console.log('\n>>> 复制模板数据库 -> release/data')
+  fs.mkdirSync(path.join(RELEASE, 'data'), { recursive: true })
+  fs.copyFileSync(path.join(ROOT, 'scripts', 'template_collector.db'), path.join(RELEASE, 'data', 'collector.db'))
+  console.log('   template_collector.db -> release/data/collector.db')
 
   // 8. 清理中间产物(仅在有 --clean 参数时执行, 默认保留)
   if (withClean) {

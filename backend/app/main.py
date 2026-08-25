@@ -8,7 +8,7 @@ from .database import init_db
 from .routers import accounts, resolve_api, points, scrolls, collect, settings
 from .services import ocr as ocr_service
 
-app = FastAPI(title="微信公众号采集器后端", version="4.0.0")
+app = FastAPI(title="微信公众号采集器后端", version="4.0.1")
 
 # CORS: 允许前端(localhost:3000 / Electron)访问
 app.add_middleware(
