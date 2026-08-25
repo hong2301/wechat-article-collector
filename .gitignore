@@ -36,6 +36,7 @@ frontend/.next/
 frontend/out/
 frontend/.turbo/
 frontend/package-lock.json
+frontend/next/tsconfig.tsbuildinfo
 
 # ---- Electron ----
 electron/node_modules/
