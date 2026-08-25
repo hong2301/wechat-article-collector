@@ -47,6 +47,7 @@ frontend/next/.next/
 frontend/next/out/
 frontend/electron/node_modules/
 frontend/electron/dist/
+frontend/electron/out/
 # Python 后端
 backend/__pycache__/
 node_modules/

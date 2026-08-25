@@ -5,6 +5,10 @@
   "scripts": {
     "dev": "npm --prefix electron run dev",
     "next:dev": "npm --prefix next run dev",
-    "build:frontend": "npm --prefix next run export"
+    "build:frontend": "npm --prefix next run build",
+    "build:copy-out": "node scripts/copy-out.js",
+    "build:electron": "npm --prefix electron run build",
+    "build": "npm run build:frontend && npm run build:copy-out && npm run build:electron",
+    "package": "npm run build"
   }
 }

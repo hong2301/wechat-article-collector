@@ -6,14 +6,34 @@
     "dev": "concurrently -k -n next,electron -c blue,green \"npm run dev:next\" \"npm run dev:wait\"",
     "dev:next": "npm --prefix ../next run dev",
     "dev:wait": "wait-on http://localhost:3000 && electron .",
-    "start": "electron ."
+    "start": "electron .",
+    "build": "electron-builder --win"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "concurrently": "^10.0.5",
     "electron": "^31.0.0",
+    "electron-builder": "^26.15.3",
     "wait-on": "^9.1.0"
   },
-  "dependencies": {
-    "@resvg/resvg-js": "^2.6.2"
+  "build": {
+    "appId": "com.wechat.collector",
+    "productName": "WeChatCollector",
+    "directories": {
+      "output": "C:/Users/86150/Desktop/微信公众号ocr采集器/frontend/build"
+    },
+    "files": [
+      "main.js",
+      "icon.png",
+      "out/**/*"
+    ],
+    "win": {
+      "target": [
+        "dir",
+        "portable"
+      ],
+      "icon": "icon.ico"
+    },
+    "electronVersion": "31.7.7"
   }
 }
