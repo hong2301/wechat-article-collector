@@ -11,6 +11,7 @@ import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutli
 import * as XLSX from "xlsx";
 import PointsDialog from "./components/PointsDialog";
 import PaginationBar, { calcPageSize } from "./components/PaginationBar";
+import { hideTaskbar, showTaskbar } from "./components/taskbar";
 import ScrollsDialog from "./components/ScrollsDialog";
 import AiDialog from "./components/AiDialog";
 
@@ -240,6 +241,8 @@ export default function Home() {
     finally { setLoading(false); }
   }
   useEffect(() => { load(); }, [page, pageSize, query]);
+  // 采集弹窗显示=隐藏任务栏, 关闭=恢复
+  useEffect(() => { if (collectOpen) hideTaskbar(); else showTaskbar(); /* eslint-disable-next-line */ }, [collectOpen]);
   // 初始自动计算每页条数
   useEffect(() => { setPageSize(calcPageSize()); }, []);
 
@@ -440,8 +443,7 @@ export default function Home() {
                 finished = true;
                 setCollectLogs((p) => [...p,
                   d.ok ? "✅ 采集流程结束" : `❌ 采集失败: ${d.reason || ""}`]);
-              }
-            } catch { /* 忽略坏帧 */ }
+              }            } catch { /* 忽略坏帧 */ }
           }
         }
         setCollectLogs((p) => [...p, "⏹ 采集连接已断开"]);

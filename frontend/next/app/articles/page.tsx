@@ -7,6 +7,7 @@ import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, To
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined, FolderOpenOutlined, DownloadOutlined, ReloadOutlined, FileExcelOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import PaginationBar, { calcPageSize } from "../components/PaginationBar";
+import { hideTaskbar, showTaskbar } from "../components/taskbar";
 
 const API = "http://127.0.0.1:8000/api/accounts";
 const ART_PREFIX = "https://mp.weixin.qq.com/s/";
@@ -469,6 +470,8 @@ export default function ArticlePage() {
     [sortInfo]);
   // 初始自动计算每页条数
   useEffect(() => { setPageSize(calcPageSize()); }, []);
+  // 更新弹窗显示=隐藏任务栏, 关闭=恢复
+  useEffect(() => { if (updOpen) hideTaskbar(); else showTaskbar(); /* eslint-disable-next-line */ }, [updOpen]);
 
   async function importFile(f: File) {
     setImporting(true); setImportingPct(0); setFailedLinks([]); setDupRows([]);

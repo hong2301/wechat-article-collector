@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
-"""AI 模型设置路由: 读写数据库 ai_model 表(厂商+一个key+多个模型id)"""
+"""AI 模型设置路由: 读写数据库 ai_model 表(厂商+一个key+多个模型id)
++ 系统控制: 任务栏隐藏/恢复(采集时隐藏, 全部结束恢复)"""
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 from ..database import get_conn
+from ..services import computer as pc
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -101,3 +103,17 @@ def save_article_html_api(payload: dict = None):
     if path:
         return {"ok": True, "path": path, "info": info}
     return {"ok": False, "error": info}
+
+
+class TaskbarAction(BaseModel):
+    action: str = "hide"   # hide / show
+
+
+@router.post("/taskbar")
+def taskbar_control(p: TaskbarAction):
+    """隐藏/恢复 Windows 任务栏(采集开始隐藏, 全部任务结束恢复); 幂等"""
+    if p.action == "hide":
+        return {"ok": pc.hide_taskbar()}
+    if p.action == "show":
+        return {"ok": pc.show_taskbar()}
+    return {"ok": False, "error": "action 只能是 hide/show"}

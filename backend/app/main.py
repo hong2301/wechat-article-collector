@@ -26,6 +26,16 @@ def startup():
     threading.Thread(target=ocr_service.init, daemon=True).start()
 
 
+@app.on_event("shutdown")
+def shutdown():
+    """后端退出: 恢复任务栏(防采集结束时任务栏仍隐藏/异常退出遗留)"""
+    try:
+        from .services import computer as pc
+        pc.show_taskbar()
+    except Exception:
+        pass
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok"}

@@ -17,6 +17,25 @@ router = APIRouter(prefix="/api/collect", tags=["collect"])
 # 当前采集 worker 线程 id(用于停止时注入异常强制中断)
 _worker_tid = {"tid": None}
 
+# 运行中的采集任务计数(公众号采集/文章更新/评论采集; 全部归零=任务全部结束)
+_task_count = [0]
+_task_count_lock = threading.Lock()
+
+
+def _task_begin():
+    with _task_count_lock:
+        _task_count[0] += 1
+
+
+def _task_end():
+    with _task_count_lock:
+        _task_count[0] = max(0, _task_count[0] - 1)
+
+
+def _task_running_count():
+    with _task_count_lock:
+        return _task_count[0]
+
 # ---------- 输入锁定: 采集时人工键盘/鼠标拦截(程序注入放行), ESC=停止 ----------
 _input_lock = None
 _last_block_notice = [0.0]
@@ -133,6 +152,7 @@ def _collect_generate(payload: CollectStart):
 
     def worker():
         _worker_tid["tid"] = threading.get_ident()
+        _task_begin()
         prev_hook = tasks_service.bind_tasks_echo(hook)
         try:
             # 1) 微信窗口初始化(带窗口分离参数)
@@ -179,6 +199,7 @@ def _collect_generate(payload: CollectStart):
             log_q.put(("log", f"[异常] {e}"))
             log_q.put(("done", False, str(e)))
         finally:
+            _task_end()
             _worker_tid["tid"] = None
             tasks_service.bind_tasks_echo(prev_hook)
             tasks_service.clear_stop()   # 清除停止信号
@@ -238,6 +259,7 @@ def _update_generate(payload: UpdateStart):
 
     def worker():
         _worker_tid["tid"] = threading.get_ident()
+        _task_begin()
         prev_hook = tasks_service.bind_tasks_echo(hook)
         try:
             # 1) 微信窗口初始化
@@ -282,6 +304,7 @@ def _update_generate(payload: UpdateStart):
         except Exception as e:
             log_q.put(("log", f"[异常] {e}"))
             log_q.put(("done", False, str(e)))
+            _task_end()
         finally:
             _worker_tid["tid"] = None
             tasks_service.bind_tasks_echo(prev_hook)
@@ -338,6 +361,7 @@ def _comment_generate(payload: CommentStart):
 
     def worker():
         _worker_tid["tid"] = threading.get_ident()
+        _task_begin()
         prev_hook = tasks_service.bind_tasks_echo(hook)
         try:
             # 1) 微信窗口初始化
@@ -377,6 +401,7 @@ def _comment_generate(payload: CommentStart):
             log_q.put(("done", False, "user_stopped"))
         except Exception as e:
             log_q.put(("log", f"[异常] {e}"))
+            _task_end()
             log_q.put(("done", False, str(e)))
         finally:
             _worker_tid["tid"] = None
@@ -485,3 +510,8 @@ def collect_comments(payload: CommentStart):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+@router.get("/task-state")
+def task_state():
+    """采集任务状态: 正在运行的任务数(公众号采集/文章更新/评论采集)"""
+    return {"running_count": _task_running_count(), "running": _task_running_count() > 0}

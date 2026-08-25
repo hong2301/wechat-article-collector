@@ -6,6 +6,7 @@ import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Tooltip, 
 import { ArrowLeftOutlined, ReloadOutlined, PlusOutlined, ImportOutlined, DeleteOutlined, SearchOutlined, ClearOutlined, FileExcelOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import PaginationBar, { calcPageSize } from "../components/PaginationBar";
+import { hideTaskbar, showTaskbar } from "../components/taskbar";
 import dayjs from "dayjs";
 
 const API = "http://127.0.0.1:8000/api/accounts";
@@ -154,6 +155,8 @@ export default function CommentsPage() {
   // 分页变化重载 + 初始自动计算每页
   useEffect(() => { if (artBiz) load(artBiz); /* eslint-disable-next-line */ }, [page, pageSize]);
   useEffect(() => { setPageSize(calcPageSize()); }, []);
+  // 评论采集弹窗显示=隐藏任务栏, 关闭=恢复
+  useEffect(() => { if (ccOpen) hideTaskbar(); else showTaskbar(); /* eslint-disable-next-line */ }, [ccOpen]);
   // 筛选变化重载
   useEffect(() => { setPage(1); if (artBiz) load(artBiz); /* eslint-disable-next-line */ },
     [dateRange, kw, likesRange, ipFilter, levelFilter]);

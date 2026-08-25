@@ -740,6 +740,29 @@ def clear_clipboard():
         u32.CloseClipboard()
 
 
+def _find_taskbar():
+    """Windows 任务栏窗口句柄(Shell_TrayWnd)"""
+    return _u32().FindWindowW("Shell_TrayWnd", None)
+
+
+def hide_taskbar():
+    """隐藏底部任务栏(采集时屏幕全高); 返回是否成功"""
+    hwnd = _find_taskbar()
+    if not hwnd:
+        return False
+    _u32().ShowWindow(hwnd, SW_HIDE)
+    return True
+
+
+def show_taskbar():
+    """恢复显示任务栏; 返回是否成功"""
+    hwnd = _find_taskbar()
+    if not hwnd:
+        return False
+    _u32().ShowWindow(hwnd, SW_SHOW)
+    return True
+
+
 # ===========================================================================
 # 截图：屏幕区域截图（存文件 / 转 base64 / 5参数截图）
 # ===========================================================================
@@ -802,6 +825,7 @@ __all__ = [
     "enable_dpi_awareness",
     # 窗口
     "find_windows", "show_window", "close_window", "move_window",
+    "hide_taskbar", "show_taskbar",
     # 鼠标
     "mouse_click", "scroll", "preview_point", "capture_point",
     "get_latest_click", "clear_latest_click",
