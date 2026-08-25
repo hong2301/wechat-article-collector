@@ -1,3 +1,20 @@
+# 后端运行时依赖 (FastAPI + OCR + 网络 + 导出)
+# 安装: pip install -r backend/requirements.txt
 fastapi>=0.110
 uvicorn[standard]>=0.29
 pydantic>=2.0
+
+# OCR 识别引擎(阅读数/评论区识别); numpy 为 rapidocr 间接依赖(保证被装上)
+onnxruntime>=1.18
+rapidocr-onnxruntime>=1.3
+numpy>=1.24
+
+# 图像处理(截图/拼接)
+pillow>=10.0
+
+# 网络请求(文章元信息/豆包API)
+requests>=2.31
+
+# 文件解析/导出 (csv/xlsx 导入导出)
+openpyxl>=3.1
+python-multipart>=0.0.9

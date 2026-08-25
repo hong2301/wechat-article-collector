@@ -4,10 +4,11 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import dayjs from "dayjs";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber, Spin, Switch, Select } from "antd";
-import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined, FolderOpenOutlined, DownloadOutlined, ReloadOutlined, FileExcelOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined, FolderOpenOutlined, DownloadOutlined, ReloadOutlined, FileExcelOutlined, ExclamationCircleOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import PaginationBar, { calcPageSize } from "../components/PaginationBar";
 import { hideTaskbar, showTaskbar } from "../components/taskbar";
+import { useSettingsIssues } from "../components/useSettingsIssues";
 
 const API = "http://127.0.0.1:8000/api/accounts";
 const ART_PREFIX = "https://mp.weixin.qq.com/s/";
@@ -126,6 +127,7 @@ export default function ArticlePage() {
   const dlAbortRef = useRef<AbortController | null>(null);  // 下载取消控制
   // 更新弹窗(单篇文章更新)
   const [updOpen, setUpdOpen] = useState(false);
+  const si = useSettingsIssues();
   const [updStarted, setUpdStarted] = useState(false);
   const [updTask, setUpdTask] = useState<Article | null>(null);
   const [updLogs, setUpdLogs] = useState<string[]>([]);
@@ -203,13 +205,13 @@ export default function ArticlePage() {
       const arts = d.items ?? d.articles ?? [];
       setTotal(d.total ?? (d.articles ? d.articles.length : 0));
       setArticles(sortArticles(arts));
-      // 全部文章模式: 公众号多选默认全选
+      // 全部文章模式: 公众号多选默认全选(引用稳定, 避免触发筛选effect死循环)
       if (b === "all") {
         const names = Array.from(new Set(arts.map((a: any) => a.acc_name || ""))).filter(Boolean) as string[];
-        setAccFilter(["__all__"]);   // 默认选中'全部'
+        setAccFilter((prev) => (prev.length === 1 && prev[0] === "__all__") ? prev : ["__all__"]);
         void names;
       } else {
-        setAccFilter([]);
+        setAccFilter((prev) => prev.length === 0 ? prev : []);
       }
       setLoadErr(false);
     } catch { message.error("加载失败，自动重试中"); setLoadErr(true); retryRef.current = setTimeout(() => load(b), 3000); }
@@ -467,16 +469,24 @@ export default function ArticlePage() {
   function reload() { if (biz) load(biz); }
   // 分页变化重载
   useEffect(() => { if (biz !== undefined && biz !== null) reload(); /* eslint-disable-next-line */ }, [page, pageSize]);
-  // 筛选变化重载(回第1页)
-  useEffect(() => { setPage(1); if (biz !== undefined && biz !== null) reload(); /* eslint-disable-next-line */ },
-    [dateRange, kw, ranges, accFilter]);
-  // 排序变化重载(回第1页)
-  useEffect(() => { setPage(1); if (biz !== undefined && biz !== null) reload(); /* eslint-disable-next-line */ },
-    [sortInfo]);
+  // 筛选/排序变化: 400ms 防抖后回第1页并重载(避免快速操作/死循环打爆后端)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (biz === undefined || biz === null) return;
+      if (page !== 1) setPage(1); else reload();
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateRange, kw, ranges, accFilter, sortInfo]);
   // 初始自动计算每页条数
   useEffect(() => { setPageSize(calcPageSize()); }, []);
   // 更新弹窗显示=隐藏任务栏, 关闭=恢复
   useEffect(() => { if (updOpen) hideTaskbar(); else showTaskbar(); /* eslint-disable-next-line */ }, [updOpen]);
+  // AI模型报红: 强制关闭4指标/评论采集
+  useEffect(() => {
+    if (si.ai.length > 0) { setCapture4metrics(false); setCaptureComments(false); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [si.ai]);
 
   async function importFile(f: File) {
     setImporting(true); setImportingPct(0); setFailedLinks([]); setDupRows([]);
@@ -585,14 +595,26 @@ export default function ArticlePage() {
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minHeight: 32 }}>
           <span style={{ fontSize: 14, color: "#555" }}>窗口分离</span>
           <Switch checked={windowSplit} onChange={setWindowSplit} />
-          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集4指标</span>
-          <Switch checked={capture4metrics} onChange={setCapture4metrics} />
+          <Tooltip
+            title={si.ai.length > 0 ? `AI模型未配置，4指标采集不可用:\n${si.ai.join("\n")}` : undefined}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span style={{ marginLeft: 12, fontSize: 14, color: si.ai.length > 0 ? "#ff4d4f" : "#555" }}>采集4指标</span>
+              {si.ai.length > 0 && <ExclamationCircleOutlined style={{ color: "#ff4d4f" }} />}
+            </span>
+            <Switch checked={capture4metrics} disabled={si.ai.length > 0} onChange={setCapture4metrics} />
+          </Tooltip>
           <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集阅读数</span>
           <Switch checked={captureRead} onChange={setCaptureRead} />
           <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存Html</span>
           <Switch checked={saveHtml} onChange={setSaveHtml} />
-          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>评论采集</span>
-          <Switch checked={captureComments} onChange={setCaptureComments} />
+          <Tooltip
+            title={si.ai.length > 0 ? `AI模型未配置，评论采集不可用:\n${si.ai.join("\n")}` : undefined}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span style={{ marginLeft: 12, fontSize: 14, color: si.ai.length > 0 ? "#ff4d4f" : "#555" }}>评论采集</span>
+              {si.ai.length > 0 && <ExclamationCircleOutlined style={{ color: "#ff4d4f" }} />}
+            </span>
+            <Switch checked={captureComments} disabled={si.ai.length > 0} onChange={setCaptureComments} />
+          </Tooltip>
         </div>
         {captureComments && (
           <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", paddingTop: 10 }}>
@@ -671,7 +693,12 @@ export default function ArticlePage() {
         onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) importFile(f); }}
         style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <Button type="primary" icon={<ReloadOutlined />} onClick={openUpdateSelected}>更新选中</Button>
+          <Tooltip
+            title={si.points.length + si.scrolls.length > 0 ? `点位/滚动设置有残缺，需补全后才能更新:\n${[...si.points, ...si.scrolls].join("\n")}` : undefined}>
+            <Button type="primary" disabled={si.points.length + si.scrolls.length > 0}
+              icon={si.points.length + si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <ReloadOutlined />}
+              onClick={openUpdateSelected}>更新选中</Button>
+          </Tooltip>
           <Button icon={<DownloadOutlined />} onClick={downloadSelected}>下载选中</Button>
           <div style={{ flex: 1 }} />
           {biz !== "all" && <Button color="primary" variant="outlined" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>}
@@ -761,7 +788,12 @@ export default function ArticlePage() {
               render: (_: unknown, r: Article) => (
                 <Space>
                   <Button size="small" type="link" icon={<DownloadOutlined />} loading={dlKey === (r.art_biz || "")} onClick={() => downloadHtml(r)}>下载</Button>
-                  <Button size="small" type="link" icon={<ReloadOutlined />} onClick={() => openUpdate(r)}>更新</Button>
+                  <Tooltip
+                    title={si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能更新" : undefined}>
+                    <Button size="small" type="link" disabled={si.points.length + si.scrolls.length > 0}
+                      icon={si.points.length + si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <ReloadOutlined />}
+                      onClick={() => openUpdate(r)}>更新</Button>
+                  </Tooltip>
                   <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => del(r)}>删除</Button>
                 </Space>
               ) },

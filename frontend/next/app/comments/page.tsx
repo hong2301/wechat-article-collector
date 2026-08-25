@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Tooltip, Spin, DatePicker, InputNumber, Input, Checkbox, Progress, Switch, Select } from "antd";
-import { ArrowLeftOutlined, ReloadOutlined, PlusOutlined, ImportOutlined, DeleteOutlined, SearchOutlined, ClearOutlined, FileExcelOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, ReloadOutlined, PlusOutlined, ImportOutlined, DeleteOutlined, SearchOutlined, ClearOutlined, FileExcelOutlined, ExclamationCircleOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import PaginationBar, { calcPageSize } from "../components/PaginationBar";
 import { hideTaskbar, showTaskbar } from "../components/taskbar";
+import { useSettingsIssues } from "../components/useSettingsIssues";
 import dayjs from "dayjs";
 
 const API = "http://127.0.0.1:8000/api/accounts";
@@ -101,6 +102,7 @@ export default function CommentsPage() {
   }, [ccLoaded, windowSplit, maxComments, maxLevel1, maxLevel2, dateRange]);
   // 评论采集弹窗
   const [ccOpen, setCcOpen] = useState(false);
+  const si = useSettingsIssues();
   const [ccStarted, setCcStarted] = useState(false);
   const [ccLogs, setCcLogs] = useState<string[]>([]);
   const ccAbortRef = useRef<AbortController | null>(null);
@@ -162,9 +164,15 @@ export default function CommentsPage() {
   useEffect(() => { setPageSize(calcPageSize()); }, []);
   // 评论采集弹窗显示=隐藏任务栏, 关闭=恢复
   useEffect(() => { if (ccOpen) hideTaskbar(); else showTaskbar(); /* eslint-disable-next-line */ }, [ccOpen]);
-  // 筛选变化重载
-  useEffect(() => { setPage(1); if (artBiz) load(artBiz); /* eslint-disable-next-line */ },
-    [dateRange, kw, likesRange, ipFilter, levelFilter]);
+  // 筛选变化: 400ms 防抖后回第1页并重载(避免快速操作打爆后端)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (!artBiz) return;
+      if (page !== 1) setPage(1); else load(artBiz);
+    }, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateRange, kw, likesRange, ipFilter, levelFilter]);
   // 导出评论为 xlsx(文件名=文章标题+评论)
   async function exportExcel() {
     message.info("正在导出全部数据...");
@@ -419,7 +427,12 @@ export default function CommentsPage() {
         onDrop={(e) => { e.preventDefault(); setDragOver(false); if (Array.from(e.dataTransfer.types || []).includes("Files")) { const f = e.dataTransfer.files?.[0]; if (f) importFile(f); } }}
         style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, minHeight: shown.length ? 0 : undefined, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-          <Button type="primary" icon={<ReloadOutlined />} onClick={openCollect}>采集</Button>
+          <Tooltip
+            title={si.points.length + si.scrolls.length + si.ai.length > 0 ? `采集前需补全以下设置:\n${[...si.points, ...si.scrolls, ...(si.ai.length ? [`AI模型未配置: ${si.ai.join("、")}`] : [])].join("\n")}` : undefined}>
+            <Button type="primary" disabled={si.points.length + si.scrolls.length + si.ai.length > 0}
+              icon={si.points.length + si.scrolls.length + si.ai.length > 0 ? <ExclamationCircleOutlined /> : <ReloadOutlined />}
+              onClick={openCollect}>采集</Button>
+          </Tooltip>
           <div style={{ flex: 1 }} />
           <Button color="primary" variant="outlined" icon={<PlusOutlined />} onClick={() => message.info("新增评论(开发中)")}>新增</Button>
           <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>
