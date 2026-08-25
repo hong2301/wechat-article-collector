@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """公众号(accounts) CRUD 路由"""
 import sqlite3
+import threading
+import time
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from ..database import get_conn
@@ -11,6 +13,34 @@ from ..services.resolve import resolve_account
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
+# ---------- 列表接口同参去重缓存(400ms): 防止前端快速重复请求打爆后端 ----------
+_req_cache = {}
+_req_cache_lock = threading.Lock()
+_CACHE_MS = 400
+_CACHE_TTL_MS = 5000
+
+
+def _cache_key(args_tuple):
+    """参数元组 -> 缓存 key(参数可能含 list/None, 用 repr 保证可 hash)"""
+    return repr(args_tuple)
+
+
+def _cached(key, builder):
+    """同 key 400ms 内直接返回上次结果; builder 返回可序列化 dict"""
+    now_ms = int(time.time() * 1000)
+    with _req_cache_lock:
+        hit = _req_cache.get(key)
+        if hit and now_ms - hit[0] < _CACHE_MS:
+            return hit[1]
+    value = builder()
+    with _req_cache_lock:
+        _req_cache[key] = (now_ms, value)
+        # 顺带清理过期条目(防内存膨胀)
+        stale = [k for k, (t, _) in _req_cache.items() if now_ms - t > _CACHE_TTL_MS]
+        for k in stale:
+            del _req_cache[k]
+    return value
+
 
 def _row_to_dict(row):
     return dict(row)
@@ -18,34 +48,40 @@ def _row_to_dict(row):
 
 @router.get("")
 def list_accounts(page: int = 0, page_size: int = 20, q: str = ""):
-    conn = get_conn()
-    try:
-        sql = "SELECT a.* FROM accounts a " \
-              "LEFT JOIN sort_config s ON a.id = s.record_id " \
-              "ORDER BY COALESCE(s.sort_order, 999999999), a.id ASC"
-        params = []
-        if q:
-            like = f"%{q.strip()}%"
-            sql = "SELECT * FROM (" + sql + ") t WHERE t.name LIKE ? OR t.biz LIKE ?"
-            params = [like, like]
-        rows = conn.execute(sql, params).fetchall()
-        total = len(rows)
-        cnt = dict(conn.execute("SELECT biz, COUNT(*) n FROM articles GROUP BY biz").fetchall())
-        result = []
-        for r in rows:
-            d = _row_to_dict(r)
-            d["collected_count"] = cnt.get(d.get("biz") or "", 0)
-            result.append(d)
-        if page <= 0:
-            return result
-        start = (page - 1) * page_size
-        items = result[start:start + page_size]
-        return {"total": total, "items": items}
-    finally:
-        conn.close()
+    _key = _cache_key((page, page_size, q))
+
+    def _b():
+        conn = get_conn()
+        try:
+            sql = "SELECT a.* FROM accounts a " \
+                  "LEFT JOIN sort_config s ON a.id = s.record_id " \
+                  "ORDER BY COALESCE(s.sort_order, 999999999), a.id ASC"
+            params = []
+            if q:
+                like = f"%{q.strip()}%"
+                sql = "SELECT * FROM (" + sql + ") t WHERE t.name LIKE ? OR t.biz LIKE ?"
+                params = [like, like]
+            rows = conn.execute(sql, params).fetchall()
+            total = len(rows)
+            cnt = dict(conn.execute("SELECT biz, COUNT(*) n FROM articles GROUP BY biz").fetchall())
+            result = []
+            for r in rows:
+                d = _row_to_dict(r)
+                d["collected_count"] = cnt.get(d.get("biz") or "", 0)
+                result.append(d)
+            if page <= 0:
+                return result
+            start = (page - 1) * page_size
+            items = result[start:start + page_size]
+            return {"total": total, "items": items}
+        finally:
+            conn.close()
 
 
 
+
+
+    return _cached(_key, _b)
 
 def _import_stream(rows):
     """解析后的行 -> 逐条入库, 生成器逐条 yield 进度用于 SSE
@@ -189,139 +225,139 @@ def _order_sql(order_by, order_dir):
 
 
 @router.get("/articles-by-biz")
-def account_articles_by_biz(biz: str = "", page: int = 0, page_size: int = 20,
-                            date_start: str = "", date_end: str = "", kw: str = "",
-                            min_reads: str = "", max_reads: str = "",
-                            min_likes: str = "", max_likes: str = "",
-                            min_forwards: str = "", max_forwards: str = "",
-                            min_favorites: str = "", max_favorites: str = "",
-                            min_comments: str = "", max_comments: str = "",
-                            ips: str = "", accs: str = "",
-                            order_by: str = "date", order_dir: str = "desc"):
-    """biz=该公众号返其文章; biz=all或空 返回全部文章(含公众号名)
-    page>0 返回 {total, items}; 支持日期/标题/数值/IP/公众号筛选; order_by/order_dir 后端排序"""
-    where = []
-    params = []
-    if biz and biz != "all":
-        where.append("biz=?"); params.append(biz)
-    if date_start:
-        where.append("date >= ?"); params.append(date_start)
-    if date_end:
-        where.append("date <= ?"); params.append(date_end)
-    if kw:
-        where.append("title LIKE ?"); params.append(f"%{kw}%")
-    # 数值范围(articles 数值为 TEXT, CAST 比较)
-    num_ranges = [("reads", min_reads, max_reads), ("likes", min_likes, max_likes),
-                  ("forwards", min_forwards, max_forwards), ("favorites", min_favorites, max_favorites),
-                  ("comments", min_comments, max_comments)]
-    for col, lo, hi in num_ranges:
-        if lo:
-            where.append(f"CAST({col} AS REAL) >= ?"); params.append(float(lo))
-        if hi:
-            where.append(f"CAST({col} AS REAL) <= ?"); params.append(float(hi))
-    if ips:
-        ip_list = [x for x in ips.split(",") if x]
-        if ip_list:
-            where.append("ip IN (" + ",".join(["?"] * len(ip_list)) + ")")
-            params.extend(ip_list)
-    if accs:
-        acc_list = [x for x in accs.split(",") if x]
-        if acc_list:
-            where.append("name IN (" + ",".join(["?"] * len(acc_list)) + ")")
-            params.extend(acc_list)
-    sql = "SELECT * FROM articles"
-    if where:
-        sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY " + _order_sql(order_by, order_dir) + ", id DESC"
-    conn = get_conn()
-    try:
-        rows = conn.execute(sql, params).fetchall()
-    finally:
-        conn.close()
-    name = ""
-    if biz and biz != "all":
+def account_articles_by_biz(biz: str = "", page: int = 0, page_size: int = 20, date_start: str = "", date_end: str = "", kw: str = "", min_reads: str = "", max_reads: str = "", min_likes: str = "", max_likes: str = "", min_forwards: str = "", max_forwards: str = "", min_favorites: str = "", max_favorites: str = "", min_comments: str = "", max_comments: str = "", ips: str = "", accs: str = "", order_by: str = "date", order_dir: str = "desc"):
+    _key = _cache_key((biz, page, page_size, date_start, date_end, kw, min_reads, max_reads, min_likes, max_likes, min_forwards, max_forwards, min_favorites, max_favorites, min_comments, max_comments, ips, accs, order_by, order_dir))
+
+    def _b():
+        """biz=该公众号返其文章; biz=all或空 返回全部文章(含公众号名)
+        page>0 返回 {total, items}; 支持日期/标题/数值/IP/公众号筛选; order_by/order_dir 后端排序"""
+        where = []
+        params = []
+        if biz and biz != "all":
+            where.append("biz=?"); params.append(biz)
+        if date_start:
+            where.append("date >= ?"); params.append(date_start)
+        if date_end:
+            where.append("date <= ?"); params.append(date_end)
+        if kw:
+            where.append("title LIKE ?"); params.append(f"%{kw}%")
+        # 数值范围(articles 数值为 TEXT, CAST 比较)
+        num_ranges = [("reads", min_reads, max_reads), ("likes", min_likes, max_likes),
+                      ("forwards", min_forwards, max_forwards), ("favorites", min_favorites, max_favorites),
+                      ("comments", min_comments, max_comments)]
+        for col, lo, hi in num_ranges:
+            if lo:
+                where.append(f"CAST({col} AS REAL) >= ?"); params.append(float(lo))
+            if hi:
+                where.append(f"CAST({col} AS REAL) <= ?"); params.append(float(hi))
+        if ips:
+            ip_list = [x for x in ips.split(",") if x]
+            if ip_list:
+                where.append("ip IN (" + ",".join(["?"] * len(ip_list)) + ")")
+                params.extend(ip_list)
+        if accs:
+            acc_list = [x for x in accs.split(",") if x]
+            if acc_list:
+                where.append("name IN (" + ",".join(["?"] * len(acc_list)) + ")")
+                params.extend(acc_list)
+        sql = "SELECT * FROM articles"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY " + _order_sql(order_by, order_dir) + ", id DESC"
+        conn = get_conn()
+        try:
+            rows = conn.execute(sql, params).fetchall()
+        finally:
+            conn.close()
+        name = ""
+        if biz and biz != "all":
+            conn2 = get_conn()
+            try:
+                acc = conn2.execute("SELECT name FROM accounts WHERE biz=?", (biz,)).fetchone()
+                name = acc["name"] if acc else ""
+            finally:
+                conn2.close()
+        elif not biz or biz == "all":
+            name = "全部文章"
         conn2 = get_conn()
         try:
-            acc = conn2.execute("SELECT name FROM accounts WHERE biz=?", (biz,)).fetchone()
-            name = acc["name"] if acc else ""
+            cnt_map = dict(conn2.execute(
+                "SELECT art_biz, COUNT(*) n FROM comments GROUP BY art_biz").fetchall())
         finally:
             conn2.close()
-    elif not biz or biz == "all":
-        name = "全部文章"
-    conn2 = get_conn()
-    try:
-        cnt_map = dict(conn2.execute(
-            "SELECT art_biz, COUNT(*) n FROM comments GROUP BY art_biz").fetchall())
-    finally:
-        conn2.close()
-    arts = [{"id": d["id"], "title": d["title"], "date": d["date"], "art_biz": d["art_biz"],
-             "reads": d["reads"], "likes": d["likes"], "forwards": d["forwards"],
-             "favorites": d["favorites"], "comments": d["comments"], "write_time": d["write_time"],
-             "original": d["original"], "ip": d["ip"], "acc_name": d["name"] or "",
-             "comment_count": cnt_map.get(d["art_biz"], 0),   # 实际采集评论数(comments表)
-             "comment_recog": int(d["comment_recog"] or 0),  # 识别的评论数
-             } for d in rows]
-    if page <= 0:
-        return {"biz": biz, "name": name, "articles": arts}
-    total = len(arts)
-    start = (page - 1) * page_size
-    items = arts[start:start + page_size]
-    return {"biz": biz, "name": name, "total": total, "items": items}
+        arts = [{"id": d["id"], "title": d["title"], "date": d["date"], "art_biz": d["art_biz"],
+                 "reads": d["reads"], "likes": d["likes"], "forwards": d["forwards"],
+                 "favorites": d["favorites"], "comments": d["comments"], "write_time": d["write_time"],
+                 "original": d["original"], "ip": d["ip"], "acc_name": d["name"] or "",
+                 "comment_count": cnt_map.get(d["art_biz"], 0),   # 实际采集评论数(comments表)
+                 "comment_recog": int(d["comment_recog"] or 0),  # 识别的评论数
+                 } for d in rows]
+        if page <= 0:
+            return {"biz": biz, "name": name, "articles": arts}
+        total = len(arts)
+        start = (page - 1) * page_size
+        items = arts[start:start + page_size]
+        return {"biz": biz, "name": name, "total": total, "items": items}
 
+
+
+    return _cached(_key, _b)
 
 @router.get("/comments")
-def article_comments(art_biz: str = "", page: int = 0, page_size: int = 20,
-                     date_start: str = "", date_end: str = "", kw: str = "",
-                     min_likes: str = "", max_likes: str = "",
-                     ips: str = "", levels: str = "",
-                     order_by: str = "time", order_dir: str = "desc"):
-    """按文章id(art_biz)返回评论列表; page>0 返回 {total, items}; 支持日期/关键词/点赞/IP/层级筛选; 后端排序"""
-    if not art_biz:
-        raise HTTPException(400, "缺少 art_biz")
-    where = ["art_biz=?"]
-    params = [art_biz]
-    if date_start:
-        where.append("time >= ?"); params.append(date_start)
-    if date_end:
-        where.append("time <= ?"); params.append(date_end)
-    if kw:
-        like = f"%{kw}%"
-        where.append("(author LIKE ? OR content LIKE ?)")
-        params.extend([like, like])
-    if min_likes:
-        where.append("CAST(likes AS REAL) >= ?"); params.append(float(min_likes))
-    if max_likes:
-        where.append("CAST(likes AS REAL) <= ?"); params.append(float(max_likes))
-    if ips:
-        ip_list = [x for x in ips.split(",") if x]
-        if ip_list:
-            where.append("ip IN (" + ",".join(["?"] * len(ip_list)) + ")")
-            params.extend(ip_list)
-    if levels:
-        lv_list = [int(x) for x in levels.split(",") if x]
-        if lv_list:
-            where.append("level IN (" + ",".join(["?"] * len(lv_list)) + ")")
-            params.extend(lv_list)
-    conn = get_conn()
-    try:
-        rows = conn.execute(
-            "SELECT * FROM comments WHERE " + " AND ".join(where) +
-            " ORDER BY is_top DESC, " + _order_sql(order_by, order_dir) + ", id ASC", params).fetchall()
-    finally:
-        conn.close()
-    arts = [{
-        "id": d["id"], "comment_biz": d["comment_biz"], "parent_comment_biz": d["parent_comment_biz"],
-        "author": d["author"], "content": d["content"], "time": d["time"], "likes": d["likes"], "ip": d["ip"],
-        "is_author": d["is_author"], "is_top": d["is_top"], "is_author_reply": d["is_author_reply"],
-        "is_author_like": d["is_author_like"], "is_first": d["is_first"], "level": d["level"],
-    } for d in rows]
-    if page <= 0:
-        return {"art_biz": art_biz, "comments": arts}
-    total = len(arts)
-    start = (page - 1) * page_size
-    items = arts[start:start + page_size]
-    return {"art_biz": art_biz, "total": total, "items": items}
+def article_comments(art_biz: str = "", page: int = 0, page_size: int = 20, date_start: str = "", date_end: str = "", kw: str = "", min_likes: str = "", max_likes: str = "", ips: str = "", levels: str = "", order_by: str = "time", order_dir: str = "desc"):
+    _key = _cache_key((art_biz, page, page_size, date_start, date_end, kw, min_likes, max_likes, ips, levels, order_by, order_dir))
 
+    def _b():
+        """按文章id(art_biz)返回评论列表; page>0 返回 {total, items}; 支持日期/关键词/点赞/IP/层级筛选; 后端排序"""
+        if not art_biz:
+            raise HTTPException(400, "缺少 art_biz")
+        where = ["art_biz=?"]
+        params = [art_biz]
+        if date_start:
+            where.append("time >= ?"); params.append(date_start)
+        if date_end:
+            where.append("time <= ?"); params.append(date_end)
+        if kw:
+            like = f"%{kw}%"
+            where.append("(author LIKE ? OR content LIKE ?)")
+            params.extend([like, like])
+        if min_likes:
+            where.append("CAST(likes AS REAL) >= ?"); params.append(float(min_likes))
+        if max_likes:
+            where.append("CAST(likes AS REAL) <= ?"); params.append(float(max_likes))
+        if ips:
+            ip_list = [x for x in ips.split(",") if x]
+            if ip_list:
+                where.append("ip IN (" + ",".join(["?"] * len(ip_list)) + ")")
+                params.extend(ip_list)
+        if levels:
+            lv_list = [int(x) for x in levels.split(",") if x]
+            if lv_list:
+                where.append("level IN (" + ",".join(["?"] * len(lv_list)) + ")")
+                params.extend(lv_list)
+        conn = get_conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM comments WHERE " + " AND ".join(where) +
+                " ORDER BY is_top DESC, " + _order_sql(order_by, order_dir) + ", id ASC", params).fetchall()
+        finally:
+            conn.close()
+        arts = [{
+            "id": d["id"], "comment_biz": d["comment_biz"], "parent_comment_biz": d["parent_comment_biz"],
+            "author": d["author"], "content": d["content"], "time": d["time"], "likes": d["likes"], "ip": d["ip"],
+            "is_author": d["is_author"], "is_top": d["is_top"], "is_author_reply": d["is_author_reply"],
+            "is_author_like": d["is_author_like"], "is_first": d["is_first"], "level": d["level"],
+        } for d in rows]
+        if page <= 0:
+            return {"art_biz": art_biz, "comments": arts}
+        total = len(arts)
+        start = (page - 1) * page_size
+        items = arts[start:start + page_size]
+        return {"art_biz": art_biz, "total": total, "items": items}
+
+
+
+    return _cached(_key, _b)
 
 @router.delete("/articles-by-biz/{artid}", status_code=204)
 def delete_article_by_biz(artid: int, biz: str = ""):

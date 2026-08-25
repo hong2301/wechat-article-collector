@@ -7,11 +7,12 @@ import { HTML5Backend } from "react-dnd-html5-backend";
 import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, message, Modal, Spin, Progress, Empty, Switch, InputNumber } from "antd";
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
-import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined, SwapOutlined, RobotOutlined, FolderOpenOutlined, FileExcelOutlined, UnorderedListOutlined } from "@ant-design/icons";
+import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined, SwapOutlined, RobotOutlined, FolderOpenOutlined, FileExcelOutlined, UnorderedListOutlined, ExclamationCircleOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import PointsDialog from "./components/PointsDialog";
 import PaginationBar, { calcPageSize } from "./components/PaginationBar";
 import { hideTaskbar, showTaskbar } from "./components/taskbar";
+import { useSettingsIssues } from "./components/useSettingsIssues";
 import ScrollsDialog from "./components/ScrollsDialog";
 import AiDialog from "./components/AiDialog";
 
@@ -158,6 +159,8 @@ export default function Home() {
   const [pointsOpen, setPointsOpen] = useState(false);
   const [scrollsOpen, setScrollsOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  // 点位/滚动完整性(共享hook, 有报红时采集按钮置灰+提示)
+  const si = useSettingsIssues();
   // 日期范围(采集用), null=全部(不限日期); 默认全部
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
   // 窗口分离(采集设置)
@@ -241,6 +244,7 @@ export default function Home() {
     finally { setLoading(false); }
   }
   useEffect(() => { load(); }, [page, pageSize, query]);
+  // (校验由 useSettingsIssues hook 处理)
   // 采集弹窗显示=隐藏任务栏, 关闭=恢复
   useEffect(() => { if (collectOpen) hideTaskbar(); else showTaskbar(); /* eslint-disable-next-line */ }, [collectOpen]);
   // 初始自动计算每页条数
@@ -671,22 +675,39 @@ export default function Home() {
         )}
         {/* 设置按钮行(第三行) */}
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <Button icon={<ProfileOutlined />} onClick={() => setPointsOpen(true)}>点位设置</Button>
-          <Button icon={<SwapOutlined />} onClick={() => setScrollsOpen(true)}>滚动设置</Button>
+          <Tooltip
+            title={si.points.length > 0 ? `以下点位坐标不完整，需补全后才能正常采集:\n${si.points.join("\n")}` : undefined}
+            placement="bottom">
+            <Button danger={si.points.length > 0}
+              icon={si.points.length > 0 ? <ExclamationCircleOutlined /> : <ProfileOutlined />}
+              onClick={() => setPointsOpen(true)}>点位设置</Button>
+          </Tooltip>
+          <Tooltip
+            title={si.scrolls.length > 0 ? `以下滚动设置缺少滚动距离，需填写后才能正常采集:\n${si.scrolls.join("\n")}` : undefined}
+            placement="bottom">
+            <Button danger={si.scrolls.length > 0}
+              icon={si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <SwapOutlined />}
+              onClick={() => setScrollsOpen(true)}>滚动设置</Button>
+          </Tooltip>
           <Button icon={<RobotOutlined />} onClick={() => setAiOpen(true)}>AI模型</Button>
           <Button onClick={pickSaveDir}>存储路径: {saveDir}</Button>
         </div>
       </div>
-      <PointsDialog open={pointsOpen} onClose={() => setPointsOpen(false)} />
+      <PointsDialog open={pointsOpen} onClose={() => { setPointsOpen(false); si.refresh(); }} />
       <AiDialog open={aiOpen} onClose={() => setAiOpen(false)} />
-      <ScrollsDialog open={scrollsOpen} onClose={() => setScrollsOpen(false)} />
+      <ScrollsDialog open={scrollsOpen} onClose={() => { setScrollsOpen(false); si.refresh(); }} />
       <div className="dropzone"
            onDragOver={(e) => { e.preventDefault(); if (Array.from(e.dataTransfer.types || []).includes("Files")) setDragOver(true); }}
            onDragLeave={() => setDragOver(false)}
            onDrop={(e) => { e.preventDefault(); setDragOver(false); if (Array.from(e.dataTransfer.types || []).includes("Files")) { const f = e.dataTransfer.files?.[0]; if (f) importFile(f); } }}
            style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-          <Button type="primary" icon={<InboxOutlined />} onClick={collectSelected} style={{ flexShrink: 0 }}>采集选中</Button>
+          <Tooltip
+            title={si.points.length + si.scrolls.length > 0 ? `点位/滚动设置有残缺，需补全后才能采集:\n${[...si.points, ...si.scrolls].join("\n")}` : undefined}>
+            <Button type="primary" disabled={si.points.length + si.scrolls.length > 0}
+              icon={si.points.length + si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <InboxOutlined />}
+              onClick={collectSelected} style={{ flexShrink: 0 }}>采集选中</Button>
+          </Tooltip>
           <Input allowClear prefix={<SearchOutlined style={{ color: "#bfc7cf" }} />}
             placeholder="输入公众号名称或biz代码查询"
             value={query} onChange={(e) => setQuery(e.target.value)}
@@ -755,7 +776,12 @@ export default function Home() {
                   title: "操作", dataIndex: "op", align: "center",
                   render: (_: unknown, row: Task) => (
                     <Space>
-                      <Button size="small" type="link" icon={<InboxOutlined />} onClick={() => collectRow(row)}>采集</Button>
+                      <Tooltip
+                        title={si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能采集" : undefined}>
+                        <Button size="small" type="link" disabled={si.points.length + si.scrolls.length > 0}
+                          icon={si.points.length + si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <InboxOutlined />}
+                          onClick={() => collectRow(row)}>采集</Button>
+                      </Tooltip>
                       <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => del(row)}>删除</Button>
                     </Space>
                   ),
