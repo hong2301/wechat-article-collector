@@ -335,8 +335,8 @@ def _force_foreground(hwnd):
     """内部: 绕过 Windows 前台锁定，把窗口强制带到最顶层"""
     u32 = _u32()
     u32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
-    u32.keybd_event(VK_MENU, 0, 0, None)
-    u32.keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, None)
+    _si_key(VK_MENU)
+    _si_key(VK_MENU, keyup=True)
     u32.SetForegroundWindow(hwnd)
     u32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE)
     time.sleep(0.15)
@@ -627,40 +627,50 @@ def type_text(text, char_delay=0.012):
         time.sleep(char_delay * n)
 
 
+def _si_key(vk, keyup=False):
+    """SendInput 发送单键(带注入标志, 采集钩子据此放行程序输入)"""
+    d = KEYBDINPUT()
+    d.wVk = vk
+    d.wScan = 0
+    d.dwFlags = KEYEVENTF_KEYUP if keyup else 0
+    u = _INPUTUNION(); u.ki = d
+    arr = (INPUT * 1)()
+    arr[0].type = INPUT_KEYBOARD
+    arr[0].u = u
+    _u32().SendInput(1, arr, ctypes.sizeof(INPUT))
+
+
 def ctrl_key(letter):
     """发送 Ctrl+字母 组合键"""
-    u32 = _u32()
     vk = ord(letter.upper())
-    u32.keybd_event(VK_CONTROL, 0, 0, None)
+    _si_key(VK_CONTROL)
     time.sleep(0.04)
-    u32.keybd_event(vk, 0, 0, None)
+    _si_key(vk)
     time.sleep(0.04)
-    u32.keybd_event(vk, 0, KEYEVENTF_KEYUP, None)
-    u32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, None)
+    _si_key(vk, keyup=True)
+    _si_key(VK_CONTROL, keyup=True)
     time.sleep(0.1)
 
 
 def ctrl_shift_key(letter):
     """发送 Ctrl+Shift+字母 组合键（如关闭/切换窗口的 Ctrl+Shift+W）"""
-    u32 = _u32()
     vk = ord(letter.upper())
-    u32.keybd_event(VK_CONTROL, 0, 0, None)
-    u32.keybd_event(VK_SHIFT, 0, 0, None)
+    _si_key(VK_CONTROL)
+    _si_key(VK_SHIFT)
     time.sleep(0.04)
-    u32.keybd_event(vk, 0, 0, None)
+    _si_key(vk)
     time.sleep(0.04)
-    u32.keybd_event(vk, 0, KEYEVENTF_KEYUP, None)
-    u32.keybd_event(VK_SHIFT, 0, KEYEVENTF_KEYUP, None)
-    u32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, None)
+    _si_key(vk, keyup=True)
+    _si_key(VK_SHIFT, keyup=True)
+    _si_key(VK_CONTROL, keyup=True)
     time.sleep(0.1)
 
 
 def key_press(vk):
     """发送单个按键（如 Delete/VK_RETURN）"""
-    u32 = _u32()
-    u32.keybd_event(vk, 0, 0, None)
+    _si_key(vk)
     time.sleep(0.03)
-    u32.keybd_event(vk, 0, KEYEVENTF_KEYUP, None)
+    _si_key(vk, keyup=True)
     time.sleep(0.1)
 
 

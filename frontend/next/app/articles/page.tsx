@@ -343,6 +343,7 @@ export default function ArticlePage() {
               const d = JSON.parse(block.slice(6));
               if (d.type === "log" && d.msg) {
                 setUpdLogs((p) => [...p, d.msg]);
+                if (d.msg.includes("禁用鼠标和键盘")) message.warning("⚠️ 采集期间禁用鼠标和键盘，按 ESC 可停止");
               } else if (d.type === "done") {
                 finished = true;
                 setUpdLogs((p) => [...p, d.ok ? "✅ 更新完成" : `❌ 更新失败: ${d.reason || ""}`]);
@@ -837,7 +838,7 @@ export default function ArticlePage() {
           updStopped ? (
             <Button type="primary" onClick={closeUpd}>关闭</Button>
           ) : (
-            <Button danger onClick={stopUpdate}>停止</Button>
+            <Button danger onClick={stopUpdate}>按 ESC 停止</Button>
           )
         ) : (
           <>

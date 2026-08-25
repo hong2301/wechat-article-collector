@@ -221,6 +221,7 @@ export default function CommentsPage() {
               const d = JSON.parse(block.slice(6));
               if (d.type === "log" && d.msg) {
                 setCcLogs((p) => [...p, d.msg]);
+                if (d.msg.includes("禁用鼠标和键盘")) message.warning("⚠️ 采集期间禁用鼠标和键盘，按 ESC 可停止");
                 // 前端统计: 评论数/一级/二级 由日志标记统计
                 if (d.msg.includes("评论已写入")) {
                   if (d.msg.includes("二级")) setCcCount2((c) => c + 1);
@@ -480,7 +481,7 @@ export default function CommentsPage() {
           ccStopped ? (
             <Button type="primary" onClick={closeCc}>关闭</Button>
           ) : (
-            <Button danger onClick={stopCc}>停止</Button>
+            <Button danger onClick={stopCc}>按 ESC 停止</Button>
           )
         ) : (
           <>

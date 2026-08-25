@@ -17,64 +17,9 @@ router = APIRouter(prefix="/api/collect", tags=["collect"])
 # 当前采集 worker 线程 id(用于停止时注入异常强制中断)
 _worker_tid = {"tid": None}
 
-# ---------- ESC 全局监听: 采集时按 ESC = 停止流程 ----------
-_esc_hook = {"h": None, "tid": None, "done": False}
-_WH_KEYBOARD_LL = 13        # 低层键盘钩子
-_VK_ESCAPE = 0x1B
-_LLKHF_INJECTED = 0x00000010
-
-
-class _KBDLLHOOKSTRUCT(ctypes.Structure):
-    _fields_ = [("vkCode", ctypes.c_ulong), ("scanCode", ctypes.c_ulong),
-                ("flags", ctypes.c_ulong), ("time", ctypes.c_ulong),
-                ("dwExtraInfo", ctypes.c_void_p)]
-
-
-def _esc_callback(code, wparam, lparam):
-    if code == 0:
-        kb = ctypes.cast(lparam, ctypes.POINTER(_KBDLLHOOKSTRUCT)).contents
-        if wparam == 0x0100 and kb.vkCode == _VK_ESCAPE and not (kb.flags & _LLKHF_INJECTED):
-            _do_stop()
-            return 1   # 拦截 ESC
-    if _esc_hook["h"]:
-        return pc._u32().CallNextHookEx(_esc_hook["h"], code, wparam, lparam)
-    return 0
-
-
-_esc_proc = pc.HOOKPROC(_esc_callback)
-
-
-def _start_esc_listener():
-    """启动 ESC 全局监听(采集开始后): 按 ESC = 停止流程"""
-    if _esc_hook["tid"] is not None:
-        return
-    _esc_hook["done"] = False   # 重置(上次停止过会置True)
-    def run():
-        _esc_hook["tid"] = threading.get_ident()
-        h = pc._u32().SetWindowsHookExW(
-            _WH_KEYBOARD_LL, _esc_proc, pc._k32().GetModuleHandleW(None), 0)
-        if not h:
-            _esc_hook["h"] = None
-            _esc_hook["tid"] = None
-            return    # 钩子注册失败, 不再尝试
-        _esc_hook["h"] = h
-        msg = pc.wt.MSG()
-        while not _esc_hook["done"] and pc._u32().GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
-            pc._u32().TranslateMessage(ctypes.byref(msg))
-            pc._u32().DispatchMessageW(ctypes.byref(msg))
-        if h:
-            pc._u32().UnhookWindowsHookEx(h)
-        _esc_hook["h"] = None
-        _esc_hook["tid"] = None
-    threading.Thread(target=run, daemon=True).start()
-
-
-def _stop_esc_listener():
-    """停止 ESC 监听(采集结束时)"""
-    _esc_hook["done"] = True
-    tid = _esc_hook["tid"]
-    if tid:
-        pc._u32().PostThreadMessageW(tid, pc.WM_QUIT, 0, 0)
+# ---------- 输入锁定: 采集时人工键盘/鼠标拦截(程序注入放行), ESC=停止 ----------
+_input_lock = None
+_last_block_notice = [0.0]
 
 
 def _do_stop():
@@ -86,6 +31,39 @@ def _do_stop():
         ctypes.pythonapi.PyThreadState_SetAsyncExc(
             ctypes.c_long(tid), ctypes.py_object(SystemExit))
 
+
+def _notice_input_block():
+    """拦截到人工输入: 提示(限流3秒一次)"""
+    import time as _t
+    now = _t.monotonic()
+    if now - _last_block_notice[0] < 3.0:
+        return
+    _last_block_notice[0] = now
+    try:
+        tasks_service.tasks_echo("[warn] 采集期间禁用鼠标和键盘，请勿操作! 按 ESC 可停止")
+    except Exception:
+        pass
+
+
+def _start_esc_listener():
+    """启动采集期间输入锁定: 人工键盘/鼠标拦截, 程序注入放行, ESC=停止"""
+    from ..services.inputlock import InputLock
+    global _input_lock
+    if _input_lock is None:
+        _input_lock = InputLock()
+        _input_lock.on_esc = _do_stop
+        _input_lock.on_block = _notice_input_block
+    if not _input_lock._started:
+        return _input_lock.start()
+    return True
+
+
+def _stop_esc_listener():
+    """停止输入锁定(采集结束时)"""
+    global _input_lock
+    if _input_lock is not None:
+        _input_lock.stop()
+        _input_lock = None
 
 
 class CollectStart(BaseModel):

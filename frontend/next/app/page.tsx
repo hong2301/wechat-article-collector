@@ -406,6 +406,7 @@ export default function Home() {
               const d = JSON.parse(block.slice(6));
               if (d.type === "log" && d.msg) {
                 setCollectLogs((p) => [...p, d.msg]);
+                if (d.msg.includes("禁用鼠标和键盘")) message.warning("⚠️ 采集期间禁用鼠标和键盘，按 ESC 可停止");
                 // 前端统计: 复制到链接即算获取到文章
                 if (d.msg.includes("已复制链接") || d.msg.includes("已复制链接:")) {
                   setCollectCount((c) => c + 1);
@@ -782,7 +783,7 @@ export default function Home() {
           collectStopped || collectDone ? (
             <Button type="primary" onClick={closeCollect}>关闭</Button>
           ) : (
-            <Button danger onClick={stopCollect}>停止</Button>
+            <Button danger onClick={stopCollect}>按 ESC 停止</Button>
           )
         ) : (
           <>
