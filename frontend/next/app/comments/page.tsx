@@ -92,6 +92,7 @@ export default function CommentsPage() {
   const [ccStarted, setCcStarted] = useState(false);
   const [ccLogs, setCcLogs] = useState<string[]>([]);
   const ccAbortRef = useRef<AbortController | null>(null);
+  const [ccStopped, setCcStopped] = useState(false);   // 已停止(按钮变关闭)
   const ccLogRef = useRef<HTMLDivElement>(null);
   const [ccCount, setCcCount] = useState(0);       // 已采评论数
   const [ccCount1, setCcCount1] = useState(0);     // 一级评论数
@@ -132,6 +133,17 @@ export default function CommentsPage() {
     finally { setLoading(false); }
   }
   function reload() { if (artBiz) load(artBiz); }
+  // 停止评论采集: 通知后端中止(同ESC) + 断开SSE, 按钮变关闭
+  function stopCc() {
+    fetch("http://127.0.0.1:8000/api/collect/stop", { method: "POST" }).catch(() => {});
+    ccAbortRef.current?.abort();
+    setCcStopped(true);
+  }
+  // 关闭评论采集弹窗: 收起 + 刷新评论列表(采集到新评论)
+  function closeCc() {
+    setCcOpen(false);
+    reload();
+  }
 
 
   const hasFilter = useMemo(() => {
@@ -152,6 +164,7 @@ export default function CommentsPage() {
   // 确认采集: 调后端 /api/collect/comments, SSE 接收日志
   function confirmCommentCollect() {
     if (!artBiz) { message.warning("无文章链接"); return; }
+    setCcStopped(false);
     const link = `https://mp.weixin.qq.com/s/${artBiz}`;
     setCcStarted(true);
     setCcStartTs(Date.now());
@@ -404,12 +417,16 @@ export default function CommentsPage() {
       <Modal
         open={ccOpen}
         title={ccStarted ? `正在采集「${title || artBiz}」评论` : "确认评论采集设置"}
-        onCancel={() => { if (ccStarted) { fetch("http://127.0.0.1:8000/api/collect/stop", { method: "POST" }).catch(() => {}); ccAbortRef.current?.abort(); } setCcOpen(false); }}
+        onCancel={() => { if (ccStarted) { stopCc(); return; } closeCc(); }}
         footer={ccStarted ? (
-          <Button onClick={() => setCcOpen(false)}>关闭</Button>
+          ccStopped ? (
+            <Button type="primary" onClick={closeCc}>关闭</Button>
+          ) : (
+            <Button danger onClick={stopCc}>停止</Button>
+          )
         ) : (
           <>
-            <Button onClick={() => setCcOpen(false)}>取消</Button>
+            <Button onClick={closeCc}>取消</Button>
             <Button type="primary" onClick={confirmCommentCollect}>确认</Button>
           </>
         )}

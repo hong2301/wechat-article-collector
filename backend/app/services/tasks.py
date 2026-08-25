@@ -895,37 +895,75 @@ def _collect_reads(collect_type, link, biz, art):
                 _submit_bg(_bg_reads_ocr, png_path, (p32[0], p32[1]), biz, art)
 
 
-def _expand_reply_buttons(x1, y1, x2, y2, max_rounds=10):
-    """点击评论区'更多回复'按钮(如'38条回复')循环: 截图OCR找灰字'条回复'->点第一个->重截
-    直到不再出现; 返回最后一次截图路径(供识别)"""
+def _save_debug_shot(shot_path, folder, tag):
+    """调试: 复制截图文件到桌面文件夹(如 豆包/), 带时间戳防覆盖"""
+    try:
+        import os, shutil, time as _t
+        dst_dir = os.path.join(os.path.expanduser("~/Desktop"), folder)
+        os.makedirs(dst_dir, exist_ok=True)
+        name = f"{_t.strftime('%H%M%S')}_{tag.replace('#','_')}.png"
+        shutil.copy(shot_path, os.path.join(dst_dir, name))
+        tasks_echo(f"[async:{tag}] 调试截图已存桌面/{folder}/{name}")
+    except Exception:
+        pass
+
+
+def _save_debug_shot_b64(shot_b64, folder, tag):
+    """调试: 把base64截图写入桌面文件夹(如 豆包/), 带时间戳防覆盖"""
+    try:
+        import os, base64, time as _t
+        dst_dir = os.path.join(os.path.expanduser("~/Desktop"), folder)
+        os.makedirs(dst_dir, exist_ok=True)
+        name = f"{_t.strftime('%H%M%S')}_{tag.replace('#','_')}.png"
+        sb = shot_b64.split(",", 1)[1] if "," in shot_b64 else shot_b64
+        with open(os.path.join(dst_dir, name), "wb") as f:
+            f.write(base64.b64decode(sb))
+        tasks_echo(f"[async:{tag}] 调试截图已存桌面/{folder}/{name}")
+    except Exception:
+        pass
+
+
+def _expand_reply_buttons(x1, y1, x2, y2, max_rounds=3):
+    """展开评论区更多回复: while循环(最多max_rounds次)
+    每轮: 截图35/36找'更多回复/N条回复'灰字按钮 -> 点第一个 -> 35/36稳定检测(30次/连续10次)
+    找不到按钮或超过轮数 -> 退出返回 True(有兜底, 最终必返True)"""
     from PIL import Image as _PIL
     for rnd in range(1, max_rounds + 1):
-        shot, _ = pc.screenshot(x1, y1, x2, y2, img_format="png")
+        shot, _b = pc.screenshot(x1, y1, x2, y2, img_format="png")
         if not shot:
-            return None
+            tasks_echo("评论采集: 展开回复截图失败, 继续下一轮")
+            continue
         items = ocr_service.ocr(_PIL.open(shot).convert("RGB"))
-        btns = []
+        btn = None
         for cx, cy, text, score, sbox, brightness in items:
             t = (text or "").strip()
-            if "条回复" in t or ("回复" in t and "条" in t):
+            if "条回复" in t or "更多回复" in t:
                 try:
                     if 100 < brightness < 210:
-                        bx = x1 + int(sum(p[0] for p in sbox) / len(sbox))
-                        by = y1 + int(sum(p[1] for p in sbox) / len(sbox))
-                        btns.append((bx, by, t))
+                        btn = (x1 + int(sum(p[0] for p in sbox) / len(sbox)),
+                               y1 + int(sum(p[1] for p in sbox) / len(sbox)), t)
+                        break
                 except Exception:
                     continue
-        if not btns:
-            return shot
-        bx, by, txt = btns[0]
+        if not btn:
+            # 没有更多回复按钮: 退出循环
+            tasks_echo(f"评论采集: 第{rnd}轮未发现更多回复按钮, 结束展开")
+            return True
+        bx, by, txt = btn
         tasks_echo(f"评论采集: 点击'更多回复'按钮 {txt!r} @({bx},{by})")
         pc.mouse_click(bx, by)
-        time.sleep(0.8)
-    return None
+        # 点击后: 35/36页面稳定检测(30次, 连续10次相同)
+        ok_stable, info = wait_page_stable(
+            x1, y1, x2, y2, same_need=10, timeout=30, interval=0.1)
+        tasks_echo(f"评论采集: 展开后稳定={ok_stable}({info})")
+        if not ok_stable:
+            tasks_echo("评论采集: 展开后未稳定, 仍继续下一轮...")
+    tasks_echo(f"评论采集: 展开回复超过{max_rounds}轮, 结束")
+    return True
 
 
-def _bg_ai_comments(shot_path, art_biz, max_level1, max_level2):
-    """后台合成任务: 豆包识别评论 + OCR识别层级 -> 写评论表(异步, 不阻塞主流程)"""
+def _bg_ai_comments(shot_b64, art_biz, max_level1, max_level2, shot_x=None):
+    """后台合成任务: 豆包识别评论(base64入参) + OCR识别层级 -> 写评论表(异步)"""
     from concurrent.futures import ThreadPoolExecutor
     from PIL import Image as _PIL
     from ..database import get_conn
@@ -941,15 +979,6 @@ def _bg_ai_comments(shot_path, art_biz, max_level1, max_level2):
                 conn.close()
         except Exception:
             pass
-        shot_b64 = None
-        try:
-            import io as _io
-            import base64
-            img = _PIL.open(shot_path).convert("RGB")
-            buf = _io.BytesIO(); img.save(buf, format="WEBP", lossless=True, method=6)
-            shot_b64 = base64.b64encode(buf.getvalue()).decode()
-        except Exception:
-            shot_b64 = None
         if not shot_b64 or not api_key:
             tasks_echo(f"[async:{tag}] 无AI配置或截图失败, 评论识别跳过")
             return
@@ -957,17 +986,24 @@ def _bg_ai_comments(shot_path, art_biz, max_level1, max_level2):
 
         def _ocr_levels():
             try:
-                img = _PIL.open(shot_path).convert("RGB")
+                _sb = shot_b64.split(",", 1)[1] if "," in shot_b64 else shot_b64
+                import io as _io, base64
+                img = _PIL.open(_io.BytesIO(base64.b64decode(_sb))).convert("RGB")
                 import re as _re
                 items = ocr_service.ocr(img)
                 name_rows = []
                 for cx, cy, text, score, sbox, brightness in items:
-                    if _re.search(r"\d+月\d+日", text or "") or "作者" in (text or ""):
+                    # 评论名称行: 含相对时间(昨天/X天前/X小时前/X月X日/今天)的短文本
+                    if _re.search(r"昨天|前天|\d+天前|\d+小时前|\d+分钟前|\d+月\d+日|今天", text or "") and len((text or "").strip()) < 30:
                         x0 = min(p[0] for p in sbox); y0 = min(p[1] for p in sbox)
                         name_rows.append((y0, x0, text))
                 if not name_rows:
                     return []
                 name_rows.sort()
+                if shot_x is not None:
+                    # 绝对判断: 一级评论名称行贴截图左边缘(距shot_x<=20px), 明显右移=二级
+                    return [2 if x0 > 20 else 1 for _, x0, _ in name_rows]
+                # 无shot_x兜底: 图内最左基准
                 min_x = min(r[1] for r in name_rows)
                 return [2 if (r[1] - min_x) > 15 else 1 for r in name_rows]
             except Exception:
@@ -982,6 +1018,7 @@ def _bg_ai_comments(shot_path, art_biz, max_level1, max_level2):
                 c["层级"] = levels[i]
         if not comments:
             tasks_echo(f"[async:{tag}] 豆包未识别到评论")
+            _save_debug_shot_b64(shot_b64, "豆包", tag)
             return
         if max_level1 is not None and max_level1 > 0:
             comments = comments[:max_level1]
@@ -989,6 +1026,7 @@ def _bg_ai_comments(shot_path, art_biz, max_level1, max_level2):
             comments = [c for c in comments if int(c.get("层级", 1) or 1) == 1 or max_level2 > 0]
         if not comments:
             tasks_echo(f"[async:{tag}] 无符合数量上限的评论")
+            _save_debug_shot_b64(shot_b64, "豆包", tag)
             return
         from .common import save_comments
         wrote = save_comments(art_biz, comments)
@@ -1012,9 +1050,18 @@ def _collect_comments(collect_type, link, art, biz,
     p34 = _read_point(34)   # 评论按钮
     p35 = _read_point(35)   # 评论区左上
     p36 = _read_point(36)   # 评论区右下
+    p30 = _read_point(30)   # 4指标区域左上(含评论按钮=第4值)
+    p31 = _read_point(31)   # 4指标区域右下
     if not (p34 and p35 and p36):
         tasks_echo("评论采集: 缺少点位34/35/36, 跳过")
         return
+    # 点评论按钮前: 4指标区域(30/31)页面稳定检测(评论按钮即该区第4值留言), 逻辑同采集4指标
+    if p30 and p31:
+        ok_stable, info = wait_page_stable(
+            p30[0], p30[1], p31[0], p31[1], same_need=15, timeout=50, interval=0.1)
+        tasks_echo(f"评论采集: 4指标区域稳定={ok_stable}({info})")
+        if not ok_stable:
+            tasks_echo("评论采集: 4指标区域未稳定, 仍继续...")
     pc.mouse_click(p34[0], p34[1])
     tasks_echo(f"评论采集: 点击评论按钮({p34[0]},{p34[1]})")
     time.sleep(0.5)
@@ -1023,18 +1070,17 @@ def _collect_comments(collect_type, link, art, biz,
     while True:
         loop_n += 1
         ok_stable, info = wait_page_stable(
-            p35[0], p35[1], p36[0], p36[1], same_need=20, timeout=60, interval=0.1)
+            p35[0], p35[1], p36[0], p36[1], same_need=10, timeout=60, interval=0.1)
         tasks_echo(f"评论采集第{loop_n}轮: 评论区稳定={ok_stable}({info})")
         if not ok_stable:
             tasks_echo("评论采集: 评论区未稳定, 继续尝试...")
 
-        final_shot = _expand_reply_buttons(p35[0], p35[1], p36[0], p36[1])
-        if not final_shot:
-            final_shot, _b = pc.screenshot(p35[0], p35[1], p36[0], p36[1], img_format="png")
-
-        if final_shot:
-            _submit_bg(_bg_ai_comments, final_shot, art,
-                       max_level1, max_level2)
+        _expand_reply_buttons(p35[0], p35[1], p36[0], p36[1])
+        # 展开后: 重新截图识别(转base64即时传递, 避免shot.png被后续覆盖)
+        _path, shot_b64 = pc.screenshot(p35[0], p35[1], p36[0], p36[1], img_format="png", as_base64=True)
+        if shot_b64:
+            _submit_bg(_bg_ai_comments, shot_b64, art,
+                       max_level1, max_level2, shot_x=p35[0])
             tasks_echo(f"评论采集第{loop_n}轮: 评论识别后台进行中...")
 
         try:

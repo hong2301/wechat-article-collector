@@ -155,6 +155,10 @@ def save_comments(art_biz, comment_list):
             likes = str(c.get("点赞数量", "0"))
             text = c.get("正文", "")
             level = int(c.get("层级", 1) or 1)
+            # 评论时间转 yyyy/mm/dd(如"7月13日" -> "2026/07/13")
+            from .ocr import resolve_date
+            _d = resolve_date(t) if isinstance(t, str) and t.strip() else None
+            t = _d.strftime("%Y/%m/%d") if _d else (t or "")
             if cid := calc_comment_id(name, loc, t, likes, text, level):
                 # 层级/父级ID
                 if level == 1:
@@ -172,7 +176,7 @@ def save_comments(art_biz, comment_list):
                     "is_top": 1 if c.get("是否置顶") == "是" else 0,
                     "is_author_reply": 1 if c.get("是否作者回复") == "是" else 0,
                     "is_author_like": 1 if c.get("是否作者点赞") == "是" else 0,
-                    "level": level, "is_first": 1 if level == 1 else 0,
+                    "level": level, "is_first": 1 if c.get("是否首评") == "是" else 0,
                 })
         if not fresh:
             return 0
