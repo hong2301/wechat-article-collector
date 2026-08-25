@@ -4,7 +4,7 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from ..database import get_conn
+from ..database import get_conn, default_html_dir
 from ..services import computer as pc
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -58,10 +58,10 @@ def save_ai_settings(payload: AiSettings):
 
 @router.post("/open-downloads")
 def open_downloads(sub: str = ""):
-    """打开文章下载文件夹(D:/article_data), sub给定公众号名则打开对应子文件夹
+    """打开文章下载文件夹(默认 <数据目录>/article_data), sub给定公众号名则打开对应子文件夹
     不存在则创建"""
     import os
-    d = r"D:/article_data"
+    d = default_html_dir()
     if sub:
         d = os.path.join(d, sub)
     try:
@@ -73,13 +73,13 @@ def open_downloads(sub: str = ""):
 
 
 @router.post("/pick-dir")
-def pick_dir(current: str = "D:/article_data"):
+def pick_dir(current: str = ""):
     """弹系统文件夹选择器(initialdir=当前保存路径), 返回选中的目录; 取消返回空"""
     import os
     import tkinter as tk
     from tkinter import filedialog
-    if not os.path.isdir(current):
-        current = "D:/article_data"
+    if not current or not os.path.isdir(current):
+        current = default_html_dir()
     root = tk.Tk()
     root.withdraw()
     root.attributes("-topmost", True)

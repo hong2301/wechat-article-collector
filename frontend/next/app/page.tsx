@@ -177,8 +177,8 @@ export default function Home() {
   const [maxComments, setMaxComments] = useState<number | null>(null);   // 文章最大评论采集数(空=无限)
   const [maxLevel1, setMaxLevel1] = useState<number | null>(null);      // 一级评论数(空=无限)
   const [maxLevel2, setMaxLevel2] = useState<number | null>(0);               // 每级二级评论采集数(默认0, 空=无限)
-  // 保存HTML根目录(存储路径, 默认D:/article_data)
-  const [saveDir, setSaveDir] = useState("D:/article_data");
+  // 保存HTML根目录(存储路径, 空=默认 <数据目录>/article_data)
+  const [saveDir, setSaveDir] = useState("");
 
   // 采集配置记忆: localStorage 存储(窗口分离/4指标/阅读数/时间范围)
   useEffect(() => {
@@ -719,7 +719,7 @@ export default function Home() {
               icon={si.ai.length > 0 ? <ExclamationCircleOutlined /> : <RobotOutlined />}
               onClick={() => setAiOpen(true)}>AI模型</Button>
           </Tooltip>
-          <Button onClick={pickSaveDir}>存储路径: {saveDir}</Button>
+          <Button onClick={pickSaveDir}>存储路径: {saveDir || "默认(data/article_data)"}</Button>
         </div>
       </div>
       <PointsDialog open={pointsOpen} onClose={() => { setPointsOpen(false); si.refresh(); }} />

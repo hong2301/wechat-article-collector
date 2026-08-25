@@ -10,6 +10,8 @@
 import re
 from datetime import datetime
 
+from ..database import default_html_dir
+
 _CT_RE = re.compile(r"var\s+ct\s*=\s*['\"]?(\d+)")
 _PUBLISH_TIME_RE = re.compile(r"(?:var\s+publish_time\s*=\s*['\"]?)(\d+)")
 
@@ -174,11 +176,11 @@ def save_article_html(link, account_name="", base_dir=None):
     参数:
       link         微信文章链接
       account_name 公众号名称(可选; 空则从链接抓取数据提取)
-      base_dir     根目录(默认 D:/article_data)
+      base_dir     根目录(默认 <数据目录>/article_data)
     返回: (保存路径 或 None, 说明文本)
     """
     import os
-    base_dir = base_dir or "D:/article_data"
+    base_dir = base_dir or default_html_dir()
     try:
         data = fetch_article_full(link)
         if not data:

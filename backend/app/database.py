@@ -10,6 +10,16 @@ _DATA_DIR = os.environ.get("WECHAT_COLLECTOR_DATA_DIR") or os.path.join(_BASE, "
 DB_PATH = os.path.join(_DATA_DIR, "collector.db")
 
 
+def data_dir():
+    """数据根目录(数据库所在): 打包=exe旁data, 开发=项目根data"""
+    return _DATA_DIR
+
+
+def default_html_dir():
+    """保存HTML的默认根目录(开发/打包统一放在数据目录下): <data>/article_data"""
+    return os.path.join(_DATA_DIR, "article_data")
+
+
 def get_conn():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
