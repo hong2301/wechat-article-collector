@@ -10,6 +10,7 @@ import dayjs from "dayjs";
 import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined, SwapOutlined, RobotOutlined, FolderOpenOutlined, FileExcelOutlined, UnorderedListOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import PointsDialog from "./components/PointsDialog";
+import PaginationBar, { calcPageSize } from "./components/PaginationBar";
 import ScrollsDialog from "./components/ScrollsDialog";
 import AiDialog from "./components/AiDialog";
 
@@ -111,6 +112,9 @@ function CollectCalendar({ daily, monthKey, onMonthChange }: {
 export default function Home() {
   const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -225,11 +229,19 @@ export default function Home() {
 
   async function load() {
     setLoading(true);
-    try { setTasks(await (await fetch(API)).json()); setLoadErr(false); }
+    try {
+      const r = await fetch(`${API}?page=${page}&page_size=${pageSize}&q=${encodeURIComponent(query.trim())}`);
+      const d = await r.json();
+      if (Array.isArray(d)) { setTasks(d); setTotal(d.length); }
+      else { setTasks(d.items || []); setTotal(d.total || 0); }
+      setLoadErr(false);
+    }
     catch { message.error("无法连接后端"); setLoadErr(true); }
     finally { setLoading(false); }
   }
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [page, pageSize, query]);
+  // 初始自动计算每页条数
+  useEffect(() => { setPageSize(calcPageSize()); }, []);
 
   async function resolve() {
     if (!link.trim()) { message.warning("请先填文章链接"); return; }
@@ -456,16 +468,22 @@ export default function Home() {
     load();
   }
   // 导出公众号列表为 xlsx
-  function exportExcel() {
-    if (shown.length === 0) { message.info("没有可导出的数据"); return; }
-    const rows = shown.map((t) => ({
-      "ID": t.id, "公众号名称": t.name, "biz": t.biz || "",
-      "文章数": t.collected_count ?? 0, "状态": t.status || "", "备注": t.remark || "",
-    }));
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "公众号");
-    XLSX.writeFile(wb, `公众号列表.xlsx`);
+  async function exportExcel() {
+    message.info("正在导出全部数据...");
+    try {
+      const r = await fetch(`${API}?q=${encodeURIComponent(query.trim())}`);   // page=0 返回全部
+      const d = await r.json();
+      const all = Array.isArray(d) ? d : (d.items || []);
+      if (all.length === 0) { message.info("没有可导出的数据"); return; }
+      const rows = all.map((t: Task) => ({
+        "ID": t.id, "公众号名称": t.name, "biz": t.biz || "",
+        "文章数": t.collected_count ?? 0, "状态": t.status || "", "备注": t.remark || "",
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "公众号");
+      XLSX.writeFile(wb, `公众号列表.xlsx`);
+    } catch { message.error("导出失败"); }
   }
   // 打开下载数据文件夹(D:/article_data)
   async function openDownloads() {
@@ -519,12 +537,8 @@ export default function Home() {
         body: JSON.stringify({ ids }) }).catch(() => {});
     }, 0);
   }
-  // 每个数据行: useDrag + useDrop 实现拖动排序
-  const shown = tasks.filter((t) => {
-    const q = query.trim().toLowerCase();
-    if (!q) return true;
-    return (t.name || "").toLowerCase().includes(q) || (t.biz || "").toLowerCase().includes(q);
-  });
+  // 每个数据行: useDrag + useDrop 实现拖动排序 (筛选已后端化, shown=全部tasks)
+  const shown = tasks;
   const DndRow = useMemo(() => {
     return function DndRow({ children, "data-row-key": rk, ...props }: React.HTMLAttributes<HTMLTableRowElement> & { "data-row-key": string }) {
       const [{ isDragging }, drag] = useDrag(() => ({
@@ -754,13 +768,16 @@ export default function Home() {
             </div>
             )}
 
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 10, flexShrink: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 10, flexShrink: 0 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <Button size="small" color="primary" variant="outlined" icon={<UnorderedListOutlined />} onClick={() => router.push("/articles?biz=all&name=全部文章")}>查看全部文章</Button>
             <Button size="small" icon={<FolderOpenOutlined />} onClick={openDownloads}>打开下载数据</Button>
             <Button size="small" icon={<FileExcelOutlined />} onClick={exportExcel}>导出表格</Button>
           </div>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 个公众号</Typography.Text>
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <PaginationBar total={total} page={page} pageSize={pageSize}
+              onChange={(p, ps) => { setPage(p); if (ps !== pageSize) setPageSize(ps); }} />
+          </div>
         </div>
       </div>
 

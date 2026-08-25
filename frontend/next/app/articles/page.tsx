@@ -6,6 +6,7 @@ import dayjs from "dayjs";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber, Spin, Switch, Select } from "antd";
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined, FolderOpenOutlined, DownloadOutlined, ReloadOutlined, FileExcelOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
+import PaginationBar, { calcPageSize } from "../components/PaginationBar";
 
 const API = "http://127.0.0.1:8000/api/accounts";
 const ART_PREFIX = "https://mp.weixin.qq.com/s/";
@@ -50,6 +51,9 @@ export default function ArticlePage() {
   const [biz, setBiz] = useState("");
   const [name, setName] = useState("");
   const [articles, setArticles] = useState<Article[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
   const [sortInfo, setSortInfo] = useState<{ key: string; order: "ascend" | "descend" }>({ key: "acc_name", order: "ascend" });
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
   const [quickActive, setQuickActive] = useState<string | null>(null);
@@ -169,10 +173,21 @@ export default function ArticlePage() {
   async function load(b: string) {
     setLoading(true);
     try {
-      const r = await fetch(`${API}/articles-by-biz?biz=${encodeURIComponent(b)}`);
+      const qs = new URLSearchParams({ biz: b, page: String(page), page_size: String(pageSize) });
+      // 筛选参数
+      if (dateRange) { qs.set("date_start", dateRange[0].format("YYYY-MM-DD")); qs.set("date_end", dateRange[1].format("YYYY-MM-DD")); }
+      if (kw.trim()) qs.set("kw", kw.trim());
+      for (const f of NUM_FIELDS) {
+        const [lo, hi] = ranges[f.key];
+        if (lo != null) qs.set(`min_${f.key}`, String(lo));
+        if (hi != null) qs.set(`max_${f.key}`, String(hi));
+      }
+      if (accFilter.length && !accFilter.includes("__all__")) qs.set("accs", accFilter.join(","));
+      const r = await fetch(`${API}/articles-by-biz?${qs.toString()}`);
       const d = await r.json();
       setName(d.name || "");
-      const arts = d.articles || [];
+      const arts = d.items ?? d.articles ?? [];
+      setTotal(d.total ?? (d.articles ? d.articles.length : 0));
       setArticles(sortArticles(arts));
       // 全部文章模式: 公众号多选默认全选
       if (b === "all") {
@@ -365,18 +380,33 @@ export default function ArticlePage() {
     })();
   }
   // 导出文章列表为 xlsx
-  function exportExcel() {
-    if (shown.length === 0) { message.info("没有可导出的数据"); return; }
-    const rows = shown.map((a) => ({
-      "ID": a.id, "标题": a.title || "", "日期": a.date || "",
-      "art_biz": a.art_biz || "", "阅读": a.reads ?? "", "点赞": a.likes ?? "",
-      "转发": a.forwards ?? "", "喜欢": a.favorites ?? "", "评论": a.comments ?? "",
-      "原创": a.original || "", "IP属地": a.ip || "", "写入时间": a.write_time || "",
-    }));
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "文章");
-    XLSX.writeFile(wb, `${name || "文章列表"}.xlsx`);
+  async function exportExcel() {
+    message.info("正在导出全部数据...");
+    try {
+      // 带筛选参数取全量(page不传/0)
+      const qs = new URLSearchParams({ biz: String(biz || "") });
+      if (dateRange) { qs.set("date_start", dateRange[0].format("YYYY-MM-DD")); qs.set("date_end", dateRange[1].format("YYYY-MM-DD")); }
+      if (kw.trim()) qs.set("kw", kw.trim());
+      for (const f of NUM_FIELDS) {
+        const [lo, hi] = ranges[f.key];
+        if (lo != null) qs.set(`min_${f.key}`, String(lo));
+        if (hi != null) qs.set(`max_${f.key}`, String(hi));
+      }
+      if (accFilter.length && !accFilter.includes("__all__")) qs.set("accs", accFilter.join(","));
+      const d = await (await fetch(`${API}/articles-by-biz?${qs.toString()}`)).json();
+      const all = Array.isArray(d.articles) ? d.articles : (d.items || []);
+      if (all.length === 0) { message.info("没有可导出的数据"); return; }
+      const rows = all.map((a: Article) => ({
+        "ID": a.id, "标题": a.title || "", "日期": a.date || "",
+        "art_biz": a.art_biz || "", "阅读": a.reads ?? "", "点赞": a.likes ?? "",
+        "转发": a.forwards ?? "", "喜欢": a.favorites ?? "", "评论": (a as any).comments ?? "",
+        "原创": a.original || "", "IP属地": a.ip || "", "写入时间": a.write_time || "",
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "文章");
+      XLSX.writeFile(wb, `${name || "文章列表"}.xlsx`);
+    } catch { message.error("导出失败"); }
   }
   // 打开当前公众号的下载文件夹(D:/article_data/公众号名)
   async function openAccountDir() {
@@ -418,33 +448,8 @@ export default function ArticlePage() {
     return arr;
   }, [articles, sortInfo]);
 
-  const shown = useMemo(() => {
-    return sorted.filter((a) => {
-      // 日期范围
-      if (dateRange) {
-        const [s, e] = dateRange;
-        const sT = s.startOf("day").valueOf(), eT = e.endOf("day").valueOf();
-        if (!a.date) return false;
-        const t = dayjs(a.date.replace?.(/-/g, "/") || a.date).valueOf();
-        if (!Number.isFinite(t) || t < sT || t > eT) return false;
-      }
-      // 数值范围
-      for (const f of NUM_FIELDS) {
-        const [lo, hi] = ranges[f.key];
-        if (lo === null && hi === null) continue;
-        const v = Number(String((a as any)[f.key] || "").replace(/[^0-9.]/g, ""));
-        if (!Number.isFinite(v)) return false;
-        if (lo !== null && v < lo) return false;
-        if (hi !== null && v > hi) return false;
-      }
-      // 标题查询
-      const q = kw.trim().toLowerCase();
-      if (q && !(a.title || "").toLowerCase().includes(q)) return false;
-      // 公众号多选(全部文章模式, 含'全部'或空 = 不过滤)
-      if (accFilter.length > 0 && !accFilter.includes("__all__") && !accFilter.includes((a as any).acc_name || "")) return false;
-      return true;
-    });
-  }, [sorted, dateRange, ranges, kw, accFilter]);
+  // 筛选已后端化, shown 直接用已排序数据
+  const shown = useMemo(() => sorted, [sorted]);
   // 日期快捷范围
   function toggleQuick(days: number, key: string) {
     if (quickActive === key) {
@@ -464,6 +469,13 @@ export default function ArticlePage() {
     setRanges(Object.fromEntries(NUM_FIELDS.map((f) => [f.key, [null, null]])));
   }
   function reload() { if (biz) load(biz); }
+  // 分页变化重载
+  useEffect(() => { if (biz !== undefined && biz !== null) reload(); /* eslint-disable-next-line */ }, [page, pageSize]);
+  // 筛选变化重载(回第1页)
+  useEffect(() => { setPage(1); if (biz !== undefined && biz !== null) reload(); /* eslint-disable-next-line */ },
+    [dateRange, kw, ranges, accFilter]);
+  // 初始自动计算每页条数
+  useEffect(() => { setPageSize(calcPageSize()); }, []);
 
   async function importFile(f: File) {
     setImporting(true); setImportingPct(0); setFailedLinks([]); setDupRows([]);
@@ -760,12 +772,15 @@ export default function ArticlePage() {
           <Empty description={loadErr ? "加载失败，请重试" : "暂无文章"} />
         </div>
         )}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 10, flexShrink: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 10, flexShrink: 0 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <Button size="small" icon={<FolderOpenOutlined />} onClick={openAccountDir}>打开下载数据</Button>
             <Button size="small" icon={<FileExcelOutlined />} onClick={exportExcel}>导出表格</Button>
           </div>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 篇</Typography.Text>
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <PaginationBar total={total} page={page} pageSize={pageSize}
+            onChange={(p, ps) => { setPage(p); if (ps !== pageSize) setPageSize(ps); }} />
+          </div>
         </div>
       </div>
       {/* 导入进度/失败弹窗 */}

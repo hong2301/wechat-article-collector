@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Tooltip, Spin, DatePicker, InputNumber, Input, Checkbox, Progress, Switch, Select } from "antd";
 import { ArrowLeftOutlined, ReloadOutlined, PlusOutlined, ImportOutlined, DeleteOutlined, SearchOutlined, ClearOutlined, FileExcelOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
+import PaginationBar, { calcPageSize } from "../components/PaginationBar";
 import dayjs from "dayjs";
 
 const API = "http://127.0.0.1:8000/api/accounts";
@@ -51,6 +52,9 @@ export default function CommentsPage() {
   const [title, setTitle] = useState("");
   const [name, setName] = useState("");
   const [comments, setComments] = useState<CommentRow[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState(false);
   const tableWrapRef = useRef<HTMLDivElement>(null);
@@ -128,18 +132,43 @@ export default function CommentsPage() {
   async function load(a: string) {
     setLoading(true);
     try {
-      const r = await fetch(`${API}/comments?art_biz=${encodeURIComponent(a)}`);
+      const qs = new URLSearchParams({ art_biz: a, page: String(page), page_size: String(pageSize) });
+      if (dateRange) { qs.set("date_start", dateRange[0].format("YYYY-MM-DD")); qs.set("date_end", dateRange[1].format("YYYY-MM-DD")); }
+      if (kw.trim()) qs.set("kw", kw.trim());
+      if (likesRange[0] != null) qs.set("min_likes", String(likesRange[0]));
+      if (likesRange[1] != null) qs.set("max_likes", String(likesRange[1]));
+      if (ipFilter.length && !ipFilter.includes("__all__")) qs.set("ips", ipFilter.join(","));
+      if (levelFilter.length && !levelFilter.includes("__all__")) qs.set("levels", levelFilter.join(","));
+      const r = await fetch(`${API}/comments?${qs.toString()}`);
       const d = await r.json();
-      setComments(d.comments || []);
+      setComments(d.items ?? d.comments ?? []);
+      setTotal(d.total ?? (d.comments ? d.comments.length : 0));
       setLoadErr(false);
     } catch { message.error("加载失败"); setLoadErr(true); }
     finally { setLoading(false); }
   }
   function reload() { if (artBiz) load(artBiz); }
+  // 分页变化重载 + 初始自动计算每页
+  useEffect(() => { if (artBiz) load(artBiz); /* eslint-disable-next-line */ }, [page, pageSize]);
+  useEffect(() => { setPageSize(calcPageSize()); }, []);
+  // 筛选变化重载
+  useEffect(() => { setPage(1); if (artBiz) load(artBiz); /* eslint-disable-next-line */ },
+    [dateRange, kw, likesRange, ipFilter, levelFilter]);
   // 导出评论为 xlsx(文件名=文章标题+评论)
-  function exportExcel() {
-    if (shown.length === 0) { message.info("没有可导出的数据"); return; }
-    const rows = shown.map((c: CommentRow) => ({
+  async function exportExcel() {
+    message.info("正在导出全部数据...");
+    try {
+      const qs = new URLSearchParams({ art_biz: String(artBiz || "") });
+      if (dateRange) { qs.set("date_start", dateRange[0].format("YYYY-MM-DD")); qs.set("date_end", dateRange[1].format("YYYY-MM-DD")); }
+      if (kw.trim()) qs.set("kw", kw.trim());
+      if (likesRange[0] != null) qs.set("min_likes", String(likesRange[0]));
+      if (likesRange[1] != null) qs.set("max_likes", String(likesRange[1]));
+      if (ipFilter.length && !ipFilter.includes("__all__")) qs.set("ips", ipFilter.join(","));
+      if (levelFilter.length && !levelFilter.includes("__all__")) qs.set("levels", levelFilter.join(","));
+      const d = await (await fetch(`${API}/comments?${qs.toString()}`)).json();
+      const all = Array.isArray(d.comments) ? d.comments : (d.items || []);
+      if (all.length === 0) { message.info("没有可导出的数据"); return; }
+    const rows = all.map((c: CommentRow) => ({
       "biz": c.comment_biz || "", "父级biz": c.parent_comment_biz || "",
       "作者": c.author || "", "内容": c.content || "", "时间": c.time || "",
       "点赞": c.likes ?? "", "IP": c.ip || "",
@@ -151,6 +180,7 @@ export default function CommentsPage() {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "评论");
     XLSX.writeFile(wb, `${title || "评论"}评论.xlsx`);
+    } catch { message.error("导出失败"); }
   }
   // 停止评论采集: 通知后端中止(同ESC) + 断开SSE, 按钮变关闭
   function stopCc() {
@@ -242,31 +272,8 @@ export default function CommentsPage() {
   }
 
   // 过滤
-  const shown = useMemo(() => {
-    return comments.filter((c) => {
-      if (dateRange) {
-        const [s, e] = dateRange;
-        const sT = s.startOf("day").valueOf(), eT = e.endOf("day").valueOf();
-        if (!c.time) return false;
-        const t = dayjs(c.time.replace?.(/-/g, "/") || c.time).valueOf();
-        if (!Number.isFinite(t) || t < sT || t > eT) return false;
-      }
-      if (likesRange[0] != null || likesRange[1] != null) {
-        const v = Number(String(c.likes || "").replace(/[^0-9.]/g, ""));
-        if (!Number.isFinite(v)) return false;
-        if (likesRange[0] != null && v < likesRange[0]!) return false;
-        if (likesRange[1] != null && v > likesRange[1]!) return false;
-      }
-      const q = kw.trim().toLowerCase();
-      if (q && !((c.author || "").toLowerCase().includes(q) || (c.content || "").toLowerCase().includes(q))) return false;
-      // IP多选(含'全部'或空=不过滤)
-      if (ipFilter.length > 0 && !ipFilter.includes("__all__") && !ipFilter.includes(c.ip || "")) return false;
-      // 层级多选(含'全部'或空=不过滤)
-      if (levelFilter.length > 0 && !levelFilter.includes("__all__")
-          && !levelFilter.includes(String(c.level ?? 1))) return false;
-      return true;
-    });
-  }, [comments, dateRange, likesRange, kw, ipFilter, levelFilter]);
+  // 筛选已后端化, shown 直接用接口数据
+  const shown = useMemo(() => comments, [comments]);
 
   async function importFile(f: File) {
     setImporting(true); setImportingPct(0);
@@ -457,9 +464,14 @@ export default function CommentsPage() {
           <Empty description={loadErr ? "加载失败，请重试" : "暂无评论"} />
         </div>
         )}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 10 }}>
-          <Button size="small" icon={<FileExcelOutlined />} onClick={exportExcel}>导出表格</Button>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 条评论</Typography.Text>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <Button size="small" icon={<FileExcelOutlined />} onClick={exportExcel}>导出表格</Button>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <PaginationBar total={total} page={page} pageSize={pageSize}
+              onChange={(p, ps) => { setPage(p); if (ps !== pageSize) setPageSize(ps); }} />
+          </div>
         </div>
       </div>
       {/* 导入进度弹窗 */}
