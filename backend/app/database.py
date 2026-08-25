@@ -47,7 +47,8 @@ def init_db():
             comments     TEXT DEFAULT '',
             write_time   TEXT DEFAULT '',
             original     TEXT DEFAULT '',
-            ip           TEXT DEFAULT ''
+            ip           TEXT DEFAULT '',
+            comment_recog TEXT DEFAULT '0'
         );
         CREATE TABLE IF NOT EXISTS comments (
             id               INTEGER PRIMARY KEY AUTOINCREMENT,

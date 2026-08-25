@@ -335,7 +335,8 @@ def search_query(link=""):
 
 def article_list_wait_stable(date_start="", date_end="", biz="",
                              capture_4metrics=False, capture_read=False,
-                             save_html=False, save_dir=""):
+                             save_html=False, save_dir="",
+                             max_comments=None, max_level1=None, max_level2=0):
     """文章列表识别循环: 进入 while 循环, 每次循环第一步检查页面稳定。
     前提: 搜一搜查询(search_query)已加载出公众号链接(本函数不判定, 但依赖其结果)。
     参数:
@@ -538,7 +539,8 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             ok_c, text_c = article_data_collect(
                 collect_type=1, capture_4metrics=capture_4metrics,
                 capture_read=capture_read, save_html=save_html, save_dir=save_dir, biz=biz,
-                list_reads=pdata.get("reads"), list_likes=pdata.get("likes"))
+                list_reads=pdata.get("reads"), list_likes=pdata.get("likes"),
+                max_comments=max_comments, max_level1=max_level1, max_level2=max_level2)
             echo(f"  文章数据采集: {'成功' if ok_c else '失败'} | {text_c}")
             time.sleep(0.5)   # 采集完成间隔
 
@@ -1056,6 +1058,18 @@ def _bg_ai_comments(shot_b64s, art_biz, max_level1, max_level2, shot_x=None):
                     st["l2"] += 1
                 else:
                     st["l1"] += 1
+            _total = st["total"]
+        # 识别数持久化到 articles.comment_recog
+        try:
+            conn = get_conn()
+            try:
+                conn.execute("UPDATE articles SET comment_recog=? WHERE art_biz=?",
+                             (str(_total), art_biz))
+                conn.commit()
+            finally:
+                conn.close()
+        except Exception:
+            pass
     except Exception as e:
         tasks_echo(f"[async:{tag}] 评论识别异常: {e}")
 
@@ -1087,6 +1101,18 @@ def _collect_comments(collect_type, link, art, biz,
         tasks_echo(f"评论采集: 4指标区域稳定={ok_stable}({info})")
         if not ok_stable:
             tasks_echo("评论采集: 4指标区域未稳定, 仍继续...")
+        # 截图4指标区域 OCR 找"写留言": 有则说明无评论, 直接退出
+        try:
+            _sp, _ = pc.screenshot(p30[0], p30[1], p31[0], p31[1], img_format="png")
+            if _sp:
+                _items = ocr_service.ocr(Image.open(_sp))
+                if any("写留言" in (it[2] or "") for it in _items):
+                    tasks_echo("评论采集: 检测到'写留言'(无评论), 退出")
+                    return
+                tasks_echo("评论采集: 4指标区域无'写留言'(有评论或需进评论区)")
+        except Exception as e:
+            tasks_echo(f"评论采集: 写留言OCR检测失败: {e}")
+    # 点击评论按钮进入评论区
     pc.mouse_click(p34[0], p34[1])
     tasks_echo(f"评论采集: 点击评论按钮({p34[0]},{p34[1]})")
     time.sleep(0.5)
@@ -1161,13 +1187,12 @@ def _collect_comments(collect_type, link, art, biz,
 
 def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=False,
                          save_html=False, save_dir="", biz="", list_reads=None, list_likes=None,
-                         capture_comments=False, max_comments=None, max_level1=None, max_level2=0):
+                         max_comments=None, max_level1=None, max_level2=0):
     """文章数据采集(编排主函数, 各块拆分到 _save_article_base
     /_collect_metrics/_collect_reads/_collect_comments; 复制链接逻辑留本函数)。
     参数:
       collect_type / capture_4metrics / capture_read / save_html / save_dir
       biz / list_reads / list_likes 同前
-      capture_comments 是否采集评论
       max_comments     文章最大评论采集数(None=无限)
       max_level1       一级评论采集数(None=无限)
       max_level2       每级二级评论采集数(0=不采二级, None=无限)
@@ -1260,8 +1285,8 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         tasks_echo("[step] 正在采集阅读数...")
         _collect_reads(collect_type, link, biz, art)
 
-    # 6) 采集评论(开启时, 在阅读数之后)
-    if capture_comments:
+    # 6) 采集评论(3个采集参数不全0时, 在阅读数之后)
+    if not (max_comments == 0 and max_level1 == 0 and max_level2 == 0):
         tasks_echo("[step] 正在采集评论...")
         _collect_comments(collect_type, link, art, biz,
                           max_comments=max_comments, max_level1=max_level1, max_level2=max_level2)

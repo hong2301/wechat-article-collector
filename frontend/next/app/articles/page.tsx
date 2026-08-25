@@ -41,6 +41,8 @@ interface Article {
   write_time: string;
   original: string;
   ip: string;
+  comment_count?: number;   // 实际采集评论数(comments表)
+  comment_recog?: number;   // 识别出来的评论数
 }
 
 export default function ArticlePage() {
@@ -314,6 +316,9 @@ export default function ArticlePage() {
       capture_read: captureRead,
       save_html: saveHtml,
       save_dir: "",
+      max_comments: captureComments ? maxComments : 0,
+      max_level1: captureComments ? maxLevel1 : 0,
+      max_level2: captureComments ? maxLevel2 : 0,
     };
     (async () => {
       let finished = false;
@@ -711,11 +716,13 @@ export default function ArticlePage() {
               },
             },
             {
-              title: "评论", dataIndex: "comments", width: 70,
+              title: "评论", dataIndex: "comments", width: 110,
               sorter: true, sortOrder: sortInfo.key === "comments" ? sortInfo.order : null,
               render: (v: string, r: Article) => (
                 <Space size={4}>
-                  <span>{v || 0}</span>
+                  <span title={`实际采集 ${r.comment_count ?? 0} / 4指标留言数 ${v || 0}`}>
+                    {r.comment_count ?? 0}/{v || 0}
+                  </span>
                   <Button size="small" type="link" icon={<MessageOutlined />}
                     onClick={() => router.push(`/comments?art_biz=${encodeURIComponent(r.art_biz || "")}&biz=${encodeURIComponent(biz)}&name=${encodeURIComponent(name || "")}&title=${encodeURIComponent(r.title || "")}`)}>查看</Button>
                 </Space>
@@ -849,9 +856,13 @@ export default function ArticlePage() {
                 { label: "采集4指标", value: capture4metrics ? "开" : "关" },
                 { label: "采集阅读数", value: captureRead ? "开" : "关" },
                 { label: "保存Html", value: saveHtml ? "开" : "关" },
+                { label: "评论采集", value: captureComments ? "开" : "关" },
+                { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
+                { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
+                { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
               ].map((row) => (
                 <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
-                  <span style={{ width: 90, color: "#888" }}>{row.label}</span>
+                  <span style={{ width: 110, color: "#888", whiteSpace: "nowrap" }}>{row.label}</span>
                   <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
                 </div>
               ))}
@@ -874,9 +885,13 @@ export default function ArticlePage() {
               { label: "采集4指标", value: capture4metrics ? "开" : "关" },
               { label: "采集阅读数", value: captureRead ? "开" : "关" },
               { label: "保存Html", value: saveHtml ? "开" : "关" },
+              { label: "评论采集", value: captureComments ? "开" : "关" },
+              { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
+              { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
+              { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
             ].map((row) => (
               <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
-                <span style={{ width: 90, color: "#888" }}>{row.label}</span>
+                <span style={{ width: 110, color: "#888", whiteSpace: "nowrap" }}>{row.label}</span>
                 <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
               </div>
             ))}

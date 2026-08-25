@@ -174,10 +174,19 @@ def account_articles_by_biz(biz: str = ""):
     finally:
         conn.close()
     name = dict(acc)["name"] if acc else ("全部文章" if (not biz or biz == "all") else "")
+    conn2 = get_conn()
+    try:
+        cnt_map = dict(conn2.execute(
+            "SELECT art_biz, COUNT(*) n FROM comments GROUP BY art_biz").fetchall())
+    finally:
+        conn2.close()
     arts = [{"id": d["id"], "title": d["title"], "date": d["date"], "art_biz": d["art_biz"],
              "reads": d["reads"], "likes": d["likes"], "forwards": d["forwards"],
              "favorites": d["favorites"], "comments": d["comments"], "write_time": d["write_time"],
-             "original": d["original"], "ip": d["ip"], "acc_name": d["name"] or ""} for d in rows]
+             "original": d["original"], "ip": d["ip"], "acc_name": d["name"] or "",
+             "comment_count": cnt_map.get(d["art_biz"], 0),   # 实际采集评论数(comments表)
+             "comment_recog": int(d["comment_recog"] or 0),  # 识别的评论数
+             } for d in rows]
     return {"biz": biz, "name": name, "articles": arts}
 
 

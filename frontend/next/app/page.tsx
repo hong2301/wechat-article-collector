@@ -376,6 +376,9 @@ export default function Home() {
       capture_read: captureRead,
       save_html: saveHtml,
       save_dir: saveDir,
+      max_comments: captureComments ? maxComments : 0,
+      max_level1: captureComments ? maxLevel1 : 0,
+      max_level2: captureComments ? maxLevel2 : 0,
     };
 
     (async () => {
@@ -801,9 +804,13 @@ export default function Home() {
                 { label: "采集4指标", value: capture4metrics ? "开" : "关" },
                 { label: "采集阅读数", value: captureRead ? "开" : "关" },
                 { label: "保存Html", value: saveHtml ? "开" : "关" },
+                { label: "评论采集", value: captureComments ? "开" : "关" },
+                { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
+                { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
+                { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
               ].map((row) => (
                 <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
-                  <span style={{ width: 90, color: "#888" }}>{row.label}</span>
+                  <span style={{ width: 110, color: "#888", whiteSpace: "nowrap" }}>{row.label}</span>
                   <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
                 </div>
               ))}
@@ -827,9 +834,13 @@ export default function Home() {
               { label: "采集4指标", value: capture4metrics ? "开" : "关" },
               { label: "采集阅读数", value: captureRead ? "开" : "关" },
               { label: "保存Html", value: saveHtml ? "开" : "关" },
+              { label: "评论采集", value: captureComments ? "开" : "关" },
+              { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
+              { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
+              { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
             ].map((row) => (
               <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
-                <span style={{ width: 90, color: "#888" }}>{row.label}</span>
+                <span style={{ width: 110, color: "#888", whiteSpace: "nowrap" }}>{row.label}</span>
                 <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
               </div>
             ))}

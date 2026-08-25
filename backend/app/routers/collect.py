@@ -100,6 +100,9 @@ class CollectStart(BaseModel):
     capture_read: bool = False       # 采集阅读数
     save_html: bool = False          # 保存文章为本地HTML(含图片)
     save_dir: str = ""              # 保存HTML根目录(空=默认D:/article_data)
+    max_comments: int | None = None # 文章最大评论采集数(空=无限, 3个全0=不采评论)
+    max_level1: int | None = None   # 一级评论采集数(空=无限)
+    max_level2: int | None = 0      # 每级二级评论采集数(默认0=不采二级, null=无限)
 
 
 class UpdateStart(BaseModel):
@@ -112,6 +115,9 @@ class UpdateStart(BaseModel):
     capture_read: bool = False       # 采集阅读数
     save_html: bool = False          # 保存文章为本地HTML(含图片)
     save_dir: str = ""              # 保存HTML根目录(空=默认D:/article_data)
+    max_comments: int | None = None # 文章最大评论采集数(空=无限, 3个全0=不采评论)
+    max_level1: int | None = None   # 一级评论采集数(空=无限)
+    max_level2: int | None = 0      # 每级二级评论采集数(默认0=不采二级, null=无限)
 
 
 class CommentStart(BaseModel):
@@ -127,7 +133,6 @@ class CommentStart(BaseModel):
     max_comments: int | None = None # 文章最大评论采集数(空=无限)
     max_level1: int | None = None   # 一级评论采集数(空=无限)
     max_level2: int | None = 0      # 每级二级评论采集数(默认0=不采二级, null=无限)
-    capture_comments: bool = True   # 评论采集始终开启
 
 
 def _sse(data: dict):
@@ -182,7 +187,9 @@ def _collect_generate(payload: CollectStart):
                 date_start=payload.date_start, date_end=payload.date_end,
                 biz=payload.biz, capture_4metrics=payload.capture_4metrics,
                 capture_read=payload.capture_read, save_html=payload.save_html,
-                save_dir=payload.save_dir)
+                save_dir=payload.save_dir,
+                max_comments=payload.max_comments, max_level1=payload.max_level1,
+                max_level2=payload.max_level2)
             log_q.put(("log", f"[文章列表识别循环] {'成功' if ok else '失败'} | {text}"))
             log_q.put(("log", "等待后台异步任务完成..."))
             tasks_service.wait_bg_done()
@@ -284,7 +291,9 @@ def _update_generate(payload: UpdateStart):
             ok, text = tasks_service.article_data_collect(
                 collect_type=2, capture_4metrics=payload.capture_4metrics,
                 capture_read=payload.capture_read, save_html=payload.save_html,
-                save_dir=payload.save_dir, biz=payload.biz)
+                save_dir=payload.save_dir, biz=payload.biz,
+                max_comments=payload.max_comments, max_level1=payload.max_level1,
+                max_level2=payload.max_level2)
             log_q.put(("log", f"[文章数据更新] {'成功' if ok else '失败'} | {text}"))
             log_q.put(("log", "等待后台异步任务完成..."))
             tasks_service.wait_bg_done()
@@ -379,7 +388,6 @@ def _comment_generate(payload: CommentStart):
                 collect_type=2, capture_4metrics=payload.capture_4metrics,
                 capture_read=payload.capture_read, save_html=payload.save_html,
                 save_dir=payload.save_dir, biz=payload.biz,
-                capture_comments=True,
                 max_comments=payload.max_comments, max_level1=payload.max_level1,
                 max_level2=payload.max_level2)
             log_q.put(("log", f"[评论采集流程] {'成功' if ok else '失败'} | {text}"))
