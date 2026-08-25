@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Tooltip, Spin, DatePicker, InputNumber, Input, Checkbox, Progress, Switch } from "antd";
-import { ArrowLeftOutlined, ReloadOutlined, PlusOutlined, ImportOutlined, DeleteOutlined, SearchOutlined, ClearOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, ReloadOutlined, PlusOutlined, ImportOutlined, DeleteOutlined, SearchOutlined, ClearOutlined, FileExcelOutlined } from "@ant-design/icons";
+import * as XLSX from "xlsx";
 import dayjs from "dayjs";
 
 const API = "http://127.0.0.1:8000/api/accounts";
@@ -133,6 +134,22 @@ export default function CommentsPage() {
     finally { setLoading(false); }
   }
   function reload() { if (artBiz) load(artBiz); }
+  // 导出评论为 xlsx(文件名=文章标题+评论)
+  function exportExcel() {
+    if (shown.length === 0) { message.info("没有可导出的数据"); return; }
+    const rows = shown.map((c: CommentRow) => ({
+      "biz": c.comment_biz || "", "父级biz": c.parent_comment_biz || "",
+      "作者": c.author || "", "内容": c.content || "", "时间": c.time || "",
+      "点赞": c.likes ?? "", "IP": c.ip || "",
+      "是否作者": c.is_author ? "是" : "", "置顶": c.is_top ? "是" : "",
+      "作者回复": c.is_author_reply ? "是" : "", "作者点赞": c.is_author_like ? "是" : "",
+      "首评": c.is_first ? "是" : "", "层级": c.level ?? "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "评论");
+    XLSX.writeFile(wb, `${title || "评论"}评论.xlsx`);
+  }
   // 停止评论采集: 通知后端中止(同ESC) + 断开SSE, 按钮变关闭
   function stopCc() {
     fetch("http://127.0.0.1:8000/api/collect/stop", { method: "POST" }).catch(() => {});
@@ -363,8 +380,8 @@ export default function CommentsPage() {
             rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
             locale={{ emptyText: <Empty description={loadErr ? "加载失败，请重试" : "暂无评论"} /> }}
             columns={[
-              { title: "评论作者", dataIndex: "author", width: 90 },
-              { title: "评论内容", dataIndex: "content", width: 400,
+              { title: "作者", dataIndex: "author", width: 90 },
+              { title: "内容", dataIndex: "content", width: 400,
                 render: (v: string, r: CommentRow) => (
                   <Tooltip title={v}>
                     <div>
@@ -381,12 +398,12 @@ export default function CommentsPage() {
                     </div>
                   </Tooltip>
                 ) },
-              { title: "评论时间", dataIndex: "time", width: 90, sorter: (a: CommentRow, b: CommentRow) => String(a.time).localeCompare(String(b.time)) },
+              { title: "时间", dataIndex: "time", width: 90, sorter: (a: CommentRow, b: CommentRow) => String(a.time).localeCompare(String(b.time)) },
               { title: "点赞", dataIndex: "likes", width: 90, align: "center", sorter: (a: CommentRow, b: CommentRow) => Number(a.likes || 0) - Number(b.likes || 0) },
-              { title: "IP", dataIndex: "ip", width: 90 },
+              { title: "IP", dataIndex: "ip", width: 60 },
               { title: "层级", dataIndex: "level", width: 90, align: "center" },
-              { title: "评论biz", dataIndex: "comment_biz", width: 90, render: (v: string) => <Typography.Text code style={{ fontSize: 11 }}>{v}</Typography.Text> },
-              { title: "父级biz", dataIndex: "parent_comment_biz", width: 90, render: (v: string) => <Typography.Text code style={{ fontSize: 11 }}>{v || "—"}</Typography.Text> },
+              { title: "biz", dataIndex: "comment_biz", width: 120, render: (v: string) => <Typography.Text code style={{ fontSize: 11 }}>{v}</Typography.Text> },
+              { title: "父级biz", dataIndex: "parent_comment_biz", width: 120, render: (v: string) => <Typography.Text code style={{ fontSize: 11 }}>{v || "—"}</Typography.Text> },
               { title: "操作", dataIndex: "op", width: 70, align: "center", fixed: "right",
                 render: (_: unknown, r: CommentRow) => (
                   <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => del(r)}>删除</Button>
@@ -399,7 +416,8 @@ export default function CommentsPage() {
           <Empty description={loadErr ? "加载失败，请重试" : "暂无评论"} />
         </div>
         )}
-        <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 10 }}>
+          <Button size="small" icon={<FileExcelOutlined />} onClick={exportExcel}>导出表格</Button>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>共 {shown.length} 条评论</Typography.Text>
         </div>
       </div>
