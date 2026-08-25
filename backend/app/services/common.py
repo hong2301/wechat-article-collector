@@ -160,10 +160,27 @@ def merge_comment_shots(top_b64, bot_b64):
         return None
 
 
+# 评论文本清洗: 生成biz前去除标点/空格 + 排除易错词(按需维护)
+_COMMENT_EXCLUDE_CHARS = {
+    # 常见 OCR 易错/无意义单字, 按需增补
+    "一", "的", "了", "是", "不", "在", "有", "和",
+    "。", "，", "、", "！", "？", "：", "；", "\"", "'",
+    "（", "）", "《", "》", "【", "】", "·", "—", "…", "-",
+    " ", "\u3000",  # 空格/全角空格
+}
+
+
+def clean_comment_text(text):
+    """清洗评论文本(供生成biz): 去除标点/空格/易错词
+    排除词由 _COMMENT_EXCLUDE_CHARS 记录, 可按需增补"""
+    t = str(text or "")
+    return "".join(ch for ch in t if ch not in _COMMENT_EXCLUDE_CHARS)
+
+
 def calc_comment_id(name, loc, t, likes, text, level):
-    """计算评论ID: 名称|地区|时间|点赞|正文|层级 -> md5 前16位"""
+    """计算评论ID: 清洗后 作者|正文|时间 -> md5 前16位(点赞变化不影响, 防重复)"""
     import hashlib
-    raw = f"{name}|{loc}|{t}|{likes}|{text}|{level}"
+    raw = f"{clean_comment_text(name)}|{clean_comment_text(text)}|{t}"
     return hashlib.md5(raw.encode("utf-8")).hexdigest()[:16]
 
 
