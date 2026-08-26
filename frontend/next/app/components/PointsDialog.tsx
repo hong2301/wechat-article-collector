@@ -31,10 +31,11 @@ interface EditState {
 }
 
 export default function PointsDialog({
-  open, onClose,
+  open, onClose, compact = false,
 }: {
   open: boolean;
   onClose: () => void;
+  compact?: boolean;   // 打包版: 隐藏id列, 操作只留删除
 }) {
   const [rows, setRows] = useState<Point[]>([]);
   const [loading, setLoading] = useState(false);
@@ -222,18 +223,18 @@ export default function PointsDialog({
           onChange={(e) => toggleOne(r.id, e.target.checked)} />
       ),
     },
-    { title: "id", dataIndex: "id", width: 80, align: "center" as const },
+    ...(compact ? [] : [{ title: "id", dataIndex: "id", width: 80, align: "center" as const }]),
     { title: "名称", dataIndex: "name", render: (_: unknown, p: Point) => p.name },
     { title: "x", dataIndex: "x", width: 90, align: "center" as const, render: (_: unknown, p: Point) => p.x || "—" },
     { title: "y", dataIndex: "y", width: 90, align: "center" as const, render: (_: unknown, p: Point) => p.y || "—" },
     { title: "备注", dataIndex: "remark", render: (_: unknown, p: Point) => p.remark || "" },
     {
-      title: "操作", dataIndex: "op", width: 150, align: "center" as const,
+      title: "操作", dataIndex: "op", width: 90, align: "center" as const,
       render: (_: unknown, p: Point) => (
-        <Space>
-          <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => previewPoint(p)}>预览</Button>
+        <Space style={{ display: "flex", justifyContent: "center" }}>
+          {!compact && <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => previewPoint(p)}>预览</Button>}
           <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(p)}>修改</Button>
-          <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(p)}>删除</Button>
+          {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(p)}>删除</Button>}
         </Space>
       ),
     },
@@ -259,9 +260,13 @@ export default function PointsDialog({
       >
         {/* 顶部操作栏 */}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>
-          <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>
-          <Button danger icon={<DeleteOutlined />} onClick={delSelected}>删除选中</Button>
+          {!compact && (
+            <>
+              <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>
+              <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>
+              <Button danger icon={<DeleteOutlined />} onClick={delSelected}>删除选中</Button>
+            </>
+          )}
           <div style={{ flex: 1 }} />
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }} onChange={onPick} />
         </div>

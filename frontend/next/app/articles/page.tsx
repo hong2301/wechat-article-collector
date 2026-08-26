@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import dayjs from "dayjs";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber, Spin, Switch, Select } from "antd";
-import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined, FolderOpenOutlined, DownloadOutlined, ReloadOutlined, FileExcelOutlined, ExclamationCircleOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined, FolderOpenOutlined, DownloadOutlined, ReloadOutlined, FileExcelOutlined, ExclamationCircleOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import PaginationBar, { calcPageSize } from "../components/PaginationBar";
 import { hideTaskbar, showTaskbar } from "../components/taskbar";
@@ -604,7 +604,12 @@ export default function ArticlePage() {
       {/* 更新设置卡片(开关行 + 评论采集设置行) */}
       <div style={{ display: "flex", flexDirection: "column", background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px", margin: "0 0 12px" }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minHeight: 32 }}>
-          <span style={{ fontSize: 14, color: "#555" }}>窗口分离</span>
+          <Tooltip title="窗口分离: 独立出搜一搜窗口。搜索时打开搜一搜有两种形态: ①独立弹出搜一搜窗口 ②嵌入微信窗口内部; 本功能统一为第一种(独立窗口)方式。">
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 14, color: "#555" }}>
+              窗口分离
+              <QuestionCircleOutlined style={{ color: "#8b949e" }} />
+            </span>
+          </Tooltip>
           <Switch checked={windowSplit} onChange={setWindowSplit} />
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，4指标采集不可用:\n${si.ai.join("\n")}` : undefined}>
@@ -705,7 +710,7 @@ export default function ArticlePage() {
         style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Tooltip
-            title={si.points.length + si.scrolls.length > 0 ? `点位/滚动设置有残缺，需补全后才能更新:\n${[...si.points, ...si.scrolls].join("\n")}` : undefined}>
+            title={si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能更新" : undefined}>
             <Button type="primary" disabled={si.points.length + si.scrolls.length > 0}
               icon={si.points.length + si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <ReloadOutlined />}
               onClick={openUpdateSelected}>更新选中</Button>

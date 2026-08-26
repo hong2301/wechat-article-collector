@@ -37,10 +37,11 @@ interface EditState {
 }
 
 export default function ScrollsDialog({
-  open, onClose,
+  open, onClose, compact = false,
 }: {
   open: boolean;
   onClose: () => void;
+  compact?: boolean;   // 打包版: 隐藏id列, 操作只留删除
 }) {
   const [rows, setRows] = useState<Scroll[]>([]);
   const [points, setPoints] = useState<Point[]>([]);
@@ -228,7 +229,7 @@ export default function ScrollsDialog({
           onChange={(e) => toggleOne(s.id, e.target.checked)} />
       ),
     },
-    { title: "id", dataIndex: "id", width: 70, align: "center" as const },
+    ...(compact ? [] : [{ title: "id", dataIndex: "id", width: 70, align: "center" as const }]),
     { title: "名称", dataIndex: "name", render: (_: unknown, s: Scroll) => s.name },
     {
       title: "距离", dataIndex: "distance", width: 110, align: "center" as const,
@@ -257,13 +258,13 @@ export default function ScrollsDialog({
       ),
     },
     {
-      title: "操作", dataIndex: "op", width: 130, align: "center" as const,
+      title: "操作", dataIndex: "op", width: 80, align: "center" as const,
       render: (_: unknown, s: Scroll) => (
-        <Space>
+        <Space style={{ display: "flex", justifyContent: "center" }}>
           <Button size="small" type="link" icon={<SwapOutlined />}
             loading={running === s.id} onClick={() => runRow(s)}>滚动</Button>
           <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(s)}>修改</Button>
-          <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(s)}>删除</Button>
+          {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(s)}>删除</Button>}
         </Space>
       ),
     },
@@ -284,9 +285,13 @@ export default function ScrollsDialog({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>
-          <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>
-          <Button danger icon={<DeleteOutlined />} onClick={delSelected}>删除选中</Button>
+          {!compact && (
+            <>
+              <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>
+              <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>
+              <Button danger icon={<DeleteOutlined />} onClick={delSelected}>删除选中</Button>
+            </>
+          )}
           <div style={{ flex: 1 }} />
           {pointName.length > 0 && (
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>

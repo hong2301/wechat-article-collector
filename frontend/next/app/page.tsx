@@ -7,7 +7,7 @@ import { HTML5Backend } from "react-dnd-html5-backend";
 import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, message, Modal, Spin, Progress, Empty, Switch, InputNumber } from "antd";
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
-import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined, SwapOutlined, RobotOutlined, FolderOpenOutlined, FileExcelOutlined, UnorderedListOutlined, ExclamationCircleOutlined } from "@ant-design/icons";
+import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined, SwapOutlined, RobotOutlined, FolderOpenOutlined, FileExcelOutlined, UnorderedListOutlined, ExclamationCircleOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import PointsDialog from "./components/PointsDialog";
 import PaginationBar, { calcPageSize } from "./components/PaginationBar";
@@ -163,6 +163,8 @@ export default function Home() {
   const [aiOpen, setAiOpen] = useState(false);
   // 点位/滚动完整性(共享hook, 有报红时采集按钮置灰+提示)
   const si = useSettingsIssues();
+  // 是否打包版: NODE_ENV=production(Next构建期注入的公共环境变量)
+  const isPackaged = process.env.NODE_ENV === "production";
   // 日期范围(采集用), null=全部(不限日期); 默认全部
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
   // 窗口分离(采集设置)
@@ -670,7 +672,12 @@ export default function Home() {
         </div>
         {/* 采集开关行(第二行) */}
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minHeight: 32 }}>
-          <span style={{ fontSize: 14, color: "#555" }}>窗口分离</span>
+          <Tooltip title="窗口分离: 独立出搜一搜窗口。搜索时打开搜一搜有两种形态: ①独立弹出搜一搜窗口 ②嵌入微信窗口内部; 本功能统一为第一种(独立窗口)方式。">
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 14, color: "#555" }}>
+              窗口分离
+              <QuestionCircleOutlined style={{ color: "#8b949e" }} />
+            </span>
+          </Tooltip>
           <Switch checked={windowSplit} onChange={setWindowSplit} />
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，4指标采集不可用:\n${si.ai.join("\n")}` : undefined}>
@@ -710,14 +717,14 @@ export default function Home() {
         {/* 设置按钮行(第三行) */}
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Tooltip
-            title={si.points.length > 0 ? `以下点位坐标不完整，需补全后才能正常采集:\n${si.points.join("\n")}` : undefined}
+            title={si.points.length > 0 ? "点位数据不完整，请点此补全" : undefined}
             placement="bottom">
             <Button danger={si.points.length > 0}
               icon={si.points.length > 0 ? <ExclamationCircleOutlined /> : <ProfileOutlined />}
               onClick={() => setPointsOpen(true)}>点位设置</Button>
           </Tooltip>
           <Tooltip
-            title={si.scrolls.length > 0 ? `以下滚动设置缺少滚动距离，需填写后才能正常采集:\n${si.scrolls.join("\n")}` : undefined}
+            title={si.scrolls.length > 0 ? "滚动数据不完整，请点此补全" : undefined}
             placement="bottom">
             <Button danger={si.scrolls.length > 0}
               icon={si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <SwapOutlined />}
@@ -733,9 +740,9 @@ export default function Home() {
           <Button onClick={pickSaveDir}>存储路径: {saveDir || "默认(data/article_data)"}</Button>
         </div>
       </div>
-      <PointsDialog open={pointsOpen} onClose={() => { setPointsOpen(false); si.refresh(); }} />
+      <PointsDialog compact={isPackaged} open={pointsOpen} onClose={() => { setPointsOpen(false); si.refresh(); }} />
       <AiDialog open={aiOpen} onClose={() => { setAiOpen(false); si.refresh(); }} />
-      <ScrollsDialog open={scrollsOpen} onClose={() => { setScrollsOpen(false); si.refresh(); }} />
+      <ScrollsDialog compact={isPackaged} open={scrollsOpen} onClose={() => { setScrollsOpen(false); si.refresh(); }} />
       <div className="dropzone"
            onDragOver={(e) => { e.preventDefault(); if (Array.from(e.dataTransfer.types || []).includes("Files")) setDragOver(true); }}
            onDragLeave={() => setDragOver(false)}
@@ -743,7 +750,7 @@ export default function Home() {
            style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
           <Tooltip
-            title={si.points.length + si.scrolls.length > 0 ? `点位/滚动设置有残缺，需补全后才能采集:\n${[...si.points, ...si.scrolls].join("\n")}` : undefined}>
+            title={si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能采集" : undefined}>
             <Button type="primary" disabled={si.points.length + si.scrolls.length > 0}
               icon={si.points.length + si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <InboxOutlined />}
               onClick={collectSelected} style={{ flexShrink: 0 }}>采集选中</Button>

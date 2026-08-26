@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Tooltip, Spin, DatePicker, InputNumber, Input, Checkbox, Progress, Switch, Select } from "antd";
-import { ArrowLeftOutlined, ReloadOutlined, PlusOutlined, ImportOutlined, DeleteOutlined, SearchOutlined, ClearOutlined, FileExcelOutlined, ExclamationCircleOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, ReloadOutlined, PlusOutlined, ImportOutlined, DeleteOutlined, SearchOutlined, ClearOutlined, FileExcelOutlined, ExclamationCircleOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import PaginationBar, { calcPageSize } from "../components/PaginationBar";
 import { hideTaskbar, showTaskbar } from "../components/taskbar";
@@ -377,7 +377,12 @@ export default function CommentsPage() {
             onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 110 }} />
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <span style={{ fontSize: 14, color: "#555" }}>窗口分离</span>
+          <Tooltip title="窗口分离: 独立出搜一搜窗口。搜索时打开搜一搜有两种形态: ①独立弹出搜一搜窗口 ②嵌入微信窗口内部; 本功能统一为第一种(独立窗口)方式。">
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 14, color: "#555" }}>
+              窗口分离
+              <QuestionCircleOutlined style={{ color: "#8b949e" }} />
+            </span>
+          </Tooltip>
           <Switch checked={windowSplit} onChange={setWindowSplit} />
         </div>
       </div>
@@ -439,7 +444,7 @@ export default function CommentsPage() {
         style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, minHeight: shown.length ? 0 : undefined, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Tooltip
-            title={si.points.length + si.scrolls.length + si.ai.length > 0 ? `采集前需补全以下设置:\n${[...si.points, ...si.scrolls, ...(si.ai.length ? [`AI模型未配置: ${si.ai.join("、")}`] : [])].join("\n")}` : undefined}>
+            title={si.points.length + si.scrolls.length + si.ai.length > 0 ? `采集前需补全:\n[${si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺; " : ""}${si.ai.length > 0 ? "AI模型未配置" : ""}]`.trim() : undefined}>
             <Button type="primary" disabled={si.points.length + si.scrolls.length + si.ai.length > 0}
               icon={si.points.length + si.scrolls.length + si.ai.length > 0 ? <ExclamationCircleOutlined /> : <ReloadOutlined />}
               onClick={openCollect}>采集</Button>
