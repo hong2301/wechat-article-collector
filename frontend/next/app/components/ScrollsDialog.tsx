@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Modal, Table, Button, Input, Space, message, Select, InputNumber,
-  Empty, Typography, Checkbox,
+  Empty, Typography, Checkbox, Tooltip,
 } from "antd";
 import {
   PlusOutlined, DeleteOutlined, SwapOutlined, EditOutlined, ImportOutlined,
+  ExclamationCircleOutlined, BulbOutlined,
 } from "@ant-design/icons";
 
 const API = "http://127.0.0.1:8000/api/scrolls";
@@ -126,6 +127,14 @@ export default function ScrollsDialog({
   }
 
   // ---------- 删除 ----------
+  // ---------- 自动设置(未来方向: 人工预设流程+OCR+AI识别, 当前占位) ----------
+  function autoSetRow(s: Scroll) {
+    message.info(`自动设置「${s.name}」(开发中)`);
+  }
+  function autoSetSelected() {
+    message.info(`自动设置选中 ${selectedKeys.length} 条滚动配置(开发中)`);
+  }
+
   function delRow(s: Scroll) {
     Modal.confirm({
       title: "删除确认", content: `确定删除滚动 [${s.id}] ${s.name}？`, okText: "确认", cancelText: "取消",
@@ -264,6 +273,7 @@ export default function ScrollsDialog({
           <Button size="small" type="link" icon={<SwapOutlined />}
             loading={running === s.id} onClick={() => runRow(s)}>滚动</Button>
           <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(s)}>修改</Button>
+          <Button size="small" type="link" icon={<BulbOutlined />} onClick={() => autoSetRow(s)}>自动设置</Button>
           {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(s)}>删除</Button>}
         </Space>
       ),
@@ -288,6 +298,7 @@ export default function ScrollsDialog({
           {!compact && (
             <>
               <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>
+              <Button icon={<BulbOutlined />} onClick={autoSetSelected}>自动设置选中</Button>
               <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>
               <Button danger icon={<DeleteOutlined />} onClick={delSelected}>删除选中</Button>
             </>

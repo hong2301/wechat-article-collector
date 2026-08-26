@@ -738,7 +738,9 @@ export default function Home() {
               icon={si.ai.length > 0 ? <ExclamationCircleOutlined /> : <RobotOutlined />}
               onClick={() => setAiOpen(true)}>AI模型</Button>
           </Tooltip>
-          <Button onClick={pickSaveDir}>存储路径: {saveDir || "默认(data/article_data)"}</Button>
+          <Tooltip title={saveDir || "默认: 程序数据目录/article_data"} placement="bottom">
+            <Button onClick={pickSaveDir}>存储路径修改</Button>
+          </Tooltip>
         </div>
       </div>
       <PointsDialog compact={isPackaged} open={pointsOpen} onClose={() => { setPointsOpen(false); si.refresh(); }} />

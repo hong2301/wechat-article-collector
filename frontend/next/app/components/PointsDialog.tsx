@@ -3,11 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  Modal, Table, Button, Input, Space, message, Checkbox, Empty,
+  Modal, Table, Button, Input, Space, message, Checkbox, Empty, Tooltip,
 } from "antd";
 import {
   PlusOutlined, ImportOutlined, DeleteOutlined, EyeOutlined,
-  EditOutlined, ScanOutlined,
+  EditOutlined, ScanOutlined, ExclamationCircleOutlined, BulbOutlined,
 } from "@ant-design/icons";
 
 const API = "http://127.0.0.1:8000/api/points";
@@ -137,6 +137,14 @@ export default function PointsDialog({
   }
 
   // ---------- 删除 ----------
+  // ---------- 自动设置(未来方向: 人工预设流程+OCR+AI识别, 当前占位) ----------
+  function autoSetRow(p: Point) {
+    message.info(`自动设置「${p.name}」(开发中)`);
+  }
+  function autoSetSelected() {
+    message.info(`自动设置选中 ${selectedIds.length} 个点位(开发中)`);
+  }
+
   async function delRow(p: Point) {
     Modal.confirm({
       title: "删除确认", content: `确定删除点位 [${p.id}] ${p.name}？`, okText: "确认", cancelText: "取消",
@@ -224,16 +232,26 @@ export default function PointsDialog({
       ),
     },
     ...(compact ? [] : [{ title: "id", dataIndex: "id", width: 80, align: "center" as const }]),
-    { title: "名称", dataIndex: "name", render: (_: unknown, p: Point) => p.name },
-    { title: "x", dataIndex: "x", width: 90, align: "center" as const, render: (_: unknown, p: Point) => p.x || "—" },
-    { title: "y", dataIndex: "y", width: 90, align: "center" as const, render: (_: unknown, p: Point) => p.y || "—" },
-    { title: "备注", dataIndex: "remark", render: (_: unknown, p: Point) => p.remark || "" },
+    {
+      title: "名称", dataIndex: "name", render: (_: unknown, p: Point) => (
+        <>{p.remark ? (
+          <Tooltip title={p.remark} placement="bottom">
+            <ExclamationCircleOutlined style={{ color: "#faad14", marginRight: 4 }} />
+          </Tooltip>
+        ) : null}{p.name}</>
+      ),
+    },
+    { title: "x", dataIndex: "x", width: 90, align: "center" as const, render: (_: unknown, p: Point) =>
+      <span style={{ color: !String(p.x ?? "").trim() ? "#ff4d4f" : undefined, fontWeight: !String(p.x ?? "").trim() ? 600 : undefined }}>{p.x || "—"}</span> },
+    { title: "y", dataIndex: "y", width: 90, align: "center" as const, render: (_: unknown, p: Point) =>
+      <span style={{ color: !String(p.y ?? "").trim() ? "#ff4d4f" : undefined, fontWeight: !String(p.y ?? "").trim() ? 600 : undefined }}>{p.y || "—"}</span> },
     {
       title: "操作", dataIndex: "op", width: 90, align: "center" as const,
       render: (_: unknown, p: Point) => (
         <Space style={{ display: "flex", justifyContent: "center" }}>
           {!compact && <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => previewPoint(p)}>预览</Button>}
           <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(p)}>修改</Button>
+          <Button size="small" type="link" icon={<BulbOutlined />} onClick={() => autoSetRow(p)}>自动设置</Button>
           {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(p)}>删除</Button>}
         </Space>
       ),
@@ -263,6 +281,7 @@ export default function PointsDialog({
           {!compact && (
             <>
               <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>
+              <Button icon={<BulbOutlined />} onClick={autoSetSelected}>自动设置选中</Button>
               <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>
               <Button danger icon={<DeleteOutlined />} onClick={delSelected}>删除选中</Button>
             </>
