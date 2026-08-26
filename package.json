@@ -1,0 +1,18 @@
+{
+  "name": "wechat-collector",
+  "version": "4.1.3",
+  "private": true,
+  "description": "微信公众号采集器 (Next.js前端 + Electron壳 + Python后端)",
+  "scripts": {
+    "dev": "concurrently -k -n backend,frontend -c green,blue \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "python backend/run.py",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build": "node scripts/build.js",
+    "build:clean": "node scripts/build.js --clean",
+    "release": "node scripts/release-it-wrapper.js"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5",
+    "release-it": "^20.2.1"
+  }
+}

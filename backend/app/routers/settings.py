@@ -1,0 +1,119 @@
+# -*- coding: utf-8 -*-
+"""AI 模型设置路由: 读写数据库 ai_model 表(厂商+一个key+多个模型id)
++ 系统控制: 任务栏隐藏/恢复(采集时隐藏, 全部结束恢复)"""
+from fastapi import APIRouter
+from pydantic import BaseModel
+
+from ..database import get_conn, default_html_dir
+from ..services import computer as pc
+
+router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+# 默认可用配置(用户未设置时前端使用)
+DEFAULT_API_KEY = "802ffe3f-4bc9-4030-a3f4-cc00409a4d4e"
+DEFAULT_MODEL = "doubao-seed-2-0-mini-260428"
+
+
+class AiSettings(BaseModel):
+    provider: str = "doubao"          # 厂商
+    api_key: str = ""                 # key(一个)
+    models: list[str] = []            # 多个模型id
+
+
+@router.get("/ai")
+def get_ai_settings():
+    """返回 {provider, api_key, models:[...]}; 无数据则空"""
+    conn = get_conn()
+    try:
+        rows = conn.execute(
+            "SELECT provider, api_key, model_id FROM ai_model ORDER BY id").fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        return {"provider": "doubao", "api_key": "", "models": []}
+    first = dict(rows[0])
+    models = [dict(r)["model_id"] for r in rows]
+    return {"provider": first["provider"], "api_key": first["api_key"],
+            "models": models}
+
+
+@router.post("/ai")
+def save_ai_settings(payload: AiSettings):
+    """保存: 清空旧记录, 写入 (provider, api_key, 每个model_id) 一行一条"""
+    conn = get_conn()
+    try:
+        conn.execute("DELETE FROM ai_model")
+        api_key = payload.api_key or ""
+        provider = payload.provider or "doubao"
+        models = payload.models or []
+        for m in models:
+            conn.execute(
+                "INSERT INTO ai_model(provider, api_key, model_id) VALUES(?,?,?)",
+                (provider, api_key, m))
+        conn.commit()
+        return {"ok": True, "count": len(models)}
+    finally:
+        conn.close()
+
+
+@router.post("/open-downloads")
+def open_downloads(sub: str = ""):
+    """打开文章下载文件夹(默认 <数据目录>/article_data), sub给定公众号名则打开对应子文件夹
+    不存在则创建"""
+    import os
+    d = default_html_dir()
+    if sub:
+        d = os.path.join(d, sub)
+    try:
+        os.makedirs(d, exist_ok=True)
+        os.startfile(d)
+        return {"ok": True, "dir": d}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@router.post("/pick-dir")
+def pick_dir(current: str = ""):
+    """弹系统文件夹选择器(initialdir=当前保存路径), 返回选中的目录; 取消返回空"""
+    import os
+    import tkinter as tk
+    from tkinter import filedialog
+    if not current or not os.path.isdir(current):
+        current = default_html_dir()
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    try:
+        chosen = filedialog.askdirectory(initialdir=current, title="选择保存HTML的根目录")
+    finally:
+        root.destroy()
+    return {"ok": True, "dir": chosen or ""}
+
+
+@router.post("/save-article-html")
+def save_article_html_api(payload: dict = None):
+    """保存单篇文章为本地HTML(公众号分类目录, 含图片); payload: {link, account_name, base_dir}"""
+    from ..services.fetch_article import save_article_html
+    p = payload or {}
+    link = (p.get("link") or "").strip()
+    if not link:
+        return {"ok": False, "error": "缺少链接"}
+    path, info = save_article_html(link, account_name=(p.get("account_name") or ""),
+                                   base_dir=(p.get("base_dir") or None))
+    if path:
+        return {"ok": True, "path": path, "info": info}
+    return {"ok": False, "error": info}
+
+
+class TaskbarAction(BaseModel):
+    action: str = "hide"   # hide / show
+
+
+@router.post("/taskbar")
+def taskbar_control(p: TaskbarAction):
+    """隐藏/恢复 Windows 任务栏(采集开始隐藏, 全部任务结束恢复); 幂等"""
+    if p.action == "hide":
+        return {"ok": pc.hide_taskbar()}
+    if p.action == "show":
+        return {"ok": pc.show_taskbar()}
+    return {"ok": False, "error": "action 只能是 hide/show"}
