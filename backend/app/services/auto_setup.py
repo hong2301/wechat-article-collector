@@ -505,8 +505,94 @@ POINT_FLOWS["文章列表右下角"] = _articles_list_entry("文章列表右下�
 
 
 # ---------------------------------------------------------------------------
-# 执行入口: 按名称执行流程(路由调用)
+# 点位 18: 文章右上角3点 (依赖前面全部 11/12/9/14/15/16)
+# 流程: 与点位14相同(微信就位->点11/12/9分离)但到OCR搜一搜那步不用,
+#   以点位14为原点往右偏移20px起, 向右步长点击(步长=14到屏幕中线/15):
+#     截图有变化 -> 命中记录; 无变化或窗口变大(点了全屏键, 步长跳过) ->
+#     搜一搜窗口恢复左半屏, 再往回(左)点击, 步长=原1/5
 # ---------------------------------------------------------------------------
+@flow_point("文章右上角3点")
+def _flow_point18_three_dots(ctx):
+    import ctypes
+    import time as _time
+    from PIL import ImageGrab
+    import numpy as np
+    from ..services import tasks as tasks_svc
+    from ..services import computer as _pc
+
+    if not _ensure_wechat():
+        return None, None
+    # 搜一搜初始化(同14): 点11 -> 输入1 -> 全选删除 -> 点12; 无独立窗 -> 移微信左半屏点9
+    p11 = tasks_svc._read_point(11)
+    p12 = tasks_svc._read_point(12)
+    p9 = tasks_svc._read_point(9)
+    p14 = tasks_svc._read_point(14)
+    if not p11 or not p12 or not p9 or not p14:
+        return None, None
+    ctx.click(p11[0], p11[1], wait_after=0.2)
+    _pc.type_text("1"); _time.sleep(0.1); _pc.ctrl_key("A"); _time.sleep(0.1)
+    _pc.key_press(_pc.VK_DELETE); _time.sleep(0.2)
+    ctx.click(p12[0], p12[1], wait_after=0.8)
+    u32_ = _pc._u32()
+    sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
+    sh_ = u32_.GetSystemMetrics(_pc.SM_CYSCREEN)
+    appex = _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True)
+    if not appex:
+        wx = _pc.find_windows(exe=tasks_svc.WECHAT_MAIN, visible_only=True)
+        if wx:
+            _pc.move_window(wx[0][0], 0, 0, sw_ // 2, sh_)
+            _time.sleep(0.3)
+        ctx.click(p9[0], p9[1], wait_after=0.8)
+
+    base_y = p14[1]
+    x0 = p14[0] + 20                      # 以14为原点右偏20px
+    mid_x = sw_ // 2                       # 屏幕中线(左半屏右缘)
+    half_w = sw_ // 2
+    raw_step = max(1, int((mid_x - p14[0]) / 15))
+
+    def click_and_check(cx, step_now):
+        # 点击前/后截图对比; 返回 (变化率, 搜一搜窗口是否仍可见)
+        before = np.array(ImageGrab.grab(bbox=(0, 0, half_w, sh_)).convert("RGB"))
+        ctx.click(cx, base_y, wait_after=0.7)
+        appex_now = _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True)
+        hidden = not appex_now       # 3点右边是最小化键: 点过头(步长过大)窗口会被最小化=>不可见
+        after = np.array(ImageGrab.grab(bbox=(0, 0, half_w, sh_)).convert("RGB"))
+        changed = (np.abs(after.astype(int) - before.astype(int)).sum(axis=2) > 15).mean()
+        return changed, hidden
+
+    # 右向探测: 从 x0 向右, 步长 raw_step
+    i = 0
+    while True:
+        cx = x0 + i * raw_step
+        if cx > mid_x:
+            break
+        changed, hidden = click_and_check(cx, raw_step)
+        if changed > 0.001:
+            log.info(f"点位18 右向({cx},{base_y}) 变化率={changed:.4f} => 命中")
+            return cx, base_y
+        if hidden:
+            # 窗口被最小化(点到最小化键, 步长过大跳过3点) -> 恢复窗口+左半屏, 往回(左)点击 步长1/5
+            log.warning(f"点位18 右向({cx},{base_y}) 搜一搜窗口不可见, 恢复后往左(步长{raw_step//5})")
+            appex_all = _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=False)
+            if appex_all:
+                _pc.show_window(appex_all[0][0])
+                _pc.move_window(appex_all[0][0], 0, 0, half_w, sh_)
+                _time.sleep(0.5)
+            small = max(1, raw_step // 5)
+            j = 0
+            while True:
+                cx2 = mid_x - j * small
+                if cx2 <= p14[0]:
+                    break
+                changed2, _hidden2 = click_and_check(cx2, small)
+                if changed2 > 0.001:
+                    log.info(f"点位18 左回({cx2},{base_y}) 变化率={changed2:.4f} => 命中")
+                    return cx2, base_y
+                j += 1
+            break
+        i += 1
+    log.warning("点位18 探测未命中")
+    return None, None
 def run_point_flow(name: str, attach: bool = True):
     """执行点位自动设置流程 -> (x, y, remark, err); 流程函数可返回 (x,y) 或 (x,y,remark)"""
     fn = POINT_FLOWS.get(name)
