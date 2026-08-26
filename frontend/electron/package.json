@@ -1,6 +1,6 @@
 {
   "name": "wechat-collector-electron",
-  "version": "4.0.1",
+  "version": "4.1.0",
   "main": "main.js",
   "scripts": {
     "dev": "concurrently -k -n next,electron -c blue,green \"npm run dev:next\" \"npm run dev:wait\"",
