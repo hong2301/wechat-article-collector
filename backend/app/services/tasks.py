@@ -371,6 +371,16 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
         return False, "; ".join(logs)
     logs.append(f"初始页面稳定: {info0}")
 
+    # 页面稳定后: 立即点击点位39(打开公众号主页/定位到列表)
+    p39 = _read_point(39)
+    if not p39:
+        logs.append("缺少点位39, 流程停止")
+        return False, "; ".join(logs)
+    pc.mouse_click(p39[0], p39[1])
+    time.sleep(0.3)
+    pc.ctrl_key("W")
+    logs.append(f"稳定后点击点位39({p39[0]},{p39[1]}) + Ctrl+W")
+
     # 稳定后: 截图点位15-16 => OCR => 识别"文章"标记(灰色系深色文字)并点击
     try:
         shot_path, _b64 = pc.screenshot(x1, y1, x2, y2, img_format="png")
@@ -849,9 +859,9 @@ def _collect_reads(collect_type, link, biz, art):
     写库按 biz+art_biz 匹配, 不依赖写表结果; 列表页已识别到阅读数时主函数跳过高不此调用"""
     # 实时输出: 每步直接 tasks_echo
     p15 = _read_point(15)
-    # 搜一搜按钮点位: 类型1=点位23(公众号采集), 类型2=点位14(单篇更新)
-    p_sou = _read_point(23) if collect_type == 1 else _read_point(14)
-    _tag_n = 23 if collect_type == 1 else 14
+    # 搜一搜按钮统一用点位14(搜索按钮2已删除)
+    p_sou = _read_point(14)
+    _tag_n = 14
     if not p15 or not p_sou:
         tasks_echo(f"[warn] 阅读数: 缺少点位15={bool(p15)}/{_tag_n}={bool(p_sou)}, 跳过阅读数采集")
         return
