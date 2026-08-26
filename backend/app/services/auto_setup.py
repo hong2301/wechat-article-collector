@@ -199,9 +199,9 @@ def _p9_round(round_idx, ctx):
     _pc.type_text("1"); _time.sleep(0.1); _pc.ctrl_key("A"); _time.sleep(0.1)
     _pc.key_press(_pc.VK_DELETE); _time.sleep(0.2)
     ctx.click(p12[0], p12[1], wait_after=0.8)
-    # 3) 独立窗口 => 无需分离
+    # 3) 独立窗口 => 无需分离: 确认当前微信不需要窗口分离按钮, 置99999待定+说明备注
     if _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
-        return (99999, 99999, "待定: 当前微信已独立搜一搜窗口, 无需窗口分离")
+        return (99999, 99999, "当前微信搜一搜窗口独立，无需此点位")
     # 4) 嵌入模式: 先把微信主窗口移到左半屏, 再截图 OCR
     weixin = _pc.find_windows(exe=tasks_svc.WECHAT_MAIN, visible_only=True)
     if not weixin:
@@ -393,7 +393,7 @@ def _flow_point14_query_button(ctx):
             changed = (np.abs(after.astype(int) - before.astype(int)).sum(axis=2) > 15).mean()
             if changed > 0.001:
                 log.info(f"点位14 第{round_idx+1}轮 ({cx},{sy}) 截图变化率={changed:.4f} => 命中查询按钮")
-                return cx, sy, f"自动识别(第{round_idx+1}轮)"
+                return cx, sy, ""
             i += 1
     log.warning("点位14 多轮未命中")
     return None, None
