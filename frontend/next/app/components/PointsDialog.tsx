@@ -260,9 +260,9 @@ export default function PointsDialog({
           onChange={(e) => toggleOne(r.id, e.target.checked)} />
       ),
     },
-    ...(compact ? [] : [{ title: "id", dataIndex: "id", width: 80, align: "center" as const }]),
+    ...(compact ? [] : [{ title: "id", dataIndex: "id", width: 60, align: "center" as const }]),
     {
-      title: "名称", dataIndex: "name", render: (_: unknown, p: Point) => (
+      title: "名称", dataIndex: "name", width: 220, render: (_: unknown, p: Point) => (
         <>{p.remark ? (
           <Tooltip title={p.remark} placement="bottom">
             <ExclamationCircleOutlined style={{ color: "#faad14", marginRight: 4 }} />
@@ -270,18 +270,22 @@ export default function PointsDialog({
         ) : null}{p.name}</>
       ),
     },
-    { title: "x", dataIndex: "x", width: 90, align: "center" as const, render: (_: unknown, p: Point) =>
+    { title: "x", dataIndex: "x", width: 60, align: "center" as const, render: (_: unknown, p: Point) =>
       <span style={{ color: !String(p.x ?? "").trim() ? "#ff4d4f" : undefined, fontWeight: !String(p.x ?? "").trim() ? 600 : undefined }}>{p.x || "—"}</span> },
-    { title: "y", dataIndex: "y", width: 90, align: "center" as const, render: (_: unknown, p: Point) =>
+    { title: "y", dataIndex: "y", width: 60, align: "center" as const, render: (_: unknown, p: Point) =>
       <span style={{ color: !String(p.y ?? "").trim() ? "#ff4d4f" : undefined, fontWeight: !String(p.y ?? "").trim() ? 600 : undefined }}>{p.y || "—"}</span> },
     {
-      title: "操作", dataIndex: "op", width: 90, align: "center" as const,
+      title: "操作", dataIndex: "op", width: 76, align: "center" as const,
       render: (_: unknown, p: Point) => (
-        <Space style={{ display: "flex", justifyContent: "center" }}>
-          {!compact && <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => previewPoint(p)}>预览</Button>}
-          <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(p)}>修改</Button>
-          <Button size="small" type="link" icon={<BulbOutlined />} loading={autoLoading === p.id} onClick={() => autoSetRow(p)}>自动设置</Button>
-          {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(p)}>删除</Button>}
+        <Space direction="vertical" size={0} style={{ gap: 0, alignItems: "center" }}>
+          <Space size={2}>
+            {!compact && <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => previewPoint(p)}>预览</Button>}
+            <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(p)}>修改</Button>
+          </Space>
+          <Space size={2}>
+            <Button size="small" type="link" icon={<BulbOutlined />} loading={autoLoading === p.id} onClick={() => autoSetRow(p)}>自动设置</Button>
+            {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(p)}>删除</Button>}
+          </Space>
         </Space>
       ),
     },

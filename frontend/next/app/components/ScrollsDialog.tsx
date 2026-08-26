@@ -257,43 +257,47 @@ export default function ScrollsDialog({
           onChange={(e) => toggleOne(s.id, e.target.checked)} />
       ),
     },
-    ...(compact ? [] : [{ title: "id", dataIndex: "id", width: 70, align: "center" as const }]),
-    { title: "名称", dataIndex: "name", render: (_: unknown, s: Scroll) => s.name },
+    ...(compact ? [] : [{ title: "id", dataIndex: "id", width: 60, align: "center" as const }]),
+    { title: "名称", dataIndex: "name", width: 200, render: (_: unknown, s: Scroll) => s.name },
     {
-      title: "距离", dataIndex: "distance", width: 110, align: "center" as const,
+      title: "距离", dataIndex: "distance", width: 90, align: "center" as const,
       render: (_: unknown, s: Scroll) => (
         <InputNumber size="small" min={0} step={50}
-          value={Number(s.distance) || 0} style={{ width: 90 }}
+          value={Number(s.distance) || 0} style={{ width: 80 }}
           onChange={(v) => updateRow(s.id, { distance: String(v ?? 0) })} />
       ),
     },
     {
-      title: "点位id", dataIndex: "point_id", width: 140, align: "center" as const,
+      title: "点位id", dataIndex: "point_id", width: 110, align: "center" as const,
       render: (_: unknown, s: Scroll) => (
         <Select size="small" value={s.point_id} options={pointOptions}
-          style={{ width: 130 }}
+          style={{ width: 100 }}
           onChange={(v) => updateRow(s.id, { point_id: v })} />
       ),
     },
     {
-      title: "方向", dataIndex: "direction", width: 90, align: "center" as const,
+      title: "方向", dataIndex: "direction", width: 70, align: "center" as const,
       render: (_: unknown, s: Scroll) => (
         <Button size="small"
           onClick={() => updateRow(s.id, { direction: s.direction === "up" ? "down" : "up" })}
-          style={{ width: 70 }}>
+          style={{ width: 60 }}>
           {s.direction === "up" ? "向上" : "向下"}
         </Button>
       ),
     },
     {
-      title: "操作", dataIndex: "op", width: 80, align: "center" as const,
+      title: "操作", dataIndex: "op", width: 76, align: "center" as const,
       render: (_: unknown, s: Scroll) => (
-        <Space style={{ display: "flex", justifyContent: "center" }}>
-          <Button size="small" type="link" icon={<SwapOutlined />}
-            loading={running === s.id} onClick={() => runRow(s)}>滚动</Button>
-          <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(s)}>修改</Button>
-          <Button size="small" type="link" icon={<BulbOutlined />} loading={autoLoading === s.id} onClick={() => autoSetRow(s)}>自动设置</Button>
-          {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(s)}>删除</Button>}
+        <Space direction="vertical" size={0} style={{ gap: 0, alignItems: "center" }}>
+          <Space size={2}>
+            <Button size="small" type="link" icon={<SwapOutlined />}
+              loading={running === s.id} onClick={() => runRow(s)}>滚动</Button>
+            <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(s)}>修改</Button>
+          </Space>
+          <Space size={2}>
+            <Button size="small" type="link" icon={<BulbOutlined />} loading={autoLoading === s.id} onClick={() => autoSetRow(s)}>自动设置</Button>
+            {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(s)}>删除</Button>}
+          </Space>
         </Space>
       ),
     },

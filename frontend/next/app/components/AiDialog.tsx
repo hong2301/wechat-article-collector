@@ -107,6 +107,9 @@ export default function AiDialog({
             onChange={(v) => setProvider(v)}
           />
         </Space>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          目前支持豆包视觉模型，后续会支持更多
+        </Typography.Text>
       </Space>
     </Modal>
   );
