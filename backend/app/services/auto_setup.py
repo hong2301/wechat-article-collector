@@ -83,55 +83,32 @@ class FlowContext:
 
 
 # ---------------------------------------------------------------------------
-# 流程函数注册表: {name: {"fn": fn, "depends": [依赖点位名称]}}
+# 流程函数注册表: {name: fn}  (前置依赖由前端 POINT_DEPS 维护)
 # ---------------------------------------------------------------------------
 POINT_FLOWS = {}
 SCROLL_FLOWS = {}
 
 
-def flow_point(name, depends=None):
-    """装饰器: 注册点位流程函数(名称须与 points.name 一致); depends=前置点位名列表"""
+def flow_point(name):
+    """装饰器: 注册点位流程函数(名称须与 points.name 一致)"""
     def deco(fn):
-        POINT_FLOWS[name] = {"fn": fn, "depends": depends or []}
+        POINT_FLOWS[name] = fn
         return fn
     return deco
 
 
-def flow_scroll(name, depends=None):
+def flow_scroll(name):
     def deco(fn):
-        SCROLL_FLOWS[name] = {"fn": fn, "depends": depends or []}
+        SCROLL_FLOWS[name] = fn
         return fn
     return deco
-
-
-def missing_point_deps(name: str):
-    """返回缺失的前置点位名称列表(前置点位无值时自动设置不可用)"""
-    meta = POINT_FLOWS.get(name)
-    if not meta or not meta["depends"]:
-        return []
-    from ..database import get_conn
-    conn = get_conn()
-    try:
-        missing = []
-        for d in meta["depends"]:
-            row = conn.execute("SELECT x, y FROM points WHERE name=?", (d,)).fetchone()
-            if not row or not str(row["x"] or "").strip() or not str(row["y"] or "").strip():
-                missing.append(d)
-        return missing
-    finally:
-        conn.close()
-
-
-def all_point_deps():
-    """全部已注册点位流程的依赖状态: {点位名: [缺失前置名,...]}"""
-    return {name: missing_point_deps(name) for name in POINT_FLOWS}
 
 
 # ---------------------------------------------------------------------------
 # 点位 12: 微信左上角搜索网络 (依赖点位11已设值)
 # 流程: 同点位11初始化 -> 截图左上1/16 -> OCR找"搜索网络结果" -> 黑字白底校验
 # ---------------------------------------------------------------------------
-@flow_point("微信左上角搜索网络", depends=["点击微信左上角搜索输入框"])
+@flow_point("微信左上角搜索网络")
 def _flow_point12_search_network(ctx):
     import ctypes
     import time as _time
@@ -189,6 +166,16 @@ def _flow_point12_search_network(ctx):
         else:
             _time.sleep(1.0)
     log.warning("点位12 未识别到黑字白底的'搜索网络结果'")
+    return None, None
+
+
+# ---------------------------------------------------------------------------
+# 点位 9: 微信窗口初始化不合法时窗口分离按钮 (依赖点位11/12已设值)
+# 流程待实现: 先保证11/12, 制造不合法布局后识别分离按钮并返回坐标
+# ---------------------------------------------------------------------------
+@flow_point("微信窗口初始化不合法时窗口分离按钮")
+def _flow_point9_split_button(_ctx):
+    # TODO: 待补充识别流程
     return None, None
 
 
@@ -256,13 +243,13 @@ def _flow_search_button(ctx):
 # ---------------------------------------------------------------------------
 def run_point_flow(name: str, attach: bool = True):
     """执行点位自动设置流程 -> (x, y) 或 (None, None)"""
-    meta = POINT_FLOWS.get(name)
-    if not meta:
+    fn = POINT_FLOWS.get(name)
+    if not fn:
         return None, None, f"未找到点位流程: {name}"
     if attach:
         _attach_wechat()
     try:
-        x, y = meta["fn"](FlowContext())
+        x, y = fn(FlowContext())
         if x is None or y is None:
             return None, None, f"识别失败(AI 定位不到目标): {name}"
         return x, y, ""
@@ -271,13 +258,13 @@ def run_point_flow(name: str, attach: bool = True):
 
 
 def run_scroll_flow(name: str, attach: bool = True):
-    meta = SCROLL_FLOWS.get(name)
-    if not meta:
+    fn = SCROLL_FLOWS.get(name)
+    if not fn:
         return None, None, f"未找到滚动流程: {name}"
     if attach:
         _attach_wechat()
     try:
-        dist = meta["fn"](FlowContext())
+        dist = fn(FlowContext())
         if dist is None:
             return None, None, f"识别失败: {name}"
         return dist, "", None

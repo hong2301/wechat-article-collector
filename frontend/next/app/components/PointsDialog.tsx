@@ -64,7 +64,7 @@ export default function PointsDialog({
       setLoading(false);
     }
   }
-  useEffect(() => { if (open) { load(); loadDeps(); } }, [open]);
+  useEffect(() => { if (open) load(); }, [open]);
 
   // ---------- 选择 ----------
   function selKeys() {
@@ -138,17 +138,22 @@ export default function PointsDialog({
 
   // ---------- 删除 ----------
   // ---------- 自动设置(调用后端 auto-setup: 人工预设流程+OCR+AI识别) ----------
+  // 前置依赖: 某些点位自动设置需先有其它点位坐标(前端基于 rows 数据判断)
+  const POINT_DEPS: Record<string, string[]> = {
+    "微信左上角搜索网络": ["点击微信左上角搜索输入框"],
+    "微信窗口初始化不合法时窗口分离按钮": ["点击微信左上角搜索输入框", "微信左上角搜索网络"],
+  };
   const [autoLoading, setAutoLoading] = useState<number | null>(null);
-  const [depsMap, setDepsMap] = useState<Record<string, string[]>>({});   // 点位名 -> 缺失前置
-  async function loadDeps() {
-    try {
-      const d = await (await fetch("http://127.0.0.1:8000/api/auto-setup/deps")).json();
-      setDepsMap(d.points || {});
-    } catch { /* 忽略 */ }
+  function missingDeps(p: Point): string[] {
+    const deps = POINT_DEPS[p.name] || [];
+    return deps.filter((d) => {
+      const r = rows.find((x) => x.name === d);
+      return !r || !String(r.x ?? "").trim() || !String(r.y ?? "").trim();
+    });
   }
-  useEffect(() => { if (open) { load(); loadDeps(); } /* eslint-disable-next-line */ }, [open]);
+  useEffect(() => { if (open) load(); /* eslint-disable-next-line */ }, [open]);
   async function autoSetRow(p: Point) {
-    const missing = depsMap[p.name] || [];
+    const missing = missingDeps(p);
     if (missing.length > 0) { message.warning(`需先设置: ${missing.join("、")}`); return; }
     setAutoLoading(p.id);
     try {
@@ -283,7 +288,10 @@ export default function PointsDialog({
             <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(p)}>修改</Button>
           </Space>
           <Space size={2}>
-            <Button size="small" type="link" icon={<BulbOutlined />} loading={autoLoading === p.id} onClick={() => autoSetRow(p)}>自动设置</Button>
+            <Tooltip title={missingDeps(p).length > 0 ? `需先设置: ${missingDeps(p).join("、")}` : undefined}>
+            <Button size="small" type="link" icon={<BulbOutlined />} disabled={missingDeps(p).length > 0}
+              loading={autoLoading === p.id} onClick={() => autoSetRow(p)}>自动设置</Button>
+          </Tooltip>
             {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(p)}>删除</Button>}
           </Space>
         </Space>

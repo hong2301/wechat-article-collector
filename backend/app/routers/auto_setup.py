@@ -12,12 +12,6 @@ from ..services import auto_setup as as_svc
 router = APIRouter(prefix="/api/auto-setup", tags=["auto-setup"])
 
 
-@router.get("/deps")
-def auto_setup_deps():
-    """全部已注册点位流程的依赖状态: {点位名: [缺失前置名,...]}"""
-    return {"points": as_svc.all_point_deps()}
-
-
 @router.post("/point/{pid}")
 def auto_setup_point(pid: int):
     """执行该点位的自动识别流程, 成功则写回 x/y"""
