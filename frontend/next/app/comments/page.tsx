@@ -8,6 +8,7 @@ import * as XLSX from "xlsx";
 import PaginationBar, { calcPageSize } from "../components/PaginationBar";
 import { hideTaskbar, showTaskbar } from "../components/taskbar";
 import { useSettingsIssues } from "../components/useSettingsIssues";
+import { useWechatStatus } from "../components/useWechatStatus";
 import dayjs from "dayjs";
 
 const API = "http://127.0.0.1:8000/api/accounts";
@@ -101,6 +102,7 @@ export default function CommentsPage() {
   // 评论采集弹窗
   const [ccOpen, setCcOpen] = useState(false);
   const si = useSettingsIssues();
+  const wxLogged = useWechatStatus();
   const [ccStarted, setCcStarted] = useState(false);
   const [ccLogs, setCcLogs] = useState<string[]>([]);
   const ccAbortRef = useRef<AbortController | null>(null);
@@ -432,8 +434,9 @@ export default function CommentsPage() {
         style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, minHeight: shown.length ? 0 : undefined, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Tooltip
-            title={si.points.length + si.scrolls.length + si.ai.length > 0 ? `采集前需补全:\n[${si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺; " : ""}${si.ai.length > 0 ? "AI模型未配置" : ""}]`.trim() : undefined}>
-            <Button type="primary" disabled={si.points.length + si.scrolls.length + si.ai.length > 0}
+            title={(si.points.length + si.scrolls.length + si.ai.length > 0 ? `采集前需补全:\n[${si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺; " : ""}${si.ai.length > 0 ? "AI模型未配置" : ""}]`.trim()
+              : wxLogged === false ? "请先登录微信后再采集评论" : undefined)}>
+            <Button type="primary" disabled={si.points.length + si.scrolls.length + si.ai.length > 0 || wxLogged === false}
               icon={si.points.length + si.scrolls.length + si.ai.length > 0 ? <ExclamationCircleOutlined /> : <ReloadOutlined />}
               onClick={openCollect}>采集</Button>
           </Tooltip>

@@ -9,6 +9,7 @@ import * as XLSX from "xlsx";
 import PaginationBar, { calcPageSize } from "../components/PaginationBar";
 import { hideTaskbar, showTaskbar } from "../components/taskbar";
 import { useSettingsIssues } from "../components/useSettingsIssues";
+import { useWechatStatus } from "../components/useWechatStatus";
 
 const API = "http://127.0.0.1:8000/api/accounts";
 const ART_PREFIX = "https://mp.weixin.qq.com/s/";
@@ -127,6 +128,7 @@ export default function ArticlePage() {
   // 更新弹窗(单篇文章更新)
   const [updOpen, setUpdOpen] = useState(false);
   const si = useSettingsIssues();
+  const wxLogged = useWechatStatus();
   const [updStarted, setUpdStarted] = useState(false);
   const [updTask, setUpdTask] = useState<Article | null>(null);
   const [updLogs, setUpdLogs] = useState<string[]>([]);
@@ -700,8 +702,8 @@ export default function ArticlePage() {
         style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Tooltip
-            title={si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能更新" : undefined}>
-            <Button type="primary" disabled={si.points.length + si.scrolls.length > 0}
+            title={(si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能更新" : wxLogged === false ? "请先登录微信后再更新" : undefined)}>
+            <Button type="primary" disabled={si.points.length + si.scrolls.length > 0 || wxLogged === false}
               icon={si.points.length + si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <ReloadOutlined />}
               onClick={openUpdateSelected}>更新选中</Button>
           </Tooltip>
@@ -795,8 +797,8 @@ export default function ArticlePage() {
                 <Space>
                   <Button size="small" type="link" icon={<DownloadOutlined />} loading={dlKey === (r.art_biz || "")} onClick={() => downloadHtml(r)}>下载</Button>
                   <Tooltip
-                    title={si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能更新" : undefined}>
-                    <Button size="small" type="link" disabled={si.points.length + si.scrolls.length > 0}
+                    title={(si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能更新" : wxLogged === false ? "请先登录微信后再更新" : undefined)}>
+                    <Button size="small" type="link" disabled={si.points.length + si.scrolls.length > 0 || wxLogged === false}
                       icon={si.points.length + si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <ReloadOutlined />}
                       onClick={() => openUpdate(r)}>更新</Button>
                   </Tooltip>

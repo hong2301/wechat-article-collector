@@ -9,6 +9,7 @@ import {
   PlusOutlined, DeleteOutlined, SwapOutlined, EditOutlined, ImportOutlined,
   ExclamationCircleOutlined, BulbOutlined,
 } from "@ant-design/icons";
+import { useWechatStatus } from "./useWechatStatus";
 
 const API = "http://127.0.0.1:8000/api/scrolls";
 const POINTS_API = "http://127.0.0.1:8000/api/points";
@@ -128,6 +129,7 @@ export default function ScrollsDialog({
 
   // ---------- 删除 ----------
   // ---------- 自动设置(调用后端 auto-setup: 人工预设流程+OCR+AI识别) ----------
+  const wxLogged = useWechatStatus();   // 未登录微信时自动设置不可用
   const [autoLoading, setAutoLoading] = useState<number | null>(null);
   async function autoSetRow(s: Scroll) {
     setAutoLoading(s.id);
@@ -295,7 +297,10 @@ export default function ScrollsDialog({
             <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(s)}>修改</Button>
           </Space>
           <Space size={2}>
-            <Button size="small" type="link" icon={<BulbOutlined />} loading={autoLoading === s.id} onClick={() => autoSetRow(s)}>自动设置</Button>
+            <Tooltip title={wxLogged === false ? "请先登录微信后再自动设置" : undefined}>
+            <Button size="small" type="link" icon={<BulbOutlined />} loading={autoLoading === s.id}
+              disabled={wxLogged === false} onClick={() => autoSetRow(s)}>自动设置</Button>
+          </Tooltip>
             {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(s)}>删除</Button>}
           </Space>
         </Space>

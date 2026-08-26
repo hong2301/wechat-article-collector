@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """AI 模型设置路由: 读写数据库 ai_model 表(厂商+一个key+多个模型id)
 + 系统控制: 任务栏隐藏/恢复(采集时隐藏, 全部结束恢复)"""
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from ..database import get_conn, default_html_dir
@@ -119,64 +119,52 @@ def taskbar_control(p: TaskbarAction):
     return {"ok": False, "error": "action 只能是 hide/show"}
 
 
-# ---- 微信登录状态: 后端每 1s 检测, 变化经 SSE 推给前端 ----
-import json
-import threading
-import time as _time
-from fastapi.responses import StreamingResponse
-
-_wx_status = {"running": False, "logged_in": False}
-_wx_lock = threading.Lock()
-_wx_thread_started = False
 
 
-def _detect_wx_status():
-    from ..services import tasks as tasks_svc
-    main = pc._pids_by_exe([tasks_svc.WECHAT_MAIN])
-    logged = bool(main) and bool(pc._pids_by_exe([tasks_svc.WECHAT_APPEX]))
-    return {"running": bool(main), "logged_in": logged}
 
-
-def _wx_loop():
-    global _wx_status
-    while True:
-        try:
-            cur = _detect_wx_status()
-        except Exception:
-            cur = {"running": False, "logged_in": False}
-        with _wx_lock:
-            _wx_status = cur
-        _time.sleep(1.0)
-
-
-def _ensure_wx_thread():
-    global _wx_thread_started
-    if not _wx_thread_started:
-        _wx_thread_started = True
-        threading.Thread(target=_wx_loop, daemon=True).start()
+@router.post("/launch-wechat")
+def launch_wechat():
+    """未登录时点击微信图标: 启动微信程序(登录窗口)"""
+    import os
+    import subprocess
+    candidates = [
+        r"D:\Weixin\Weixin.exe",
+        r"C:\Program Files\Tencent\WeChat\Weixin.exe",
+        r"C:\Program Files (x86)\Tencent\WeChat\Weixin.exe",
+        r"D:\Program Files\Tencent\WeChat\Weixin.exe",
+    ]
+    for p in candidates:
+        if os.path.isfile(p):
+            try:
+                subprocess.Popen([p], close_fds=True)
+                return {"ok": True, "path": p}
+            except Exception as e:
+                return {"ok": False, "error": f"启动失败: {e}"}
+    return {"ok": False, "error": "未找到微信安装路径"}
 
 
 @router.get("/wechat-status")
 def wechat_status():
-    _ensure_wx_thread()
-    with _wx_lock:
-        return dict(_wx_status)
-
-
-@router.get("/wechat-status/stream")
-def wechat_status_stream():
-    """SSE: 微信登录状态变化实时推送(启动即推一次当前状态)"""
-    _ensure_wx_thread()
-
-    def gen():
-        seen = None
-        while True:
-            with _wx_lock:
-                cur = dict(_wx_status)
-            if cur != seen:
-                seen = cur
-                yield "data: " + json.dumps(cur, ensure_ascii=False) + "\n\n"
-            _time.sleep(0.5)
-
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+    """微信登录状态(前端状态灯轮询; 无长连接, 不影响后端关停):
+    将可见微信窗口移到左半屏后量宽: 已登录主窗口可占满半屏(≥90%),
+    未登录登录窗口被微信限制为小窗"""
+    import time as _time
+    import ctypes
+    import ctypes.wintypes as wt
+    from ..services import tasks as tasks_svc
+    main = pc._pids_by_exe([tasks_svc.WECHAT_MAIN])
+    if not main:
+        return {"running": False, "logged_in": False}
+    u32 = pc._u32()
+    sw = u32.GetSystemMetrics(pc.SM_CXSCREEN)
+    sh = u32.GetSystemMetrics(pc.SM_CYSCREEN)
+    half = sw // 2
+    logged = False
+    for hwnd, _t, _p, _vis in pc.find_windows(exe=tasks_svc.WECHAT_MAIN, visible_only=True):
+        pc.move_window(hwnd, 0, 0, half, sh)
+        _time.sleep(0.3)
+        r = wt.RECT()
+        u32.GetWindowRect(hwnd, ctypes.byref(r))
+        if r.right - r.left >= half * 0.9:
+            logged = True
+    return {"running": bool(main), "logged_in": logged}

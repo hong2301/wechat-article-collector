@@ -13,6 +13,7 @@ import PointsDialog from "./components/PointsDialog";
 import PaginationBar, { calcPageSize } from "./components/PaginationBar";
 import { hideTaskbar, showTaskbar } from "./components/taskbar";
 import { useSettingsIssues } from "./components/useSettingsIssues";
+import { useWechatStatus } from "./components/useWechatStatus";
 import ScrollsDialog from "./components/ScrollsDialog";
 import AiDialog from "./components/AiDialog";
 
@@ -163,6 +164,7 @@ export default function Home() {
   const [aiOpen, setAiOpen] = useState(false);
   // 点位/滚动完整性(共享hook, 有报红时采集按钮置灰+提示)
   const si = useSettingsIssues();
+  const wxLogged = useWechatStatus();
   // 是否打包版: NODE_ENV=production(Next构建期注入的公共环境变量)
   const isPackaged = process.env.NODE_ENV === "production";
   // 日期范围(采集用), null=全部(不限日期); 默认全部
@@ -742,8 +744,8 @@ export default function Home() {
            style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
           <Tooltip
-            title={si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能采集" : undefined}>
-            <Button type="primary" disabled={si.points.length + si.scrolls.length > 0}
+            title={(si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能采集" : wxLogged === false ? "请先登录微信后再采集" : undefined)}>
+            <Button type="primary" disabled={si.points.length + si.scrolls.length > 0 || wxLogged === false}
               icon={si.points.length + si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <InboxOutlined />}
               onClick={collectSelected} style={{ flexShrink: 0 }}>采集选中</Button>
           </Tooltip>
@@ -816,8 +818,8 @@ export default function Home() {
                   render: (_: unknown, row: Task) => (
                     <Space>
                       <Tooltip
-                        title={si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能采集" : undefined}>
-                        <Button size="small" type="link" disabled={si.points.length + si.scrolls.length > 0}
+                        title={(si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能采集" : wxLogged === false ? "请先登录微信后再采集" : undefined)}>
+                        <Button size="small" type="link" disabled={si.points.length + si.scrolls.length > 0 || wxLogged === false}
                           icon={si.points.length + si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <InboxOutlined />}
                           onClick={() => collectRow(row)}>采集</Button>
                       </Tooltip>

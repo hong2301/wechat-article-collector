@@ -9,6 +9,7 @@ import {
   PlusOutlined, ImportOutlined, DeleteOutlined, EyeOutlined,
   EditOutlined, ScanOutlined, ExclamationCircleOutlined, BulbOutlined,
 } from "@ant-design/icons";
+import { useWechatStatus } from "./useWechatStatus";
 
 const API = "http://127.0.0.1:8000/api/points";
 
@@ -138,6 +139,7 @@ export default function PointsDialog({
 
   // ---------- 删除 ----------
   // ---------- 自动设置(调用后端 auto-setup: 人工预设流程+OCR+AI识别) ----------
+  const wxLogged = useWechatStatus();   // 未登录微信时自动设置不可用
   // 前置依赖: 某些点位自动设置需先有其它点位坐标(前端基于 rows 数据判断)
   const POINT_DEPS: Record<string, string[]> = {
     "微信左上角搜索网络": ["点击微信左上角搜索输入框"],
@@ -288,8 +290,8 @@ export default function PointsDialog({
             <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(p)}>修改</Button>
           </Space>
           <Space size={2}>
-            <Tooltip title={missingDeps(p).length > 0 ? `需先设置: ${missingDeps(p).join("、")}` : undefined}>
-            <Button size="small" type="link" icon={<BulbOutlined />} disabled={missingDeps(p).length > 0}
+            <Tooltip title={missingDeps(p).length > 0 ? `需先设置: ${missingDeps(p).join("、")}` : wxLogged === false ? "请先登录微信后再自动设置" : undefined}>
+            <Button size="small" type="link" icon={<BulbOutlined />} disabled={missingDeps(p).length > 0 || wxLogged === false}
               loading={autoLoading === p.id} onClick={() => autoSetRow(p)}>自动设置</Button>
           </Tooltip>
             {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(p)}>删除</Button>}

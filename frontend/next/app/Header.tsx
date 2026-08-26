@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Tooltip } from "antd";
+import { useWechatStatus } from "./components/useWechatStatus";
 
 const WechatIcon = ({ color }: { color: string }) => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill={color} xmlns="http://www.w3.org/2000/svg"><path d="M9.5 4C5.36 4 2 6.69 2 10c0 1.89.96 3.58 2.5 4.71L3.7 17.2a.35.35 0 0 0 .5.4l2.9-1.66c.74.2 1.53.31 2.4.31.01 0 .02 0 .03-.01a4.2 4.2 0 0 1-.2-1.29c0-2.68 2.58-4.95 5.73-4.95.3 0 .59.03.88.07C15.08 6.28 12.58 4 9.5 4zm-2.58 3.84a.87.87 0 1 1 0-1.74.87.87 0 0 1 0 1.74zm5.16 0a.87.87 0 1 1 0-1.74.87.87 0 0 1 0 1.74zM22 15.09c0-2.4-2.69-4.34-6.02-4.34-3.32 0-6.02 1.94-6.02 4.34 0 2.39 2.7 4.33 6.02 4.33.7 0 1.38-.1 2-.29l2.37 1.36a.27.27 0 0 0 .39-.3l-.74-2.01C21.4 17.51 22 16.36 22 15.09zm-7.35-.15a.67.67 0 1 1 0-1.34.67.67 0 0 1 0 1.34zm2.66 0a.67.67 0 1 1 0-1.34.67.67 0 0 1 0 1.34z"/></svg>
@@ -16,16 +17,7 @@ const GithubIcon = () => (
 );
 
 export default function Header() {
-  // 微信登录状态: 后端1s检测 + SSE 推送变化(启动即推一次)
-  const [wxLogged, setWxLogged] = useState<boolean | null>(null);
-  useEffect(() => {
-    const es = new EventSource("http://127.0.0.1:8000/api/settings/wechat-status/stream");
-    es.onmessage = (e) => {
-      try { const d = JSON.parse(e.data); setWxLogged(!!d.logged_in); } catch { /* 忽略坏帧 */ }
-    };
-    es.onerror = () => { /* 断开时 EventSource 自动重连, 重连后收到最新状态 */ };
-    return () => es.close();
-  }, []);
+  const wxLogged = useWechatStatus();
   const wxOn = wxLogged === true;
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0 14px" }}>
@@ -40,16 +32,18 @@ export default function Header() {
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Tooltip title={wxLogged === null ? "检测中..." : (wxOn ? "微信: 已登录" : "微信: 未登录")}>
-          <span style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", border: "1px solid #d0d7de", color: wxOn ? "#07c160" : "#a6adb4", display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <WechatIcon color={wxOn ? "#07c160" : "#a6adb4"} />
-          </span>
-        </Tooltip>
         <Tooltip title="刷新">
           <button onClick={() => window.location.reload()}
             style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", border: "1px solid #d0d7de", color: "#57606a", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeMiterlimit="10"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
           </button>
+        </Tooltip>
+        <Tooltip title={wxLogged === null ? "检测中..." : (wxOn ? "微信: 已登录" : "微信: 未登录, 点击启动微信")}
+          open={wxLogged === false}  >
+          <span onClick={() => { if (wxLogged === false) fetch("http://127.0.0.1:8000/api/settings/launch-wechat", { method: "POST" }).catch(() => {}); }}
+            style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", border: "1px solid #d0d7de", color: wxOn ? "#07c160" : "#a6adb4", display: "flex", alignItems: "center", justifyContent: "center", cursor: wxLogged === false ? "pointer" : "default", transition: ".2s" }}>
+            <WechatIcon color={wxOn ? "#07c160" : "#a6adb4"} />
+          </span>
         </Tooltip>
         <Tooltip title="GitHub 仓库">
           <a href="https://github.com/hong2301/wechat-article-collector" target="_blank" rel="noreferrer"
