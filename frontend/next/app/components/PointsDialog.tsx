@@ -282,7 +282,7 @@ export default function PointsDialog({
     {
       title: "操作", dataIndex: "op", width: 76, align: "center" as const,
       render: (_: unknown, p: Point) => (
-        <Space direction="vertical" size={0} style={{ gap: 0, alignItems: "center" }}>
+        <Space orientation="vertical" size={0} style={{ gap: 0, alignItems: "center" }}>
           <Space size={2}>
             {!compact && <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => previewPoint(p)}>预览</Button>}
             <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(p)}>修改</Button>

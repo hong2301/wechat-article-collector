@@ -288,7 +288,7 @@ export default function ScrollsDialog({
     {
       title: "操作", dataIndex: "op", width: 76, align: "center" as const,
       render: (_: unknown, s: Scroll) => (
-        <Space direction="vertical" size={0} style={{ gap: 0, alignItems: "center" }}>
+        <Space orientation="vertical" size={0} style={{ gap: 0, alignItems: "center" }}>
           <Space size={2}>
             <Button size="small" type="link" icon={<SwapOutlined />}
               loading={running === s.id} onClick={() => runRow(s)}>滚动</Button>
