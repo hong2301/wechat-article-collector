@@ -193,7 +193,8 @@ export default function Home() {
         if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
         if (typeof d.capture_read === "boolean") setCaptureRead(d.capture_read);
         if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
-        if (typeof d.save_dir === "string" && d.save_dir) setSaveDir(d.save_dir);
+        // 存储路径: 旧默认 D:/article_data 视为未设置(改用新默认 <数据目录>/article_data)
+        if (typeof d.save_dir === "string" && d.save_dir && d.save_dir !== "D:/article_data") setSaveDir(d.save_dir);
         if (typeof d.capture_comments === "boolean") setCaptureComments(d.capture_comments);
         if ("max_comments" in d) setMaxComments(d.max_comments);
         if ("max_level1" in d) setMaxLevel1(d.max_level1);

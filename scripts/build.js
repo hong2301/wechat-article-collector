@@ -81,6 +81,20 @@ try {
   fs.copyFileSync(path.join(ROOT, 'scripts', 'template_collector.db'), path.join(RELEASE, 'data', 'collector.db'))
   console.log('   template_collector.db -> release/data/collector.db')
 
+  // 7.5 补充 app-update.yml(目录版/win-unpacked 不会自动生成, 自动更新必需)
+  const updaterYml = 'owner: hong2301\n' +
+    'provider: github\n' +
+    'repo: wechat-article-collector\n' +
+    'updaterCacheDirName: wechat-collector-electron-updater\n'
+  const writeUpdater = (dir) => {
+    const f = path.join(dir, 'resources', 'app-update.yml')
+    fs.mkdirSync(path.dirname(f), { recursive: true })
+    fs.writeFileSync(f, updaterYml)
+    console.log('   app-update.yml ->', path.relative(ROOT, f))
+  }
+  writeUpdater(RELEASE)
+  writeUpdater(WIN_UNPACKED)
+
   // 8. 清理中间产物(仅在有 --clean 参数时执行, 默认保留)
   if (withClean) {
     console.log('\n>>> 清理全部中间产物(前端Next/Electron + 后端)')

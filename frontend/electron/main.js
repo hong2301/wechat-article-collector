@@ -197,6 +197,23 @@ function createWindow() {
     if (level >= 2) log(`渲染[${['log','warn','error'][level] || level}]: ${message.slice(0, 300)}`)
   })
 
+  // 打包版禁止开发者工具(F12/Ctrl+Shift+I/Ctrl+U), dev 模式放行
+  if (!isDev) {
+    win.webContents.on('before-input-event', (event, input) => {
+      if (input.type !== 'keyDown') return
+      const k = input.key
+      const blocked =
+        k === 'F12' ||
+        (input.control && input.shift && /^[ijIJ]$/.test(k)) ||   // Ctrl+Shift+I/J
+        ((input.control || input.meta) && /^[uU]$/.test(k))      // Ctrl+U 查看源码
+      if (blocked) event.preventDefault()
+    })
+    // 兜底: 若被 API 强行打开则立即关闭
+    win.webContents.on('devtools-opened', () => {
+      try { win.webContents.closeDevTools() } catch (e2) {}
+    })
+  }
+
   // 拦截导航：外部 http(s) 链接用系统默认浏览器打开，不在应用内跳转
   win.webContents.on('will-navigate', (event, urlStr) => {
     // 本地(http://localhost) 放行
