@@ -117,3 +117,66 @@ def taskbar_control(p: TaskbarAction):
     if p.action == "show":
         return {"ok": pc.show_taskbar()}
     return {"ok": False, "error": "action 只能是 hide/show"}
+
+
+# ---- 微信登录状态: 后端每 1s 检测, 变化经 SSE 推给前端 ----
+import json
+import threading
+import time as _time
+from fastapi.responses import StreamingResponse
+
+_wx_status = {"running": False, "logged_in": False}
+_wx_lock = threading.Lock()
+_wx_thread_started = False
+
+
+def _detect_wx_status():
+    from ..services import tasks as tasks_svc
+    main = pc._pids_by_exe([tasks_svc.WECHAT_MAIN])
+    logged = bool(main) and bool(pc._pids_by_exe([tasks_svc.WECHAT_APPEX]))
+    return {"running": bool(main), "logged_in": logged}
+
+
+def _wx_loop():
+    global _wx_status
+    while True:
+        try:
+            cur = _detect_wx_status()
+        except Exception:
+            cur = {"running": False, "logged_in": False}
+        with _wx_lock:
+            _wx_status = cur
+        _time.sleep(1.0)
+
+
+def _ensure_wx_thread():
+    global _wx_thread_started
+    if not _wx_thread_started:
+        _wx_thread_started = True
+        threading.Thread(target=_wx_loop, daemon=True).start()
+
+
+@router.get("/wechat-status")
+def wechat_status():
+    _ensure_wx_thread()
+    with _wx_lock:
+        return dict(_wx_status)
+
+
+@router.get("/wechat-status/stream")
+def wechat_status_stream():
+    """SSE: 微信登录状态变化实时推送(启动即推一次当前状态)"""
+    _ensure_wx_thread()
+
+    def gen():
+        seen = None
+        while True:
+            with _wx_lock:
+                cur = dict(_wx_status)
+            if cur != seen:
+                seen = cur
+                yield "data: " + json.dumps(cur, ensure_ascii=False) + "\n\n"
+            _time.sleep(0.5)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
