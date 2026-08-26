@@ -127,12 +127,31 @@ export default function ScrollsDialog({
   }
 
   // ---------- 删除 ----------
-  // ---------- 自动设置(未来方向: 人工预设流程+OCR+AI识别, 当前占位) ----------
-  function autoSetRow(s: Scroll) {
-    message.info(`自动设置「${s.name}」(开发中)`);
+  // ---------- 自动设置(调用后端 auto-setup: 人工预设流程+OCR+AI识别) ----------
+  const [autoLoading, setAutoLoading] = useState<number | null>(null);
+  async function autoSetRow(s: Scroll) {
+    setAutoLoading(s.id);
+    try {
+      const d = await (await fetch(`http://127.0.0.1:8000/api/auto-setup/scroll/${s.id}`, { method: "POST" })).json();
+      if (d.ok) {
+        setRows((prev) => prev.map((x) => x.id === s.id ? { ...x, distance: String(d.distance) } : x));
+        message.success(`自动设置成功: 距离 ${d.distance}`);
+      } else {
+        message.error(d.error || "自动设置失败");
+      }
+    } catch {
+      message.error("无法连接后端");
+    } finally {
+      setAutoLoading(null);
+    }
   }
-  function autoSetSelected() {
-    message.info(`自动设置选中 ${selectedKeys.length} 条滚动配置(开发中)`);
+  async function autoSetSelected() {
+    if (selectedKeys.length === 0) { message.warning("请先勾选要自动设置的滚动配置"); return; }
+    message.info(`开始自动设置 ${selectedKeys.length} 条滚动配置(将操作微信窗口)...`);
+    for (const id of selectedKeys) {
+      const s = rows.find((r) => r.id === id);
+      if (s) await autoSetRow(s);
+    }
   }
 
   function delRow(s: Scroll) {
@@ -273,7 +292,7 @@ export default function ScrollsDialog({
           <Button size="small" type="link" icon={<SwapOutlined />}
             loading={running === s.id} onClick={() => runRow(s)}>滚动</Button>
           <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(s)}>修改</Button>
-          <Button size="small" type="link" icon={<BulbOutlined />} onClick={() => autoSetRow(s)}>自动设置</Button>
+          <Button size="small" type="link" icon={<BulbOutlined />} loading={autoLoading === s.id} onClick={() => autoSetRow(s)}>自动设置</Button>
           {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(s)}>删除</Button>}
         </Space>
       ),

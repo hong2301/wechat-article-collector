@@ -64,7 +64,7 @@ export default function PointsDialog({
       setLoading(false);
     }
   }
-  useEffect(() => { if (open) load(); }, [open]);
+  useEffect(() => { if (open) { load(); loadDeps(); } }, [open]);
 
   // ---------- 选择 ----------
   function selKeys() {
@@ -137,12 +137,41 @@ export default function PointsDialog({
   }
 
   // ---------- 删除 ----------
-  // ---------- 自动设置(未来方向: 人工预设流程+OCR+AI识别, 当前占位) ----------
-  function autoSetRow(p: Point) {
-    message.info(`自动设置「${p.name}」(开发中)`);
+  // ---------- 自动设置(调用后端 auto-setup: 人工预设流程+OCR+AI识别) ----------
+  const [autoLoading, setAutoLoading] = useState<number | null>(null);
+  const [depsMap, setDepsMap] = useState<Record<string, string[]>>({});   // 点位名 -> 缺失前置
+  async function loadDeps() {
+    try {
+      const d = await (await fetch("http://127.0.0.1:8000/api/auto-setup/deps")).json();
+      setDepsMap(d.points || {});
+    } catch { /* 忽略 */ }
   }
-  function autoSetSelected() {
-    message.info(`自动设置选中 ${selectedIds.length} 个点位(开发中)`);
+  useEffect(() => { if (open) { load(); loadDeps(); } /* eslint-disable-next-line */ }, [open]);
+  async function autoSetRow(p: Point) {
+    const missing = depsMap[p.name] || [];
+    if (missing.length > 0) { message.warning(`需先设置: ${missing.join("、")}`); return; }
+    setAutoLoading(p.id);
+    try {
+      const d = await (await fetch(`http://127.0.0.1:8000/api/auto-setup/point/${p.id}`, { method: "POST" })).json();
+      if (d.ok) {
+        setRows((prev) => prev.map((x) => x.id === p.id ? { ...x, x: String(d.x), y: String(d.y) } : x));
+        message.success(`自动设置成功: (${d.x}, ${d.y})`);
+      } else {
+        message.error(d.error || "自动设置失败");
+      }
+    } catch {
+      message.error("无法连接后端");
+    } finally {
+      setAutoLoading(null);
+    }
+  }
+  async function autoSetSelected() {
+    if (selectedIds.length === 0) { message.warning("请先勾选要自动设置的点位"); return; }
+    message.info(`开始自动设置 ${selectedIds.length} 个点位(将操作微信窗口)...`);
+    for (const id of selectedIds) {
+      const p = rows.find((r) => r.id === id);
+      if (p) await autoSetRow(p);
+    }
   }
 
   async function delRow(p: Point) {
@@ -251,7 +280,7 @@ export default function PointsDialog({
         <Space style={{ display: "flex", justifyContent: "center" }}>
           {!compact && <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => previewPoint(p)}>预览</Button>}
           <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(p)}>修改</Button>
-          <Button size="small" type="link" icon={<BulbOutlined />} onClick={() => autoSetRow(p)}>自动设置</Button>
+          <Button size="small" type="link" icon={<BulbOutlined />} loading={autoLoading === p.id} onClick={() => autoSetRow(p)}>自动设置</Button>
           {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(p)}>删除</Button>}
         </Space>
       ),
