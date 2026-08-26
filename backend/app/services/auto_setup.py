@@ -20,6 +20,7 @@ import time
 
 from ..services import computer as pc
 from ..services import ocr as ocr_service
+from ..database import get_conn as _get_conn
 
 log = logging.getLogger("auto_setup")
 
@@ -396,6 +397,105 @@ def _flow_point14_query_button(ctx):
             i += 1
     log.warning("点位14 多轮未命中")
     return None, None
+
+
+# ---------------------------------------------------------------------------
+# 点位 15/16: 文章列表左上角 / 文章列表右下角 (同一流程, 一次得到两个坐标)
+# 依赖: 11/12/9/14 全部前置点位
+# 流程: 微信就位 -> 搜一搜初始化(点11+12+9分离) -> 搜一搜查询测试公众号
+#   -> 等5s加载 -> 左半屏截图 -> 移到左半屏中间滚500px -> 再截图
+#   -> 对比两张图变化区域得文章列表矩形(左上=15, 右下=16), 同时写入两个点位
+# ---------------------------------------------------------------------------
+TEST_BIZ = "MzA4OTQ5NTk2Mw=="
+# 搜一搜查询用完整公众号链接(与采集主流程一致: profile_ext?action=home&__biz=<biz>)
+TEST_BIZ_QUERY = "https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=" + TEST_BIZ
+
+
+def _flow_articles_list_full(ctx, self_name, rx1, ry1, rx2, ry2):
+    """识别已经由 _flow_articles_list_find 完成; 此处按当前点位名返回对应坐标(避免路由覆写错位)"""
+    if self_name == "文章列表左上角":
+        return rx1, ry1, f"自动识别: 文章列表区 ({rx1},{ry1})-({rx2},{ry2})"
+    return rx2, ry2, f"自动识别: 文章列表区 ({rx1},{ry1})-({rx2},{ry2})"
+
+
+def _flow_articles_list_find(ctx):
+    """15/16 共同识别: 找到文章列表矩形并写入两个点位; 返回 (rx1,ry1,rx2,ry2) 或 None"""
+    import ctypes
+    import time as _time
+    from PIL import ImageGrab
+    import numpy as np
+    from ..services import tasks as tasks_svc
+    from ..services import computer as _pc
+
+    if not _ensure_wechat():
+        return None
+    # 搜一搜初始化: 点11 -> 输入1 -> 全选删除 -> 点12; 无独立窗 -> 微信左半屏 + 点9分离
+    p11 = tasks_svc._read_point(11)
+    p12 = tasks_svc._read_point(12)
+    p9 = tasks_svc._read_point(9)
+    if not p11 or not p12 or not p9:
+        return None
+    ctx.click(p11[0], p11[1], wait_after=0.2)
+    _pc.type_text("1"); _time.sleep(0.1); _pc.ctrl_key("A"); _time.sleep(0.1)
+    _pc.key_press(_pc.VK_DELETE); _time.sleep(0.2)
+    ctx.click(p12[0], p12[1], wait_after=0.8)
+    u32_ = _pc._u32()
+    sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
+    sh_ = u32_.GetSystemMetrics(_pc.SM_CYSCREEN)
+    if not _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
+        wx = _pc.find_windows(exe=tasks_svc.WECHAT_MAIN, visible_only=True)
+        if wx:
+            _pc.move_window(wx[0][0], 0, 0, sw_ // 2, sh_)
+            _time.sleep(0.3)
+        ctx.click(p9[0], p9[1], wait_after=0.8)
+
+    # 搜一搜查询测试公众号
+    ok_q, _txt = tasks_svc.search_query(TEST_BIZ_QUERY)
+    if not ok_q:
+        log.warning("点位15/16 搜一搜查询失败: " + _txt)
+        return None
+    _time.sleep(5.0)                        # 等加载
+
+    # 先下滚1000 -> 截图1; 再下滚500 -> 截图2; 对比得出列表区
+    _pc.scroll(sw_ // 4, sh_ // 2, 1000, direction="down", wait_after=0.8)
+    img1 = np.array(ImageGrab.grab(bbox=(0, 0, sw_ // 2, sh_)).convert("RGB"))
+    _pc.scroll(sw_ // 4, sh_ // 2, 500, direction="down", wait_after=0.8)
+    img2 = np.array(ImageGrab.grab(bbox=(0, 0, sw_ // 2, sh_)).convert("RGB"))
+
+    # 对比: 变化区域的外接矩形 = 文章列表区
+    diff = np.abs(img2.astype(int) - img1.astype(int)).sum(axis=2)
+    mask = diff > 40
+    ys, xs = np.where(mask)
+    if len(xs) < 50:
+        log.warning(f"点位15/16 变化区域过小({len(xs)}px), 文章列表未加载?")
+        return None
+    rx1, ry1, rx2, ry2 = int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
+    log.info(f"点位15/16 文章列表矩形: ({rx1},{ry1})-({rx2},{ry2})")
+
+    return rx1, ry1, rx2, ry2
+
+
+def _articles_list_entry(self_name):
+    """包装: 识别矩形(含写库15/16) -> 按当前点位名返回坐标"""
+    def fn(ctx):
+        res = _flow_articles_list_find(ctx)
+        if res is None:
+            return None, None
+        rx1, ry1, rx2, ry2 = res
+        # 两个点位都已写库
+        conn = _get_conn()
+        try:
+            conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (rx1, ry1, "文章列表左上角"))
+            conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (rx2, ry2, "文章列表右下角"))
+            conn.commit()
+        finally:
+            conn.close()
+        return _flow_articles_list_full(ctx, self_name, rx1, ry1, rx2, ry2)
+    return fn
+
+
+POINT_FLOWS["文章列表左上角"] = _articles_list_entry("文章列表左上角")
+POINT_FLOWS["文章列表右下角"] = _articles_list_entry("文章列表右下角")
 
 
 # ---------------------------------------------------------------------------
