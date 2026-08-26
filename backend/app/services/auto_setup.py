@@ -255,7 +255,7 @@ def _p9_round(round_idx, ctx):
         u32.GetWindowRect(weixin[0][0], ctypes.byref(rnow))
         if (rnow.right - rnow.left) < w0 - 2:
             log.info(f"点位9 第{round_idx+1}轮点击({cx},{sy}) 分离成功 (宽 {w0}->{rnow.right-rnow.left})")
-            return (cx, sy, f"自动识别(第{round_idx+1}轮)")
+            return cx, sy
         i += 1
     log.warning(f"点位9 第{round_idx+1}轮未命中")
     return None
@@ -414,8 +414,8 @@ TEST_BIZ_QUERY = "https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=" + 
 def _flow_articles_list_full(ctx, self_name, rx1, ry1, rx2, ry2):
     """识别已经由 _flow_articles_list_find 完成; 此处按当前点位名返回对应坐标(避免路由覆写错位)"""
     if self_name == "文章列表左上角":
-        return rx1, ry1, f"自动识别: 文章列表区 ({rx1},{ry1})-({rx2},{ry2})"
-    return rx2, ry2, f"自动识别: 文章列表区 ({rx1},{ry1})-({rx2},{ry2})"
+        return rx1, ry1
+    return rx2, ry2
 
 
 def _flow_articles_list_find(ctx):
@@ -482,9 +482,15 @@ def _articles_list_entry(self_name):
         if res is None:
             return None, None
         rx1, ry1, rx2, ry2 = res
-        # 两个点位都已写库
         conn = _get_conn()
         try:
+            # 16.x = 14.x 与 16.x 的中点; 15.x 向右移 10px
+            p14 = conn.execute(
+                "SELECT x FROM points WHERE name=?", ("搜一搜窗口查询按钮",)).fetchone()
+            if p14 and str(p14["x"] or "").strip():
+                p14x = int(float(p14["x"]))
+                rx2 = (p14x + rx2) // 2
+            rx1 = rx1 + 10
             conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (rx1, ry1, "文章列表左上角"))
             conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (rx2, ry2, "文章列表右下角"))
             conn.commit()
