@@ -23,16 +23,16 @@ def auto_setup_point(pid: int):
     if not row:
         raise HTTPException(404, f"点位不存在 id={pid}")
     name = row["name"]
-    x, y, err = as_svc.run_point_flow(name)
+    x, y, remark, err = as_svc.run_point_flow(name)
     if x is None:
         return {"ok": False, "name": name, "error": err or "识别失败"}
     conn = get_conn()
     try:
-        conn.execute("UPDATE points SET x=?, y=? WHERE id=?", (x, y, pid))
+        conn.execute("UPDATE points SET x=?, y=?, remark=? WHERE id=?", (x, y, remark, pid))
         conn.commit()
     finally:
         conn.close()
-    return {"ok": True, "name": name, "x": x, "y": y}
+    return {"ok": True, "name": name, "x": x, "y": y, "remark": remark}
 
 
 @router.post("/scroll/{sid}")

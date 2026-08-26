@@ -169,12 +169,12 @@ def init_wechat_window():
 def search_window_init():
     """搜一搜窗口初始化(坐标采集流程)。
     前提: 必须满足微信窗口初始化 + 采集器窗口初始化成功的结果
-    自动判断窗口分离: 点完点位12后, 若微信主窗口宽度≠屏幕一半(未分离)才点击点位13
+    自动判断窗口分离: 点完点位12后, 若微信主窗口宽度≠屏幕一半: 移微信到左半屏→等0.3s→点击点位9
     步骤:
       0) 前置判定: Weixin可见且在左半屏 + 采集器可见且在右半屏; 不符合直接返回 False
       1) 点击点位11(搜索框) → 等0.2s → 输入1 → 等0.1s → 全选删除 → 等0.2s
       2) 点击点位12(搜索网络) → 等0.5s
-      2b) 判断微信主窗口宽度: ≠屏幕一半 -> 等0.3s → 点击点位13(窗口分离按钮)
+      2b) 判断微信主窗口宽度: ≠屏幕一半 -> 移微信到左半屏 → 等0.3s → 点击点位9(窗口分离按钮)
       3) 查找可见 WeChatAppEx 窗口 ...
     """
     logs = []
@@ -234,22 +234,25 @@ def search_window_init():
         logs.append("缺少点位12")
         return False, "; ".join(logs)
 
-    # 2b) 自动判断窗口分离: 微信主窗口宽度≠屏幕一半则点击点位13(分离按钮)
+    # 2b) 自动判断窗口分离: 微信主窗口宽度≠屏幕一半则: 移微信到左半屏 -> 等0.3s -> 点击点位9(窗口分离按钮)
     u32_probe = pc._u32()
     sw_probe = u32_probe.GetSystemMetrics(pc.SM_CXSCREEN)
     wx_rect = wt.RECT()
     pc._u32().GetWindowRect(weixin[0][0], ctypes.byref(wx_rect))
     if abs((wx_rect.right - wx_rect.left) - sw_probe // 2) > 0:
-        p13 = _read_point(13)
-        if p13:
-            pc.mouse_click(p13[0], p13[1])
-            logs.append(f"点击点位13({p13[0]},{p13[1]})")
+        # 先把微信主窗口移到左半屏, 稳定 0.3s 后点击分离按钮
+        pc.move_window(weixin[0][0], 0, 0, sw_probe // 2, wx_rect.bottom - wx_rect.top)
+        time.sleep(0.3)
+        p9 = _read_point(9)
+        if p9:
+            pc.mouse_click(p9[0], p9[1])
+            logs.append(f"点击点位9({p9[0]},{p9[1]})")
             time.sleep(0.3)
         else:
-            logs.append("缺少点位13")
+            logs.append("缺少点位9")
             return False, "; ".join(logs)
     else:
-        logs.append("微信窗口已分离, 跳过点位13")
+        logs.append("微信窗口已分离, 跳过分离按钮")
 
     # 3) 查找可见 WeChatAppEx 窗口
     appex = pc.find_windows(exe=WECHAT_APPEX, visible_only=True)

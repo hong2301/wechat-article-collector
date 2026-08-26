@@ -207,7 +207,7 @@ def doubao_locate(shot_b64, desc, api_key, model, timeout=30):
             for c in out.get("content", []):
                 if c.get("type") == "output_text":
                     text += (c.get("text") or "")
-        text = (text or "").strip()
+        text = (text or "").strip().replace("<", "").replace(">", "")
         if not text or text.lower() == "notfound" or "," not in text:
             return None
         x, y = text.split(",", 1)

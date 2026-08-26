@@ -80,11 +80,11 @@ def init_db():
             level            INTEGER DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS points (
-            id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            name    TEXT DEFAULT '',
-            x       TEXT DEFAULT '',
-            y       TEXT DEFAULT '',
-            remark  TEXT DEFAULT ''
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            name          TEXT DEFAULT '',
+            x             TEXT DEFAULT '',
+            y             TEXT DEFAULT '',
+            remark        TEXT DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS scrolls (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -23,6 +23,12 @@ from ..services import ocr as ocr_service
 
 log = logging.getLogger("auto_setup")
 
+# ---------------------------------------------------------------------------
+# 流程函数注册表: {name: fn}  (前置依赖由前端 POINT_DEPS 维护)
+# ---------------------------------------------------------------------------
+POINT_FLOWS = {}
+SCROLL_FLOWS = {}
+
 
 # ---------------------------------------------------------------------------
 # 流程上下文: 给流程函数的能力包装(统一封装, 函数里只写"业务步骤")
@@ -80,13 +86,6 @@ class FlowContext:
         if rx is None or ry is None:
             return None, None
         return x1 + int(rx), y1 + int(ry)
-
-
-# ---------------------------------------------------------------------------
-# 流程函数注册表: {name: fn}  (前置依赖由前端 POINT_DEPS 维护)
-# ---------------------------------------------------------------------------
-POINT_FLOWS = {}
-SCROLL_FLOWS = {}
 
 
 def flow_point(name):
@@ -170,12 +169,107 @@ def _flow_point12_search_network(ctx):
 
 
 # ---------------------------------------------------------------------------
-# 点位 9: 微信窗口初始化不合法时窗口分离按钮 (依赖点位11/12已设值)
-# 流程待实现: 先保证11/12, 制造不合法布局后识别分离按钮并返回坐标
-# ---------------------------------------------------------------------------
+# 点位 9: 微信窗口初始化不合法时窗口分离按钮
+# 流程(多轮, 每轮步长减半):
+#   微信初始化 -> 复刻搜一搜前段(点11+输入1+全选删除+点12) -> 检测独立窗口:
+#     出现 => 99999,99999 待定
+#     未出现(嵌入) => 九宫格区域OCR"搜一搜"(黑字白底)取中心y;
+#       从微信主窗口最右边、y=该y 左移点击, 步长=右缘到搜一搜距离/10(每轮再减半):
+#       - 点击后独立窗口出现 => 记录坐标为点位9 成功
+#       - 点击后微信宽度变小 => 点到了关闭按钮(已过分离按钮, 步长过大)
+#         => 本轮作废, 重新完整流程且步长减半
+#----------------------------------------------------------------------------
+def _p9_round(round_idx, ctx):
+    import ctypes
+    import time as _time
+    from PIL import ImageGrab
+    from ..services import tasks as tasks_svc
+    from ..services import computer as _pc
+
+    # 1) 微信窗口就位
+    if not _ensure_wechat():
+        return None
+    # 2) 复刻搜一搜前段: 点11 -> 输入1 -> 全选删除 -> 点12
+    p11 = tasks_svc._read_point(11)
+    p12 = tasks_svc._read_point(12)
+    if not p11 or not p12:
+        return None
+    ctx.click(p11[0], p11[1], wait_after=0.2)
+    _pc.type_text("1"); _time.sleep(0.1); _pc.ctrl_key("A"); _time.sleep(0.1)
+    _pc.key_press(_pc.VK_DELETE); _time.sleep(0.2)
+    ctx.click(p12[0], p12[1], wait_after=0.8)
+    # 3) 独立窗口 => 无需分离
+    if _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
+        return (99999, 99999, "待定: 当前微信已独立搜一搜窗口, 无需窗口分离")
+    # 4) 嵌入模式: 先把微信主窗口移到左半屏, 再截图 OCR
+    weixin = _pc.find_windows(exe=tasks_svc.WECHAT_MAIN, visible_only=True)
+    if not weixin:
+        return None
+    u32 = _pc._u32()
+    sw = u32.GetSystemMetrics(_pc.SM_CXSCREEN)
+    sh = u32.GetSystemMetrics(_pc.SM_CYSCREEN)
+    _pc.move_window(weixin[0][0], 0, 0, sw // 2, sh)   # 微信主窗口移到左半屏
+    _time.sleep(0.8)
+    x1, x2 = sw // 3, sw * 2 // 3
+    y1, y2 = 0, sh // 9
+    img = ImageGrab.grab(bbox=(x1, y1, x2, y2)).convert("RGB")
+    hit = None
+    for cx, cy, text, score, sbox, _br in ctx.ocr_box(img):
+        if "搜一搜" not in text:
+            continue
+        crop = img.crop((min(p[0] for p in sbox), min(p[1] for p in sbox),
+                         max(p[0] for p in sbox), max(p[1] for p in sbox)))
+        dark = [pp for pp in crop.convert("RGB").getdata() if sum(pp) < 400]
+        if not dark:
+            continue
+        r = sum(p[0] for p in dark)/len(dark); g = sum(p[1] for p in dark)/len(dark); b = sum(p[2] for p in dark)/len(dark)
+        if not ((r+g+b)/3 < 100 and max(r,g,b)-min(r,g,b) < 60):
+            continue
+        pl = list(crop.convert("L").getdata())
+        if sum(1 for v in pl if v > 235)/max(1, len(pl)) < 0.5:
+            continue
+        hit = (int(cx), int(cy))
+        break
+    if not hit:
+        log.warning("点位9 未识别到'搜一搜'(黑字白底)")
+        return None
+    sx, sy = x1 + hit[0], y1 + hit[1]
+
+    # 5) 从微信右缘左移探测; 记录点击前宽度(用于检测点到关闭按钮?
+    rect = ctypes.wintypes.RECT()
+    u32.GetWindowRect(weixin[0][0], ctypes.byref(rect))
+    x_right = rect.right - 1
+    w0 = rect.right - rect.left
+    divide = 1 << round_idx              # 每轮减半: 1, 2, 4
+    step = max(1, int((x_right - sx) / 10 / divide))
+    log.info(f"点位9 第{round_idx+1}轮: y={sy} 右缘={x_right} 宽度={w0} 步长={step}")
+    i = 0
+    while True:
+        cx = x_right - i * step
+        if cx < sx:
+            break
+        ctx.click(cx, sy, wait_after=0.8)
+        # 检查1: 独立窗口出现 => 成功
+        if _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
+            log.info(f"点位9 第{round_idx+1}轮点击({cx},{sy}) 分离成功")
+            return (cx, sy, f"自动识别(第{round_idx+1}轮)")
+        # 检查2: 微信宽度变小 => 点到关闭按钮, 已过分离按钮 -> 整轮重来(步长减半)
+        rnow = ctypes.wintypes.RECT()
+        u32.GetWindowRect(weixin[0][0], ctypes.byref(rnow))
+        if rnow.right - rnow.left < w0 - 2:
+            log.warning(f"点位9 第{round_idx+1}轮 ({cx},{sy}) 触发宽度变小({w0}->{rnow.right-rnow.left}) => 点到关闭按钮, 重试减半步长")
+            return None
+        i += 1
+    log.warning(f"点位9 第{round_idx+1}轮未命中")
+    return None
+
+
 @flow_point("微信窗口初始化不合法时窗口分离按钮")
-def _flow_point9_split_button(_ctx):
-    # TODO: 待补充识别流程
+def _flow_point9_split_button(ctx):
+    for round_idx in range(4):
+        res = _p9_round(round_idx, ctx)
+        if res is not None:
+            return res
     return None, None
 
 
@@ -242,19 +336,25 @@ def _flow_search_button(ctx):
 # 执行入口: 按名称执行流程(路由调用)
 # ---------------------------------------------------------------------------
 def run_point_flow(name: str, attach: bool = True):
-    """执行点位自动设置流程 -> (x, y) 或 (None, None)"""
+    """执行点位自动设置流程 -> (x, y, remark, err); 流程函数可返回 (x,y) 或 (x,y,remark)"""
     fn = POINT_FLOWS.get(name)
     if not fn:
-        return None, None, f"未找到点位流程: {name}"
+        return None, None, "", f"未找到点位流程: {name}"
     if attach:
         _attach_wechat()
     try:
-        x, y = fn(FlowContext())
+        res = fn(FlowContext())
+        if res is None:
+            return None, None, "", f"识别失败: {name}"
+        if len(res) >= 3:
+            x, y, remark = res[0], res[1], res[2] or ""
+        else:
+            x, y, remark = res[0], res[1], ""
         if x is None or y is None:
-            return None, None, f"识别失败(AI 定位不到目标): {name}"
-        return x, y, ""
+            return None, None, "", f"识别失败(AI 定位不到目标): {name}"
+        return x, y, remark, ""
     except Exception as e:
-        return None, None, f"流程异常: {e}"
+        return None, None, "", f"流程异常: {e}"
 
 
 def run_scroll_flow(name: str, attach: bool = True):
