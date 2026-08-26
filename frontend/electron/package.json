@@ -39,6 +39,16 @@
       ],
       "icon": "icon.ico"
     },
-    "electronVersion": "31.7.7"
+    "electronVersion": "31.7.7",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "hong2301",
+        "repo": "wechat-article-collector"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

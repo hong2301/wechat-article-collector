@@ -56,3 +56,4 @@ release_v2/
 backend/__pycache__/
 node_modules/
 package-lock.json
+rel_test.log

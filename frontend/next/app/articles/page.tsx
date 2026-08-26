@@ -117,6 +117,7 @@ export default function ArticlePage() {
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState(false);
   const retryRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const retryCountRef = useRef(0);   // 连不上后端时的自动重试计数(上限5次)
   const [dlKey, setDlKey] = useState<string>("");   // 正在下载的文章art_biz(空=无下载中)
   const [kw, setKw] = useState("");
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -214,7 +215,17 @@ export default function ArticlePage() {
         setAccFilter((prev) => prev.length === 0 ? prev : []);
       }
       setLoadErr(false);
-    } catch { message.error("加载失败，自动重试中"); setLoadErr(true); retryRef.current = setTimeout(() => load(b), 3000); }
+      retryCountRef.current = 0;   // 连接成功, 重置重试计数
+    } catch {
+      retryCountRef.current += 1;
+      if (retryCountRef.current <= 5) {
+        message.error(`无法连接后端(8000), 正在自动重试(${retryCountRef.current}/5)`);
+      } else {
+        message.error("后端连接失败: 请确认后端已启动、8000端口未被占用, 再点右上角刷新");
+      }
+      setLoadErr(true);
+      if (retryCountRef.current <= 5) retryRef.current = setTimeout(() => load(b), 3000);
+    }
     finally { setLoading(false); }
   }
   // 下载当前文章为本地HTML(保存到对应公众号文件夹)

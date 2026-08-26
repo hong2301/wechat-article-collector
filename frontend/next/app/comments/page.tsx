@@ -60,6 +60,7 @@ export default function CommentsPage() {
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState(false);
   const retryRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const retryCountRef = useRef(0);   // 连不上后端时的自动重试计数(上限5次)
   const tableWrapRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -155,7 +156,17 @@ export default function CommentsPage() {
       setComments(d.items ?? d.comments ?? []);
       setTotal(d.total ?? (d.comments ? d.comments.length : 0));
       setLoadErr(false);
-    } catch { message.error("加载失败，自动重试中"); setLoadErr(true); retryRef.current = setTimeout(() => load(a), 3000); }
+      retryCountRef.current = 0;   // 连接成功, 重置重试计数
+    } catch {
+      retryCountRef.current += 1;
+      if (retryCountRef.current <= 5) {
+        message.error(`无法连接后端(8000), 正在自动重试(${retryCountRef.current}/5)`);
+      } else {
+        message.error("后端连接失败: 请确认后端已启动、8000端口未被占用, 再点右上角刷新");
+      }
+      setLoadErr(true);
+      if (retryCountRef.current <= 5) retryRef.current = setTimeout(() => load(a), 3000);
+    }
     finally { setLoading(false); }
   }
   function reload() { if (artBiz) load(artBiz); }

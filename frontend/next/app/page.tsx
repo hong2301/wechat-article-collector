@@ -120,6 +120,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState(false);
   const retryRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const retryCountRef = useRef(0);   // 连不上后端时的自动重试计数(上限5次)
   const [addOpen, setAddOpen] = useState(false);
   const [name, setName] = useState("");
   const [biz, setBiz] = useState("");
@@ -244,8 +245,18 @@ export default function Home() {
       if (Array.isArray(d)) { setTasks(d); setTotal(d.length); }
       else { setTasks(d.items || []); setTotal(d.total || 0); }
       setLoadErr(false);
+      retryCountRef.current = 0;   // 连接成功, 重置重试计数
     }
-    catch { message.error("无法连接后端，自动重试中"); setLoadErr(true); retryRef.current = setTimeout(() => load(), 3000); }
+    catch {
+      retryCountRef.current += 1;
+      if (retryCountRef.current <= 5) {
+        message.error(`无法连接后端(8000), 正在自动重试(${retryCountRef.current}/5)`);
+      } else {
+        message.error("后端连接失败: 请确认后端已启动、8000端口未被占用, 再点右上角刷新");
+      }
+      setLoadErr(true);
+      if (retryCountRef.current <= 5) retryRef.current = setTimeout(() => load(), 3000);
+    }
     finally { setLoading(false); }
   }
   useEffect(() => { load(); }, [page, pageSize, query]);

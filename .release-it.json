@@ -9,7 +9,7 @@
     "commitMessage": "chore(release): v${version}",
     "requireCleanWorkingDir": false
   },
-  "github": { "release": false },
+  "github": { "release": true },
   "hooks": {
     "after:bump": "node scripts/sync-version.js"
   }

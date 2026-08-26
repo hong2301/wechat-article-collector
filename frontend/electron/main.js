@@ -1,20 +1,71 @@
-const { app, BrowserWindow, nativeImage, shell } = require('electron')
+const { app, BrowserWindow, nativeImage, shell, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { spawn, execFileSync } = require('child_process')
 
+// ---------- 自动更新(electron-updater, 仅生产; 需 GitHub Token 发版才生效) ----------
+function setupAutoUpdater(win) {
+  if (isDev) return
+  try {
+    const { autoUpdater } = require('electron-updater')
+    autoUpdater.autoDownload = false     // 先询问用户再下载
+    autoUpdater.on('update-available', (info) => {
+      log(`发现新版本 ${info.version}`)
+      dialog.showMessageBox(win, {
+        type: 'info', title: '发现新版本',
+        message: `发现新版本 v${info.version}, 是否现在更新?`,
+        buttons: ['更新', '稍后'],
+      }).then((r) => { if (r.response === 0) autoUpdater.downloadUpdate() })
+    })
+    autoUpdater.on('update-downloaded', () => {
+      dialog.showMessageBox(win, {
+        type: 'info', title: '更新已就绪',
+        message: '新版本已下载, 重启应用以完成更新。',
+        buttons: ['立即重启', '稍后'],
+      }).then((r) => { if (r.response === 0) autoUpdater.quitAndInstall() })
+    })
+    autoUpdater.on('error', (err) => log(`自动更新失败: ${err.message}`))
+    autoUpdater.checkForUpdates().catch((e) => log(`更新检查未开始: ${e.message}`))
+    log('自动更新检查已启动')
+  } catch (e) {
+    log('electron-updater 不可用, 跳过自动更新: ' + e.message)
+  }
+}
+
 const isDev = !app.isPackaged
 const BACKEND_PORT = 8000
 let backendProc = null
+let mainWindow = null
+
+// ---------- 单实例锁: 重复双击只保留一个窗口 ----------
+const gotLock = app.requestSingleInstanceLock()
+if (!gotLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    log('检测到重复启动, 聚焦已有窗口')
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+}
 
 // 日志落盘: %APPDATA%/WeChatCollector/main.log (便于排查双击启动问题)
+const LOG_MAX = 5 * 1024 * 1024   // 日志超 5MB 重命名轮转
 function logFile() {
   const dir = app.getPath('userData')
   try { fs.mkdirSync(dir, { recursive: true }) } catch (e) {}
   return path.join(dir, 'main.log')
 }
 function log(msg) {
-  try { fs.appendFileSync(logFile(), `[${new Date().toISOString()}] ${msg}\n`) } catch (e) {}
+  try {
+    const f = logFile()
+    if (fs.existsSync(f) && fs.statSync(f).size > LOG_MAX) {
+      fs.renameSync(f, f + '.old')   // 轮转: main.log -> main.log.old
+    }
+    fs.appendFileSync(f, `[${new Date().toISOString()}] ${msg}\n`)
+  } catch (e) {}
 }
 
 // 生产模式: 数据目录 = exe 同级 data/ (与 release 目录布局一致)
@@ -92,14 +143,58 @@ function createIcon() {
   }
 }
 
+// ---------- 窗口状态记忆: 记住上次窗口大小/位置 ----------
+function windowStateFile() {
+  return path.join(app.getPath('userData'), 'window-state.json')
+}
+function loadWindowState() {
+  try {
+    const s = JSON.parse(fs.readFileSync(windowStateFile(), 'utf8'))
+    // 校验: 窗口需落在屏幕可视区域(防显示器分辨率变化后丢窗口)
+    const { screen } = require('electron')
+    const wa = screen.getPrimaryDisplay().workArea
+    if (s.x !== undefined && s.width && s.width <= wa.width && s.height <= wa.height) {
+      return { width: s.width, height: s.height, x: s.x, y: s.y }
+    }
+  } catch (e) { /* 无记录/损坏 -> 默认 */ }
+  return { width: 1180, height: 760 }
+}
+function saveWindowState(win) {
+  try {
+    fs.writeFileSync(windowStateFile(), JSON.stringify(win.getNormalBounds()))
+  } catch (e) { /* 忽略 */ }
+}
+
 function createWindow() {
   const icon = createIcon()
+  const state = loadWindowState()
   const win = new BrowserWindow({
-    width: 1180,
-    height: 760,
+    ...state,
     autoHideMenuBar: true,
     icon,
     webContents: { contextIsolation: true, nodeIntegration: false },
+  })
+  mainWindow = win
+
+  // 窗口关闭时记忆大小/位置
+  win.on('close', () => saveWindowState(win))
+
+  // 渲染进程崩溃: 提示 + 自动恢复
+  win.webContents.on('render-process-gone', (e, details) => {
+    log(`渲染进程崩溃: reason=${details.reason} exitCode=${details.exitCode}`)
+    dialog.showMessageBox(win, {
+      type: 'error', title: '页面异常',
+      message: '页面进程崩溃，正在尝试恢复…',
+      buttons: ['重新加载'],
+    }).then(() => { try { win.reload() } catch (e2) {} })
+  })
+  // 加载失败(含后端未起动 served 页面 404): 日志 + 提示
+  win.webContents.on('did-fail-load', (e, code, desc, url) => {
+    log(`页面加载失败 code=${code} desc=${desc} url=${url}`)
+  })
+  // 渲染进程 console 统一透传到主日志(排查前端问题)
+  win.webContents.on('console-message', (e, level, message) => {
+    if (level >= 2) log(`渲染[${['log','warn','error'][level] || level}]: ${message.slice(0, 300)}`)
   })
 
   // 拦截导航：外部 http(s) 链接用系统默认浏览器打开，不在应用内跳转
@@ -156,6 +251,7 @@ app.whenReady().then(async () => {
   }
   createWindow()
   log('主窗口已创建')
+  setupAutoUpdater(mainWindow)   // 窗口创建后检查更新 (生产)
 })
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
