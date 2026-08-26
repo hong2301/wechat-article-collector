@@ -667,3 +667,132 @@ def _ensure_wechat():
         return True
     except Exception:
         return False
+
+# ---------------------------------------------------------------------------
+# 点位 19/20: 文章底部数据栏左上/右下 (同一流程, 一起设置)
+# 流程: 微信就位->搜一搜初始化(点11/12/9)->搜一搜查询单篇文章链接
+#   -> 等5s -> 截左半屏最下1/10 -> OCR找"关注"(box取其高) -> 中心Y+高×1.2 定数据栏高
+#   -> 宽度=左半屏x中点(sw/4)到屏幕中线(sw/2) -> 19=左上, 20=右下 双写
+# ---------------------------------------------------------------------------
+ARTICLE_LINK_DEMO = "https://mp.weixin.qq.com/s/kTArGuZi-IqE21jhwVGlTQ"
+
+
+def _flow_article_bar_find(ctx):
+    import ctypes
+    import time as _time
+    from PIL import ImageGrab
+    from ..services import tasks as tasks_svc
+    from ..services import computer as _pc
+
+    if not _ensure_wechat():
+        return None
+    p11 = tasks_svc._read_point(11)
+    p12 = tasks_svc._read_point(12)
+    p9 = tasks_svc._read_point(9)
+    if not p11 or not p12 or not p9:
+        return None
+    ctx.click(p11[0], p11[1], wait_after=0.2)
+    _pc.type_text("1"); _time.sleep(0.1); _pc.ctrl_key("A"); _time.sleep(0.1)
+    _pc.key_press(_pc.VK_DELETE); _time.sleep(0.2)
+    ctx.click(p12[0], p12[1], wait_after=0.8)
+    u32_ = _pc._u32()
+    sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
+    sh_ = u32_.GetSystemMetrics(_pc.SM_CYSCREEN)
+    if not _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
+        wx = _pc.find_windows(exe=tasks_svc.WECHAT_MAIN, visible_only=True)
+        if wx:
+            _pc.move_window(wx[0][0], 0, 0, sw_ // 2, sh_)
+            _time.sleep(0.3)
+        ctx.click(p9[0], p9[1], wait_after=0.8)
+
+    ok_q, _txt = tasks_svc.search_query(ARTICLE_LINK_DEMO)
+    if not ok_q:
+        log.warning("点位19/20 查询文章链接失败: " + _txt)
+        return None
+    _time.sleep(5.0)
+
+    # 截左半屏最下2/10, OCR找"关注"box(1/10窄条OCR不稳; 关注按钮在最底部)
+    y0_1, y1_1 = sh_ * 8 // 10, sh_
+    shot = ImageGrab.grab(bbox=(0, y0_1, sw_ // 2, y1_1)).convert("RGB")
+    hit = None
+    for cx, cy, text, score, sbox, _br in ctx.ocr_box(shot):
+        if "关注" in text:
+            ys = [p[1] for p in sbox]
+            h = max(ys) - min(ys)
+            hit = (int(cx), y0_1 + int(cy), h)
+            break
+    if not hit:
+        log.warning("点位19/20 未识别到'关注'")
+        return None
+    cx_abs, cy_abs, box_h = hit
+
+    # 高度上下扩大120%
+    H = box_h * 1.2
+    y_top = int(cy_abs - H / 2)
+    y_bot = int(cy_abs + H / 2)
+    x_left = sw_ // 4        # 左半屏 x 中点
+    x_right = sw_ // 2       # 屏幕中线
+    log.info(f"点位19/20 数据栏区: x[{x_left},{x_right}] y[{y_top},{y_bot}] (关注box高{box_h}->扩{H:.0f})")
+    return x_left, y_top, x_right, y_bot
+
+
+def _article_bar_entry(self_name):
+    def fn(ctx):
+        res = _flow_article_bar_find(ctx)
+        if res is None:
+            return None, None
+        x_left, y_top, x_right, y_bot = res
+        conn = _get_conn()
+        try:
+            conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (x_left, y_top, "文章底部数据栏左上"))
+            conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (x_right, y_bot, "文章底部数据栏右下"))
+            conn.commit()
+        finally:
+            conn.close()
+        if self_name == "文章底部数据栏左上":
+            return x_left, y_top
+        return x_right, y_bot
+    return fn
+
+
+POINT_FLOWS["文章底部数据栏左上"] = _article_bar_entry("文章底部数据栏左上")
+POINT_FLOWS["文章底部数据栏右下"] = _article_bar_entry("文章底部数据栏右下")
+
+
+# ---------------------------------------------------------------------------
+# 点位 21/22: 阅读数左/右下 (同一自动设置, 依赖点位19已设值, 纯计算不操作窗口)
+#  22 = 点位19(文章底部数据栏左上)的坐标; 21 = (微信窗口最左边x=0, 屏幕中点y)
+# ---------------------------------------------------------------------------
+def _calc_reads_box(self_name):
+    def fn(ctx):
+        import ctypes
+        from ..services import computer as _pc2
+        conn = _get_conn()
+        try:
+            p19 = conn.execute(
+                "SELECT x, y FROM points WHERE name=?", ("文章底部数据栏左上",)).fetchone()
+        finally:
+            conn.close()
+        if not p19 or not str(p19["x"] or "").strip() or not str(p19["y"] or "").strip():
+            log.warning("点位21/22 缺少点位19")
+            return None, None
+        x19, y19 = int(float(p19["x"])), int(float(p19["y"]))
+        u32_ = _pc2._u32()
+        sh_ = u32_.GetSystemMetrics(_pc2.SM_CYSCREEN)
+        x21, y21 = 0, sh_ // 2       # 21: 微信最左边x=0, 屏幕中点y
+        x22, y22 = x19, y19          # 22: 直接赋值点位19
+        conn = _get_conn()
+        try:
+            conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (x21, y21, "阅读数左上"))
+            conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (x22, y22, "阅读数右下"))
+            conn.commit()
+        finally:
+            conn.close()
+        if self_name == "阅读数左上":
+            return x21, y21
+        return x22, y22
+    return fn
+
+
+POINT_FLOWS["阅读数左上"] = _calc_reads_box("阅读数左上")
+POINT_FLOWS["阅读数右下"] = _calc_reads_box("阅读数右下")
