@@ -144,6 +144,7 @@ export default function PointsDialog({
   const POINT_DEPS: Record<string, string[]> = {
     "微信左上角搜索网络": ["点击微信左上角搜索输入框"],
     "微信窗口初始化不合法时窗口分离按钮": ["点击微信左上角搜索输入框", "微信左上角搜索网络"],
+    "搜一搜窗口查询按钮": ["点击微信左上角搜索输入框", "微信左上角搜索网络", "微信窗口初始化不合法时窗口分离按钮"],
   };
   const [autoLoading, setAutoLoading] = useState<number | null>(null);
   function missingDeps(p: Point): string[] {

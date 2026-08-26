@@ -311,21 +311,91 @@ def _flow_point11_search_box(ctx):
 
 
 # ---------------------------------------------------------------------------
-# 示例流程(结构示范): 搜一搜窗口查询按钮
-# 真实实现时: 按微信界面实际布局调用现有点位(搜索框/搜索网络结果) + 截图 + AI 定位
+# ---------------------------------------------------------------------------
+# 点位 14: 搜一搜窗口查询按钮 (依赖 11/12/9)
+# 流程: 微信初始化 -> 初始化搜一搜(点11+输入1+全选删除+点12, 无独立窗则点9分离)
+#   -> 截图左半屏最上1/10, OCR"搜一搜"取中心y
+#   -> 从左半屏一半x(sw//4)往左点击, 步长=(sw//4-搜一搜x)/20:
+#      点击后截图对比有变化=>命中查询按钮(成功);
+#      搜一搜窗口被关闭=>步长过大(点到关闭), 整轮重来步长减半
 # ---------------------------------------------------------------------------
 @flow_point("搜一搜窗口查询按钮")
-def _flow_search_button(ctx):
-    """点击微信左上搜索框 -> 回车展开搜一搜 -> 截图顶栏 -> AI 定位查询按钮"""
-    ctx.click(141, 69, wait_after=1.2)          # 点位11: 微信左上角搜索输入框
-    # 此处可按需输入搜索词扩展示例: ctx.type_text("一个公众号")
-    # 截图搜一搜窗口顶部栏(暂用示例区域, 实际以窗口布局为准)
-    box = (400, 20, 480, 60)
-    shot = ctx.shot(*box)
-    rx, ry = ctx.locate(shot, "搜一搜窗口中的『查询/搜索』按钮")
-    if rx is None:
-        return None, None
-    return box[0] + int(rx), box[1] + int(ry)
+def _flow_point14_query_button(ctx):
+    import ctypes
+    import time as _time
+    from PIL import ImageGrab
+    import numpy as np
+    from ..services import tasks as tasks_svc
+    from ..services import computer as _pc
+
+    for round_idx in range(4):
+        if not _ensure_wechat():
+            return None, None
+        # 搜一搜前段: 点11 -> 输入1 -> 全选删除 -> 点12
+        p11 = tasks_svc._read_point(11)
+        p12 = tasks_svc._read_point(12)
+        if not p11 or not p12:
+            return None, None
+        ctx.click(p11[0], p11[1], wait_after=0.2)
+        _pc.type_text("1"); _time.sleep(0.1); _pc.ctrl_key("A"); _time.sleep(0.1)
+        _pc.key_press(_pc.VK_DELETE); _time.sleep(0.2)
+        ctx.click(p12[0], p12[1], wait_after=0.8)
+        # 无独立搜一搜窗口 -> 先移微信主窗口到左半屏, 等0.3s 再点9分离
+        if not _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
+            p9 = tasks_svc._read_point(9)
+            if not p9:
+                return None, None
+            u32_ = _pc._u32()
+            sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
+            sh_ = u32_.GetSystemMetrics(_pc.SM_CYSCREEN)
+            wx = _pc.find_windows(exe=tasks_svc.WECHAT_MAIN, visible_only=True)
+            if wx:
+                _pc.move_window(wx[0][0], 0, 0, sw_ // 2, sh_)
+                _time.sleep(0.3)
+            ctx.click(p9[0], p9[1], wait_after=0.8)
+
+        # 截左半屏 OCR 找"搜一搜"(窄条1/10 OCR不稳, 用全左半屏图+限定y在最上1/10)
+        u32 = _pc._u32()
+        sw = u32.GetSystemMetrics(_pc.SM_CXSCREEN)
+        sh = u32.GetSystemMetrics(_pc.SM_CYSCREEN)
+        x2 = sw // 2
+        y_top = max(80, sh * 2 // 10)          # 最上 2/10(1/10 太窄OCR不出/不稳)
+        img0 = ImageGrab.grab(bbox=(0, 0, x2, sh)).convert("RGB")
+        hit = None
+        for cx, cy, text, score, sbox, _br in ctx.ocr_box(img0):
+            if "搜一搜" in text and cy <= y_top:
+                hit = (int(cx), int(cy))
+                break
+        if not hit:
+            log.warning("点位14 未识别到最上1/10的'搜一搜'")
+            return None, None
+        sx, sy = hit[0], hit[1]
+
+        # 从左半屏一半x(sw//4)往左点击; 步长=(sw//4 - sx)/20 / 本轮减半
+        start_x = sw // 4
+        divide = 1 << round_idx
+        step = max(1, int((start_x - sx) / 20 / divide))
+        log.info(f"点位14 第{round_idx+1}轮: y={sy} 起点={start_x} 搜一搜x={sx} 步长={step}")
+        i = 0
+        while True:
+            cx = start_x - i * step
+            if cx <= sx:
+                break
+            before = np.array(ImageGrab.grab(bbox=(0, 0, x2, sh)).convert("RGB"))
+            ctx.click(cx, sy, wait_after=0.7)
+            after = np.array(ImageGrab.grab(bbox=(0, 0, x2, sh)).convert("RGB"))
+            # 搜一搜窗口被关闭 => 步长太大过了查询按钮, 整轮重来
+            if not _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
+                log.warning(f"点位14 第{round_idx+1}轮 ({cx},{sy}) 搜一搜被关闭, 步长过大重试")
+                break
+            # 只要有变化即成功(用户实测: 一点变化就命中), 仅排除纯噪声(>0.001)
+            changed = (np.abs(after.astype(int) - before.astype(int)).sum(axis=2) > 15).mean()
+            if changed > 0.001:
+                log.info(f"点位14 第{round_idx+1}轮 ({cx},{sy}) 截图变化率={changed:.4f} => 命中查询按钮")
+                return cx, sy, f"自动识别(第{round_idx+1}轮)"
+            i += 1
+    log.warning("点位14 多轮未命中")
+    return None, None
 
 
 # ---------------------------------------------------------------------------
