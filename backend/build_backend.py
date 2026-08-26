@@ -33,9 +33,19 @@ def main():
         # uvicorn 动态加载子模块
         "--collect-all", "uvicorn",
         "--collect-submodules", "fastapi",
-        # OCR 引擎(模型文件在包内) + onnxruntime(DLL)
+        # OCR 引擎(模型文件在包内)
         "--collect-all", "rapidocr_onnxruntime",
-        "--collect-all", "onnxruntime",
+        # onnxruntime: 只收 DLL/元数据, 不全收子模块 --- 否则 quantization 会拖入 torch(365MB)
+        "--collect-binaries", "onnxruntime",
+        "--copy-metadata", "onnxruntime",
+        # 排除冗余大模块(未使用的依赖链, 累计 500MB+)
+        "--exclude-module", "torch",
+        "--exclude-module", "pandas",
+        "--exclude-module", "matplotlib",
+        "--exclude-module", "llvmlite",
+        "--exclude-module", "numba",
+        "--exclude-module", "Pythonwin",
+        "--exclude-module", "onnxruntime.quantization",
         "--hidden-import", "PIL.ImageGrab",
         "--hidden-import", "uvicorn.logging",
         "--hidden-import", "uvicorn.loops.auto",
