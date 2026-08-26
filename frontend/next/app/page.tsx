@@ -671,7 +671,7 @@ export default function Home() {
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minHeight: 32 }}>
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，4指标采集不可用:\n${si.ai.join("\n")}` : undefined}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", marginLeft: 12 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
               <span style={{ fontSize: 14, color: si.ai.length > 0 ? "#ff4d4f" : "#555" }}>采集4指标</span>
               {si.ai.length > 0 && <ExclamationCircleOutlined style={{ color: "#ff4d4f" }} />}
               <Switch checked={capture4metrics} disabled={si.ai.length > 0} onChange={setCapture4metrics} />
@@ -683,7 +683,7 @@ export default function Home() {
           <Switch checked={saveHtml} onChange={setSaveHtml} />
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，评论采集不可用:\n${si.ai.join("\n")}` : undefined}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", marginLeft: 12 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
               <span style={{ fontSize: 14, color: si.ai.length > 0 ? "#ff4d4f" : "#555" }}>评论采集</span>
               {si.ai.length > 0 && <ExclamationCircleOutlined style={{ color: "#ff4d4f" }} />}
               <Switch checked={captureComments} disabled={si.ai.length > 0} onChange={setCaptureComments} />

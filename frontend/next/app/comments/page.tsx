@@ -373,8 +373,6 @@ export default function CommentsPage() {
           <InputNumber min={0} placeholder="无限" value={maxLevel2}
             onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 110 }} />
         </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-        </div>
       </div>
       {/* 筛选面板 */}
       <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "14px 18px", margin: "0 0 12px" }}>
