@@ -55,3 +55,4 @@ release_v2/
 # Python 后端
 backend/__pycache__/
 node_modules/
+package-lock.json

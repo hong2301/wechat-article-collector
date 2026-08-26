@@ -663,11 +663,11 @@ export default function Home() {
           <Switch checked={windowSplit} onChange={setWindowSplit} />
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，4指标采集不可用:\n${si.ai.join("\n")}` : undefined}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-              <span style={{ marginLeft: 12, fontSize: 14, color: si.ai.length > 0 ? "#ff4d4f" : "#555" }}>采集4指标</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", marginLeft: 12 }}>
+              <span style={{ fontSize: 14, color: si.ai.length > 0 ? "#ff4d4f" : "#555" }}>采集4指标</span>
               {si.ai.length > 0 && <ExclamationCircleOutlined style={{ color: "#ff4d4f" }} />}
+              <Switch checked={capture4metrics} disabled={si.ai.length > 0} onChange={setCapture4metrics} />
             </span>
-            <Switch checked={capture4metrics} disabled={si.ai.length > 0} onChange={setCapture4metrics} />
           </Tooltip>
           <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集阅读数</span>
           <Switch checked={captureRead} onChange={setCaptureRead} />
@@ -675,11 +675,11 @@ export default function Home() {
           <Switch checked={saveHtml} onChange={setSaveHtml} />
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，评论采集不可用:\n${si.ai.join("\n")}` : undefined}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-              <span style={{ marginLeft: 12, fontSize: 14, color: si.ai.length > 0 ? "#ff4d4f" : "#555" }}>评论采集</span>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", marginLeft: 12 }}>
+              <span style={{ fontSize: 14, color: si.ai.length > 0 ? "#ff4d4f" : "#555" }}>评论采集</span>
               {si.ai.length > 0 && <ExclamationCircleOutlined style={{ color: "#ff4d4f" }} />}
+              <Switch checked={captureComments} disabled={si.ai.length > 0} onChange={setCaptureComments} />
             </span>
-            <Switch checked={captureComments} disabled={si.ai.length > 0} onChange={setCaptureComments} />
           </Tooltip>
         </div>
         {/* 评论采集设置行(开关开时显示) */}

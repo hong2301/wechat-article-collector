@@ -9,9 +9,10 @@
     "dev:frontend": "npm --prefix frontend run dev",
     "build": "node scripts/build.js",
     "build:clean": "node scripts/build.js --clean",
-    "release": "node scripts/build.js --clean"
+    "release": "release-it"
   },
   "devDependencies": {
-    "concurrently": "^10.0.5"
+    "concurrently": "^10.0.5",
+    "release-it": "^20.2.1"
   }
 }

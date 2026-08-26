@@ -18,7 +18,7 @@ export default function Header() {
         <div>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
             <span style={{ fontSize: 19, fontWeight: 700 }}>微信公众号采集器</span>
-            <span style={{ fontSize: 12, color: "#8b949e" }}>v3.1.0</span>
+            <span style={{ fontSize: 12, color: "#8b949e" }}>v{process.env.NEXT_PUBLIC_APP_VERSION || ""}</span>
           </div>
           <div style={{ fontSize: 12, color: "#8b949e" }}>基于 微信 Windows 版 4.1.12.55</div>
         </div>
