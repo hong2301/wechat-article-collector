@@ -169,7 +169,6 @@ export default function Home() {
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
   // 窗口分离(采集设置)
   const [cfgLoaded, setCfgLoaded] = useState(false);   // 采集配置localStorage加载完成
-  const [windowSplit, setWindowSplit] = useState(true);
   // 采集指标开关
   const [capture4metrics, setCapture4metrics] = useState(false);
   const [captureRead, setCaptureRead] = useState(false);
@@ -189,8 +188,7 @@ export default function Home() {
       const saved = localStorage.getItem("collectConfig");
       if (saved) {
         const d = JSON.parse(saved);
-        if (typeof d.window_split === "boolean") setWindowSplit(d.window_split);
-        if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
+                if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
         if (typeof d.capture_read === "boolean") setCaptureRead(d.capture_read);
         if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
         // 存储路径: 旧默认 D:/article_data 视为未设置(改用新默认 <数据目录>/article_data)
@@ -212,8 +210,7 @@ export default function Home() {
     if (!cfgLoaded) return;
     try {
       localStorage.setItem("collectConfig", JSON.stringify({
-        window_split: windowSplit,
-        capture_4metrics: capture4metrics,
+          capture_4metrics: capture4metrics,
         capture_read: captureRead,
         save_html: saveHtml,
         save_dir: saveDir,
@@ -226,7 +223,7 @@ export default function Home() {
       }));
     } catch { /* 忽略写入失败 */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowSplit, capture4metrics, captureRead, saveHtml, saveDir, captureComments, maxComments, maxLevel1, maxLevel2, dateRange]);
+  }, [capture4metrics, captureRead, saveHtml, saveDir, captureComments, maxComments, maxLevel1, maxLevel2, dateRange]);
 
   useEffect(() => {
     const probe = document.createElement("div");
@@ -421,7 +418,6 @@ export default function Home() {
       link,
       date_start: dateRange ? dateRange[0].format("YYYY-MM-DD") : "",
       date_end: dateRange ? dateRange[1].format("YYYY-MM-DD") : "",
-      window_split: windowSplit,
       capture_4metrics: capture4metrics,
       capture_read: captureRead,
       save_html: saveHtml,
@@ -673,13 +669,6 @@ export default function Home() {
         </div>
         {/* 采集开关行(第二行) */}
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minHeight: 32 }}>
-          <Tooltip title="窗口分离: 独立出搜一搜窗口。搜索时打开搜一搜有两种形态: ①独立弹出搜一搜窗口 ②嵌入微信窗口内部; 本功能统一为第一种(独立窗口)方式。">
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 14, color: "#555" }}>
-              窗口分离
-              <QuestionCircleOutlined style={{ color: "#8b949e" }} />
-            </span>
-          </Tooltip>
-          <Switch checked={windowSplit} onChange={setWindowSplit} />
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，4指标采集不可用:\n${si.ai.join("\n")}` : undefined}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", marginLeft: 12 }}>
@@ -915,7 +904,6 @@ export default function Home() {
               <div style={{ overflow: "auto", flex: 1, minHeight: 0 }}>
               {[
                 { label: "时间范围", value: dateRange ? `${dateRange[0].format("YYYY-MM-DD")} ~ ${dateRange[1].format("YYYY-MM-DD")}` : "全部" },
-                { label: "窗口分离", value: windowSplit ? "开" : "关" },
                 { label: "采集4指标", value: capture4metrics ? "开" : "关" },
                 { label: "采集阅读数", value: captureRead ? "开" : "关" },
                 { label: "保存Html", value: saveHtml ? "开" : "关" },
@@ -952,7 +940,6 @@ export default function Home() {
           <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0", marginBottom: 12 }}>
             {[
               { label: "时间范围", value: dateRange ? `${dateRange[0].format("YYYY-MM-DD")} ~ ${dateRange[1].format("YYYY-MM-DD")}` : "全部" },
-              { label: "窗口分离", value: windowSplit ? "开" : "关" },
               { label: "采集4指标", value: capture4metrics ? "开" : "关" },
               { label: "采集阅读数", value: captureRead ? "开" : "关" },
               { label: "保存Html", value: saveHtml ? "开" : "关" },

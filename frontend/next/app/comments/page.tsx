@@ -74,7 +74,6 @@ export default function CommentsPage() {
   const [ipFilter, setIpFilter] = useState<string[]>(["__all__"]);   // IP多选(含'全部')
   const [levelFilter, setLevelFilter] = useState<string[]>(["__all__"]); // 层级多选(含'全部')
   // 评论采集设置(独立存 commentConfig)
-  const [windowSplit, setWindowSplit] = useState(false);   // 窗口分离
   const [maxComments, setMaxComments] = useState<number | null>(null);
   const [maxLevel1, setMaxLevel1] = useState<number | null>(null);
   const [maxLevel2, setMaxLevel2] = useState<number | null>(0);
@@ -82,8 +81,7 @@ export default function CommentsPage() {
   useEffect(() => {
     try {
       const d = JSON.parse(localStorage.getItem("commentConfig") || "{}");
-      if (typeof d.window_split === "boolean") setWindowSplit(d.window_split);
-      if ("max_comments" in d) setMaxComments(d.max_comments);
+            if ("max_comments" in d) setMaxComments(d.max_comments);
       if ("max_level1" in d) setMaxLevel1(d.max_level1);
       if ("max_level2" in d) setMaxLevel2(d.max_level2);
       if (d.date_start && d.date_end) setDateRange([dayjs(d.date_start), dayjs(d.date_end)]);
@@ -94,13 +92,12 @@ export default function CommentsPage() {
     if (!ccLoaded) return;
     try {
       localStorage.setItem("commentConfig", JSON.stringify({
-        window_split: windowSplit,
-        max_comments: maxComments, max_level1: maxLevel1, max_level2: maxLevel2,
+          max_comments: maxComments, max_level1: maxLevel1, max_level2: maxLevel2,
         date_start: dateRange ? dateRange[0].format("YYYY-MM-DD") : "",
         date_end: dateRange ? dateRange[1].format("YYYY-MM-DD") : "",
       }));
     } catch { /* 忽略 */ }
-  }, [ccLoaded, windowSplit, maxComments, maxLevel1, maxLevel2, dateRange]);
+  }, [ccLoaded, maxComments, maxLevel1, maxLevel2, dateRange]);
   // 评论采集弹窗
   const [ccOpen, setCcOpen] = useState(false);
   const si = useSettingsIssues();
@@ -255,7 +252,7 @@ export default function CommentsPage() {
     ccAbortRef.current = controller;
     const payload = {
       name: name || "", biz: biz || "", link,
-      window_split: windowSplit, capture_4metrics: false, capture_read: false,
+ capture_4metrics: false, capture_read: false,
       save_html: false, save_dir: "",
       max_comments: maxComments, max_level1: maxLevel1, max_level2: maxLevel2,
     };
@@ -377,13 +374,6 @@ export default function CommentsPage() {
             onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 110 }} />
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <Tooltip title="窗口分离: 独立出搜一搜窗口。搜索时打开搜一搜有两种形态: ①独立弹出搜一搜窗口 ②嵌入微信窗口内部; 本功能统一为第一种(独立窗口)方式。">
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 14, color: "#555" }}>
-              窗口分离
-              <QuestionCircleOutlined style={{ color: "#8b949e" }} />
-            </span>
-          </Tooltip>
-          <Switch checked={windowSplit} onChange={setWindowSplit} />
         </div>
       </div>
       {/* 筛选面板 */}

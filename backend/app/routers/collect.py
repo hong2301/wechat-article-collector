@@ -92,7 +92,6 @@ class CollectStart(BaseModel):
     link: str = ""           # 拼接好的公众号链接(前端拼好再传)
     date_start: str = ""     # 采集开始日期
     date_end: str = ""       # 采集结束日期
-    window_split: bool = True  # 窗口分离
     capture_4metrics: bool = False  # 采集4指标
     capture_read: bool = False       # 采集阅读数
     save_html: bool = False          # 保存文章为本地HTML(含图片)
@@ -107,7 +106,6 @@ class UpdateStart(BaseModel):
     biz: str = ""            # 公众号 biz
     name: str = ""           # 公众号名称
     link: str = ""           # 文章链接(前端拼好传)
-    window_split: bool = True  # 窗口分离
     capture_4metrics: bool = False  # 采集4指标
     capture_read: bool = False       # 采集阅读数
     save_html: bool = False          # 保存文章为本地HTML(含图片)
@@ -122,7 +120,6 @@ class CommentStart(BaseModel):
     biz: str = ""            # 公众号 biz
     name: str = ""           # 公众号名称
     link: str = ""           # 文章链接
-    window_split: bool = True  # 窗口分离
     capture_4metrics: bool = False  # 采集4指标
     capture_read: bool = False       # 采集阅读数
     save_html: bool = False          # 保存文章为本地HTML(含图片)
@@ -156,7 +153,7 @@ def _collect_generate(payload: CollectStart):
         prev_hook = tasks_service.bind_tasks_echo(hook)
         try:
             # 1) 微信窗口初始化(带窗口分离参数)
-            ok, text = tasks_service.init_wechat_window(window_split=payload.window_split)
+            ok, text = tasks_service.init_wechat_window()
             log_q.put(("log", f"[微信窗口初始化] {'成功' if ok else '失败'} | {text}"))
             if not ok:
                 log_q.put(("done", False, "微信窗口初始化失败"))
@@ -168,7 +165,7 @@ def _collect_generate(payload: CollectStart):
                 log_q.put(("done", False, "采集器窗口初始化失败"))
                 return
             # 3) 搜一搜窗口初始化(带窗口分离参数)
-            ok, text = tasks_service.search_window_init(window_split=payload.window_split)
+            ok, text = tasks_service.search_window_init()
             log_q.put(("log", f"[搜一搜窗口初始化] {'成功' if ok else '失败'} | {text}"))
             if not ok:
                 log_q.put(("done", False, "搜一搜窗口初始化失败"))
@@ -208,7 +205,6 @@ def _collect_generate(payload: CollectStart):
     tasks_service.clear_stop()   # 新任务开始前清除
     msg = (f"任务: {payload.name} | biz={payload.biz} | "
            f"日期 {payload.date_start} ~ {payload.date_end} | "
-           f"窗口分离={'开' if payload.window_split else '关'} | "
            f"4指标={'开' if payload.capture_4metrics else '关'} | "
            f"阅读数={'开' if payload.capture_read else '关'} | "
            f"保存Html={'开' if payload.save_html else '关'}")
@@ -263,7 +259,7 @@ def _update_generate(payload: UpdateStart):
         prev_hook = tasks_service.bind_tasks_echo(hook)
         try:
             # 1) 微信窗口初始化
-            ok, text = tasks_service.init_wechat_window(window_split=payload.window_split)
+            ok, text = tasks_service.init_wechat_window()
             log_q.put(("log", f"[微信窗口初始化] {'成功' if ok else '失败'} | {text}"))
             if not ok:
                 log_q.put(("done", False, "微信窗口初始化失败"))
@@ -275,7 +271,7 @@ def _update_generate(payload: UpdateStart):
                 log_q.put(("done", False, "采集器窗口初始化失败"))
                 return
             # 3) 搜一搜窗口初始化
-            ok, text = tasks_service.search_window_init(window_split=payload.window_split)
+            ok, text = tasks_service.search_window_init()
             log_q.put(("log", f"[搜一搜窗口初始化] {'成功' if ok else '失败'} | {text}"))
             if not ok:
                 log_q.put(("done", False, "搜一搜窗口初始化失败"))
@@ -313,7 +309,6 @@ def _update_generate(payload: UpdateStart):
 
     tasks_service.clear_stop()
     msg = (f"更新: {payload.name} | {payload.link[:50]} | "
-           f"窗口分离={'开' if payload.window_split else '关'} | "
            f"4指标={'开' if payload.capture_4metrics else '关'} | "
            f"阅读数={'开' if payload.capture_read else '关'} | "
            f"保存Html={'开' if payload.save_html else '关'}")
@@ -365,7 +360,7 @@ def _comment_generate(payload: CommentStart):
         prev_hook = tasks_service.bind_tasks_echo(hook)
         try:
             # 1) 微信窗口初始化
-            ok, text = tasks_service.init_wechat_window(window_split=payload.window_split)
+            ok, text = tasks_service.init_wechat_window()
             log_q.put(("log", f"[微信窗口初始化] {'成功' if ok else '失败'} | {text}"))
             if not ok:
                 log_q.put(("done", False, "微信窗口初始化失败")); return
@@ -375,7 +370,7 @@ def _comment_generate(payload: CommentStart):
             if not ok:
                 log_q.put(("done", False, "采集器窗口初始化失败")); return
             # 3) 搜一搜窗口初始化
-            ok, text = tasks_service.search_window_init(window_split=payload.window_split)
+            ok, text = tasks_service.search_window_init()
             log_q.put(("log", f"[搜一搜窗口初始化] {'成功' if ok else '失败'} | {text}"))
             if not ok:
                 log_q.put(("done", False, "搜一搜窗口初始化失败")); return

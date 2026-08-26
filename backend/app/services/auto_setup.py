@@ -305,7 +305,7 @@ def _ensure_wechat():
     失败(窗口位置/宽度不合法)则手动移动摆正, 保证后续截图/点击坐标可靠"""
     from ..services import tasks as _tasks
     from ..services import computer as _pc
-    ok, _txt = _tasks.init_wechat_window(window_split=False)
+    ok, _txt = _tasks.init_wechat_window()
     if ok:
         return True
     import ctypes

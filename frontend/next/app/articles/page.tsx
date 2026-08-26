@@ -61,7 +61,6 @@ export default function ArticlePage() {
   const [quickActive, setQuickActive] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(true);
   // 更新设置(与公众号页共享配置): 窗口分离/4指标/阅读数/保存Html
-  const [windowSplit, setWindowSplit] = useState(true);
   const [capture4metrics, setCapture4metrics] = useState(false);
   const [captureRead, setCaptureRead] = useState(false);
   const [saveHtml, setSaveHtml] = useState(false);
@@ -75,8 +74,7 @@ export default function ArticlePage() {
   useEffect(() => {
     try {
       const d = JSON.parse(localStorage.getItem("updateConfig") || "{}");
-      if (typeof d.window_split === "boolean") setWindowSplit(d.window_split);
-      if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
+            if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
       if (typeof d.capture_read === "boolean") setCaptureRead(d.capture_read);
       if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
       if (typeof d.capture_comments === "boolean") setCaptureComments(d.capture_comments);
@@ -93,7 +91,7 @@ export default function ArticlePage() {
     if (!cfgLoaded) return;
     try {
       const d = JSON.parse(localStorage.getItem("updateConfig") || "{}");
-      d.window_split = windowSplit; d.capture_4metrics = capture4metrics;
+      d.capture_4metrics = capture4metrics;
       d.capture_read = captureRead; d.save_html = saveHtml;
       d.capture_comments = captureComments; d.max_comments = maxComments;
       d.max_level1 = maxLevel1; d.max_level2 = maxLevel2;
@@ -102,7 +100,7 @@ export default function ArticlePage() {
       d.quick = quickActive;
       localStorage.setItem("updateConfig", JSON.stringify(d));
     } catch { /* 忽略 */ }
-  }, [cfgLoaded, windowSplit, capture4metrics, captureRead, saveHtml, captureComments, maxComments, maxLevel1, maxLevel2, dateRange, quickActive]);
+  }, [cfgLoaded, capture4metrics, captureRead, saveHtml, captureComments, maxComments, maxLevel1, maxLevel2, dateRange, quickActive]);
   const NUM_FIELDS = [
     { key: "reads", label: "阅读" },
     { key: "likes", label: "点赞" },
@@ -353,7 +351,6 @@ export default function ArticlePage() {
       name: name || "",
       biz: biz || "",
       link,
-      window_split: windowSplit,
       capture_4metrics: capture4metrics,
       capture_read: captureRead,
       save_html: saveHtml,
@@ -604,13 +601,6 @@ export default function ArticlePage() {
       {/* 更新设置卡片(开关行 + 评论采集设置行) */}
       <div style={{ display: "flex", flexDirection: "column", background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px", margin: "0 0 12px" }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minHeight: 32 }}>
-          <Tooltip title="窗口分离: 独立出搜一搜窗口。搜索时打开搜一搜有两种形态: ①独立弹出搜一搜窗口 ②嵌入微信窗口内部; 本功能统一为第一种(独立窗口)方式。">
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 14, color: "#555" }}>
-              窗口分离
-              <QuestionCircleOutlined style={{ color: "#8b949e" }} />
-            </span>
-          </Tooltip>
-          <Switch checked={windowSplit} onChange={setWindowSplit} />
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，4指标采集不可用:\n${si.ai.join("\n")}` : undefined}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", marginLeft: 12 }}>
@@ -917,7 +907,6 @@ export default function ArticlePage() {
             <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
               <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0" }}>更新设置</div>
               {[
-                { label: "窗口分离", value: windowSplit ? "开" : "关" },
                 { label: "采集4指标", value: capture4metrics ? "开" : "关" },
                 { label: "采集阅读数", value: captureRead ? "开" : "关" },
                 { label: "保存Html", value: saveHtml ? "开" : "关" },
@@ -946,7 +935,6 @@ export default function ArticlePage() {
         ) : (
           <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
             {[
-              { label: "窗口分离", value: windowSplit ? "开" : "关" },
               { label: "采集4指标", value: capture4metrics ? "开" : "关" },
               { label: "采集阅读数", value: captureRead ? "开" : "关" },
               { label: "保存Html", value: saveHtml ? "开" : "关" },
