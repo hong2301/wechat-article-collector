@@ -1,4 +1,4 @@
-// 微信登录状态共享 Hook: 短轮询(3s)瞬时 GET, 无长连接不阻塞后端关停
+// 微信登录状态共享 Hook: 1秒短轮询瞬时 GET(无长连接不阻塞后端关停)
 "use client";
 import { useEffect, useState } from "react";
 
@@ -13,7 +13,7 @@ export function useWechatStatus(): boolean | null {
       } catch { /* 后端不可达保持旧状态 */ }
     }
     check();
-    const t = setInterval(check, 3000);
+    const t = setInterval(check, 1000);   // 1 秒一次
     return () => { stopped = true; clearInterval(t); };
   }, []);
   return wxLogged;

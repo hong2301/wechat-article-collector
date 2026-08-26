@@ -143,18 +143,18 @@ def launch_wechat():
     return {"ok": False, "error": "未找到微信安装路径"}
 
 
-@router.get("/wechat-status")
-def wechat_status():
-    """微信登录状态(前端状态灯轮询; 无长连接, 不影响后端关停):
-    将可见微信窗口移到左半屏后量宽: 已登录主窗口可占满半屏(≥90%),
-    未登录登录窗口被微信限制为小窗"""
+# 微信登录确认态: 确认过登录后只做进程监控(不再操作窗口)
+_wx_confirm = [False]          # 是否已通过窗口宽度验证登录
+_wx_last_win_check = [0.0]     # 上次窗口验证时间(未确认时降频到30s一次, 避免频繁移动窗口)
+_WX_WIN_CHECK_INTERVAL = 30.0
+
+
+def _wx_win_width_check():
+    """窗口宽度判定: 将可见微信窗口移到左半屏, 量宽(≥半屏90%=已登录主窗, 登录窗被微信限小)"""
     import time as _time
     import ctypes
     import ctypes.wintypes as wt
     from ..services import tasks as tasks_svc
-    main = pc._pids_by_exe([tasks_svc.WECHAT_MAIN])
-    if not main:
-        return {"running": False, "logged_in": False}
     u32 = pc._u32()
     sw = u32.GetSystemMetrics(pc.SM_CXSCREEN)
     sh = u32.GetSystemMetrics(pc.SM_CYSCREEN)
@@ -167,4 +167,25 @@ def wechat_status():
         u32.GetWindowRect(hwnd, ctypes.byref(r))
         if r.right - r.left >= half * 0.9:
             logged = True
-    return {"running": bool(main), "logged_in": logged}
+    return logged
+
+
+@router.get("/wechat-status")
+def wechat_status():
+    """微信登录状态(前端状态灯轮询):
+    - 已确认登录: 只监控 Weixin 主进程是否还在(不再操作窗口/不管可见)
+    - 未确认: 每 30s 才做一次窗口宽度判定(登录后转为进程监控)"""
+    import time as _time
+    from ..services import tasks as tasks_svc
+    main = pc._pids_by_exe([tasks_svc.WECHAT_MAIN])
+    if not main:
+        _wx_confirm[0] = False                 # 主进程消失 -> 失效, 下次需重新窗口验证
+        return {"running": False, "logged_in": False}
+    if _wx_confirm[0]:
+        return {"running": True, "logged_in": True}
+    # 未确认: 降频窗口判定(30s一次)
+    now = _time.time()
+    if now - _wx_last_win_check[0] >= _WX_WIN_CHECK_INTERVAL:
+        _wx_last_win_check[0] = now
+        _wx_confirm[0] = _wx_win_width_check()
+    return {"running": True, "logged_in": _wx_confirm[0]}
