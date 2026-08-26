@@ -1,6 +1,6 @@
 {
   "name": "wechat-collector",
-  "version": "4.1.1",
+  "version": "4.1.2",
   "private": true,
   "description": "微信公众号采集器 (Next.js前端 + Electron壳 + Python后端)",
   "scripts": {
