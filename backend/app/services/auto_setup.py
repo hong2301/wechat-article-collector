@@ -249,16 +249,12 @@ def _p9_round(round_idx, ctx):
         if cx < sx:
             break
         ctx.click(cx, sy, wait_after=0.8)
-        # 检查1: 独立窗口出现 => 成功
-        if _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
-            log.info(f"点位9 第{round_idx+1}轮点击({cx},{sy}) 分离成功")
-            return (cx, sy, f"自动识别(第{round_idx+1}轮)")
-        # 检查2: 微信宽度变小 => 点到关闭按钮, 已过分离按钮 -> 整轮重来(步长减半)
+        # 检查: 微信主窗口宽度变小 = 点中了分离按钮(唯一判据)
         rnow = ctypes.wintypes.RECT()
         u32.GetWindowRect(weixin[0][0], ctypes.byref(rnow))
-        if rnow.right - rnow.left < w0 - 2:
-            log.warning(f"点位9 第{round_idx+1}轮 ({cx},{sy}) 触发宽度变小({w0}->{rnow.right-rnow.left}) => 点到关闭按钮, 重试减半步长")
-            return None
+        if (rnow.right - rnow.left) < w0 - 2:
+            log.info(f"点位9 第{round_idx+1}轮点击({cx},{sy}) 分离成功 (宽 {w0}->{rnow.right-rnow.left})")
+            return (cx, sy, f"自动识别(第{round_idx+1}轮)")
         i += 1
     log.warning(f"点位9 第{round_idx+1}轮未命中")
     return None
