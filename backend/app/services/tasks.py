@@ -859,7 +859,7 @@ def _collect_reads(collect_type, link, biz, art):
     写库按 biz+art_biz 匹配, 不依赖写表结果; 列表页已识别到阅读数时主函数跳过高不此调用"""
     # 实时输出: 每步直接 tasks_echo
     p15 = _read_point(15)
-    # 搜一搜按钮统一用点位14(搜索按钮2已删除)
+    # 搜一搜按钮统一点位14
     p_sou = _read_point(14)
     _tag_n = 14
     if not p15 or not p_sou:
