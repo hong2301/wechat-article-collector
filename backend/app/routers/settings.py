@@ -2,6 +2,7 @@
 """AI 模型设置路由: 读写数据库 ai_model 表(厂商+一个key+多个模型id)
 + 系统控制: 任务栏隐藏/恢复(采集时隐藏, 全部结束恢复)"""
 from fastapi import APIRouter, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..database import get_conn, default_html_dir
@@ -160,13 +161,17 @@ def _wx_win_width_check():
     sh = u32.GetSystemMetrics(pc.SM_CYSCREEN)
     half = sw // 2
     logged = False
-    for hwnd, _t, _p, _vis in pc.find_windows(exe=tasks_svc.WECHAT_MAIN, visible_only=True):
+    wins = pc.find_windows(exe=tasks_svc.WECHAT_MAIN, visible_only=True)
+    print(f"[wxcheck] 可见微信窗口数={len(wins)} 半屏宽={half}", flush=True)
+    for hwnd, _t, _p, _vis in wins:
         pc.move_window(hwnd, 0, 0, half, sh)
         _time.sleep(0.3)
         r = wt.RECT()
         u32.GetWindowRect(hwnd, ctypes.byref(r))
+        print(f"[wxcheck] 移动后宽={r.right - r.left} (需>={half * 0.9:.0f})", flush=True)
         if r.right - r.left >= half * 0.9:
             logged = True
+    print(f"[wxcheck] 判定 logged={logged}", flush=True)
     return logged
 
 
@@ -177,7 +182,7 @@ import asyncio as _asyncio
 _wx_status = {"running": False, "logged_in": False}
 _wx_confirm = [False]
 _wx_last_win_check = [0.0]
-_WX_WIN_CHECK_INTERVAL = 30.0
+_WX_WIN_CHECK_INTERVAL = 1.0      # 未确认登录时每1秒窗口移动+量宽; 确认后纯进程检测零打扰
 _wx_shutdown = _th.Event()
 _wx_lock = _th.Lock()
 _wx_thread_started = False
@@ -193,7 +198,7 @@ def _detect_wx_status():
     if _wx_confirm[0]:
         return {"running": True, "logged_in": True}
     now = _time.time()
-    # 首次(null)立即窗口检测, 之后每30s一次
+    # 首次立即窗口检测, 之后每1s一次(确认前)
     if _wx_last_win_check[0] == 0 or now - _wx_last_win_check[0] >= _WX_WIN_CHECK_INTERVAL:
         _wx_last_win_check[0] = now
         _wx_confirm[0] = _wx_win_width_check()
@@ -242,7 +247,9 @@ async def wechat_status_stream(request: Request):
         while True:
             if await request.is_disconnected() or _wx_shutdown.is_set():
                 break
-            cur = _detect_wx_status()   # 每次实时计算(线程每秒同源, SSE推变化)
+            # 只读线程每秒更新的缓存(避免在async里做同步窗口检测阻塞事件循环, 影响后端退出)
+            with _wx_lock:
+                cur = dict(_wx_status)
             if cur != seen:
                 seen = cur
                 import json as _json
@@ -265,7 +272,7 @@ def wechat_status():
         return {"running": True, "logged_in": True}
     # 未确认: 降频窗口判定(30s一次)
     now = _time.time()
-    # 首次(null)立即窗口检测, 之后每30s一次
+    # 首次立即窗口检测, 之后每1s一次(确认前)
     if _wx_last_win_check[0] == 0 or now - _wx_last_win_check[0] >= _WX_WIN_CHECK_INTERVAL:
         _wx_last_win_check[0] = now
         _wx_confirm[0] = _wx_win_width_check()
