@@ -808,3 +808,54 @@ def _copy_link_entry(self_name):
 
 POINT_FLOWS["复制链接左上"] = _copy_link_entry("复制链接左上")
 POINT_FLOWS["复制链接右下"] = _copy_link_entry("复制链接右下")
+
+
+# ---------------------------------------------------------------------------
+# 点位 27: 点击复制链接 (依赖28/29区域)
+# 流程: 微信就位 -> 完整调用init+search_window_init -> 搜一搜查询文章链接
+#   -> 等1s -> 点18(3点弹菜单) -> 等0.5s -> 截[28,29]区域 -> OCR找"复制"文字按钮
+#   -> 按钮中心坐标 = 点位27
+# ---------------------------------------------------------------------------
+ARTICLE_LINK_DEMO_27 = "https://mp.weixin.qq.com/s/5rccFHw22aGcAjnkWIx9kQ"
+
+
+@flow_point("点击复制链接")
+def _flow_point27_copy(ctx):
+    import time as _time
+    from PIL import Image, ImageGrab
+    from ..services import tasks as tasks_svc
+    from ..services import computer as _pc
+
+    ok_wx, txt_wx = tasks_svc.init_wechat_window()
+    if not ok_wx:
+        return None, None
+    ok_sw, txt_sw = tasks_svc.search_window_init()
+    if not ok_sw:
+        return None, None
+    ok_q, txt_q = tasks_svc.search_query(ARTICLE_LINK_DEMO_27)
+    if not ok_q:
+        log.warning(f"点位27 查询文章链接失败: {txt_q}")
+        return None, None
+    _time.sleep(1.0)
+
+    p18 = tasks_svc._read_point(18)
+    p28 = tasks_svc._read_point(28)
+    p29 = tasks_svc._read_point(29)
+    if not p18 or not p28 or not p29:
+        log.warning(f"点位27 缺前置(18{bool(p18)} 28{bool(p28)} 29{bool(p29)})")
+        return None, None
+    ctx.click(p18[0], p18[1], wait_after=0.5)      # 弹菜单
+
+    # 截[28,29]区域 OCR
+    img = ImageGrab.grab(bbox=(p28[0], p28[1], p29[0], p29[1])).convert("RGB")
+    hit = None
+    for cx, cy, text, score, sbox, _br in ctx.ocr_box(img):
+        if "复制" in text:
+            hit = (int(cx), int(cy))
+            break
+    if not hit:
+        log.warning("点位27 未识别到'复制'字样")
+        return None, None
+    ax, ay = p28[0] + hit[0], p28[1] + hit[1]
+    log.info(f"点位27 识别复制按钮: ({ax},{ay})")
+    return ax, ay
