@@ -666,7 +666,7 @@ def _ensure_wechat():
 #   -> 等5s -> 截左半屏最下1/10 -> OCR找"关注"(box取其高) -> 中心Y+高×1.2 定数据栏高
 #   -> 宽度=左半屏x中点(sw/4)到屏幕中线(sw/2) -> 左上=30, 右下=31 双写
 # ---------------------------------------------------------------------------
-ARTICLE_LINK_DEMO = "https://mp.weixin.qq.com/s/kTArGuZi-IqE21jhwVGlTQ"
+ARTICLE_LINK_DEMO = "https://mp.weixin.qq.com/s/X7fAdvvZ-Gq_2SW19OKfVw"
 
 
 def _flow_article_bar_find(ctx):
@@ -831,7 +831,7 @@ POINT_FLOWS["复制链接右下"] = _copy_link_entry("复制链接右下")
 #   -> 等1s -> 点18(3点弹菜单) -> 等0.5s -> 截[28,29]区域 -> OCR找"复制"文字按钮
 #   -> 按钮中心坐标 = 点位27
 # ---------------------------------------------------------------------------
-ARTICLE_LINK_DEMO_27 = "https://mp.weixin.qq.com/s/5rccFHw22aGcAjnkWIx9kQ"
+ARTICLE_LINK_DEMO_27 = ARTICLE_LINK_DEMO
 
 
 @flow_point("点击复制链接")
@@ -923,7 +923,7 @@ def _flow_point34_comment(ctx):
     if not ok_sw:
         log.warning(f"点位34 搜一搜初始化失败: {txt_sw}")
         return None, None
-    ok_q, txt_q = tasks_svc.search_query("https://mp.weixin.qq.com/s/kTArGuZi-IqE21jhwVGlTQ")
+    ok_q, txt_q = tasks_svc.search_query(ARTICLE_LINK_DEMO)
     if not ok_q:
         log.warning(f"点位34 查询文章链接失败: {txt_q}")
         return None, None
@@ -986,3 +986,110 @@ def _flow_point34_comment(ctx):
             return x, sy
     log.warning("点位34 多轮未命中")
     return None, None
+
+
+# ---------------------------------------------------------------------------
+# 点位 35/36: 评论区左上/右下 (同一流程, 一起设置)
+# 流程: 采集器窗口初始化->微信窗口初始化->搜一搜窗口初始化->查询文章链接
+#   -> 检测[30,31]稳定 -> 点34(评论按钮)打开评论区
+#   -> 左半屏右半屏稳定检测 -> 截图 -> 移区域中点向下滚500 -> 截图
+#   -> 对比变化区域外接矩形 = 评论区: 35=左上, 36=右下 双写
+# ---------------------------------------------------------------------------
+def _flow_comment_area_find(ctx):
+    import ctypes
+    import time as _time
+    from PIL import Image, ImageGrab
+    import numpy as np
+    from ..services import tasks as tasks_svc
+    from ..services import computer as _pc
+
+    ok_ap, txt_ap = tasks_svc.init_app_window()
+    if not ok_ap:
+        log.warning(f"点位35/36 采集器窗口初始化失败: {txt_ap}")
+        return None
+    ok_wx, txt_wx = tasks_svc.init_wechat_window()
+    if not ok_wx:
+        log.warning(f"点位35/36 微信窗口初始化失败: {txt_wx}")
+        return None
+    ok_sw, txt_sw = tasks_svc.search_window_init()
+    if not ok_sw:
+        log.warning(f"点位35/36 搜一搜窗口初始化失败: {txt_sw}")
+        return None
+    ok_q, txt_q = tasks_svc.search_query(ARTICLE_LINK_DEMO)
+    if not ok_q:
+        log.warning(f"点位35/36 查询文章链接失败: {txt_q}")
+        return None
+
+    # 检测[30,31]稳定
+    p30 = tasks_svc._read_point(30)
+    p31 = tasks_svc._read_point(31)
+    if not p30 or not p31:
+        log.warning("点位35/36 缺30/31")
+        return None
+    ok_st, info_st = tasks_svc.wait_page_stable(p30[0], p30[1], p31[0], p31[1],
+                                                same_need=30, timeout=50, interval=0.1)
+    if not ok_st:
+        log.warning(f"点位35/36 4指标区域未稳定: {info_st}")
+    else:
+        log.info(f"点位35/36 4指标区域稳定: {info_st}")
+    # 点34评论按钮打开评论区
+    p34 = tasks_svc._read_point(34)
+    if not p34:
+        log.warning("点位35/36 缺34")
+        return None
+    ctx.click(p34[0], p34[1], wait_after=1.0)
+
+    # 左半屏右半屏区域: x∈[sw/4, sw/2], y∈[0, sh]
+    u32_ = _pc._u32()
+    sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
+    sh_ = u32_.GetSystemMetrics(_pc.SM_CYSCREEN)
+    rx1, ry1, rx2, ry2 = sw_ // 4, 0, sw_ // 2, sh_
+    ok_st2, info_st2 = tasks_svc.wait_page_stable(rx1, ry1, rx2, ry2,
+                                                  same_need=30, timeout=50, interval=0.1)
+    if not ok_st2:
+        log.warning(f"点位35/36 评论区区域未稳定: {info_st2}")
+    else:
+        log.info(f"点位35/36 评论区区域稳定: {info_st2}")
+    _pc._u32().ShowCursor(False)
+    img1 = np.array(ImageGrab.grab(bbox=(rx1, ry1, rx2, ry2)).convert("RGB"))
+    _pc._u32().ShowCursor(True)
+    # 移动到区域中点向下滚500
+    _pc.scroll((rx1 + rx2) // 2, (ry1 + ry2) // 2, 500, direction="down", wait_after=1.0)
+    _pc._u32().ShowCursor(False)
+    img2 = np.array(ImageGrab.grab(bbox=(rx1, ry1, rx2, ry2)).convert("RGB"))
+    _pc._u32().ShowCursor(True)
+
+    d = np.abs(img2.astype(int) - img1.astype(int)).sum(axis=2)
+    mask = d > 40
+    ys, xs = np.where(mask)
+    if len(xs) < 50:
+        log.warning(f"点位35/36 变化区域过小({len(xs)}px)")
+        return None
+    gx1, gy1, gx2, gy2 = int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
+    ax1, ay1 = rx1 + gx1, ry1 + gy1
+    ax2, ay2 = rx1 + gx2, ry1 + gy2
+    log.info(f"点位35/36 评论区矩形: ({ax1},{ay1})-({ax2},{ay2})")
+    return ax1, ay1, ax2, ay2
+
+
+def _comment_area_entry(self_name):
+    def fn(ctx):
+        res = _flow_comment_area_find(ctx)
+        if res is None:
+            return None, None
+        ax1, ay1, ax2, ay2 = res
+        conn = _get_conn()
+        try:
+            conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (ax1, ay1, "评论区左上"))
+            conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (ax2, ay2, "评论区右下"))
+            conn.commit()
+        finally:
+            conn.close()
+        if self_name == "评论区左上":
+            return ax1, ay1
+        return ax2, ay2
+    return fn
+
+
+POINT_FLOWS["评论区左上"] = _comment_area_entry("评论区左上")
+POINT_FLOWS["评论区右下"] = _comment_area_entry("评论区右下")
