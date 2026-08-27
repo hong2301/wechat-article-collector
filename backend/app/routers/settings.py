@@ -2,7 +2,6 @@
 """AI 模型设置路由: 读写数据库 ai_model 表(厂商+一个key+多个模型id)
 + 系统控制: 任务栏隐藏/恢复(采集时隐藏, 全部结束恢复)"""
 from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..database import get_conn, default_html_dir
@@ -175,17 +174,10 @@ def _wx_win_width_check():
     return logged
 
 
-# ---- 微信登录状态: 后端1s检测线程, 变化经 SSE 推送给前端 ----
-import threading as _th
-import asyncio as _asyncio
-
-_wx_status = {"running": False, "logged_in": False}
+# ---- 微信登录状态: GET 实时计算(无长连接, Ctrl+C 秒退) ----
 _wx_confirm = [False]
 _wx_last_win_check = [0.0]
 _WX_WIN_CHECK_INTERVAL = 1.0      # 未确认登录时每1秒窗口移动+量宽; 确认后纯进程检测零打扰
-_wx_shutdown = _th.Event()
-_wx_lock = _th.Lock()
-_wx_thread_started = False
 
 
 def _detect_wx_status():
@@ -198,82 +190,19 @@ def _detect_wx_status():
     if _wx_confirm[0]:
         return {"running": True, "logged_in": True}
     now = _time.time()
-    # 首次立即窗口检测, 之后每1s一次(确认前)
     if _wx_last_win_check[0] == 0 or now - _wx_last_win_check[0] >= _WX_WIN_CHECK_INTERVAL:
         _wx_last_win_check[0] = now
         _wx_confirm[0] = _wx_win_width_check()
     return {"running": True, "logged_in": _wx_confirm[0]}
 
 
-def _wx_loop():
-    import time as _time
-    global _wx_status
-    while not _wx_shutdown.is_set():
-        try:
-            cur = _detect_wx_status()
-        except Exception:
-            cur = {"running": False, "logged_in": False}
-        with _wx_lock:
-            _wx_status = cur
-        _time.sleep(1.0)
-
-
-def _ensure_wx_thread():
-    global _wx_thread_started
-    if not _wx_thread_started:
-        _wx_thread_started = True
-        _th.Thread(target=_wx_loop, daemon=True).start()
-
-
-def stop_wx_stream():
-    """后端关停时置位: SSE generator 及时退出(防 Ctrl+C 卡等待连接)"""
-    _wx_shutdown.set()
+# ---- 微信登录状态: GET 实时计算(前端1s轮询; 无长连接, Ctrl+C 秒退优雅) ----
+_wx_confirm = [False]
+_wx_last_win_check = [0.0]
+_WX_WIN_CHECK_INTERVAL = 1.0      # 未确认登录时每1秒窗口移动+量宽; 确认后纯进程检测零打扰
 
 
 @router.get("/wechat-status")
 def wechat_status():
-    """实时计算(前端轮询/SSE首帧都拿准确值, 不依赖线程缓存初始值)"""
-    _ensure_wx_thread()
+    """微信登录状态(前端1s轮询): 实时计算"""
     return _detect_wx_status()
-
-
-@router.get("/wechat-status/stream")
-async def wechat_status_stream(request: Request):
-    """SSE: 状态变化实时推送(启动即推一次); async+asyncio.sleep 可被取消, 不影响后端退出"""
-    _ensure_wx_thread()
-
-    async def gen():
-        seen = None
-        while True:
-            if await request.is_disconnected() or _wx_shutdown.is_set():
-                break
-            # 只读线程每秒更新的缓存(避免在async里做同步窗口检测阻塞事件循环, 影响后端退出)
-            with _wx_lock:
-                cur = dict(_wx_status)
-            if cur != seen:
-                seen = cur
-                import json as _json
-                yield "data: " + _json.dumps(cur, ensure_ascii=False) + "\n\n"
-            await _asyncio.sleep(0.5)
-
-    return StreamingResponse(gen(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
-def wechat_status():
-    """微信登录状态(前端状态灯轮询):
-    - 已确认登录: 只监控 Weixin 主进程是否还在(不再操作窗口/不管可见)
-    - 未确认: 每 30s 才做一次窗口宽度判定(登录后转为进程监控)"""
-    import time as _time
-    from ..services import tasks as tasks_svc
-    main = pc._pids_by_exe([tasks_svc.WECHAT_MAIN])
-    if not main:
-        _wx_confirm[0] = False                 # 主进程消失 -> 失效, 下次需重新窗口验证
-        return {"running": False, "logged_in": False}
-    if _wx_confirm[0]:
-        return {"running": True, "logged_in": True}
-    # 未确认: 降频窗口判定(30s一次)
-    now = _time.time()
-    # 首次立即窗口检测, 之后每1s一次(确认前)
-    if _wx_last_win_check[0] == 0 or now - _wx_last_win_check[0] >= _WX_WIN_CHECK_INTERVAL:
-        _wx_last_win_check[0] = now
-        _wx_confirm[0] = _wx_win_width_check()
-    return {"running": True, "logged_in": _wx_confirm[0]}
