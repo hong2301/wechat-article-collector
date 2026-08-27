@@ -28,7 +28,12 @@ def startup():
 
 @app.on_event("shutdown")
 def shutdown():
-    """后端退出: 恢复任务栏(防采集结束时任务栏仍隐藏/异常退出遗留)"""
+    """后端退出: 停止微信状态SSE推送(generator及时退出, 防Ctrl+C卡连接) + 恢复任务栏"""
+    try:
+        from .routers import settings as settings_mod
+        settings_mod.stop_wx_stream()
+    except Exception:
+        pass
     try:
         from .services import computer as pc
         pc.show_taskbar()

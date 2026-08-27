@@ -247,14 +247,14 @@ def search_window_init():
         if p9:
             pc.mouse_click(p9[0], p9[1])
             logs.append(f"点击点位9({p9[0]},{p9[1]})")
-            time.sleep(0.3)
+            time.sleep(1.0)          # 分离后等独立窗口完全创建
         else:
             logs.append("缺少点位9")
             return False, "; ".join(logs)
     else:
         logs.append("微信窗口已分离, 跳过分离按钮")
 
-    # 3) 查找可见 WeChatAppEx 窗口
+    # 3) 查找可见 WeChatAppEx 窗口, 并移到左半屏
     appex = pc.find_windows(exe=WECHAT_APPEX, visible_only=True)
     if not appex:
         logs.append("未找到可见 WeChatAppEx 窗口")
@@ -264,6 +264,9 @@ def search_window_init():
     u32_sm = pc._u32()
     sw = u32_sm.GetSystemMetrics(pc.SM_CXSCREEN)
     sh = u32_sm.GetSystemMetrics(pc.SM_CYSCREEN)
+    # 分离后: 把搜一搜窗口移到左半屏(确保位置统一)
+    pc.move_window(hwnd, 0, 0, sw // 2, sh)
+    time.sleep(0.5)
 
     def check():
         r = wt.RECT()

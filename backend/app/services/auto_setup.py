@@ -324,7 +324,7 @@ def _flow_point11_search_box(ctx):
 def _flow_point14_query_button(ctx):
     import ctypes
     import time as _time
-    from PIL import ImageGrab
+    from PIL import Image, ImageGrab
     import numpy as np
     from ..services import tasks as tasks_svc
     from ..services import computer as _pc
@@ -427,27 +427,18 @@ def _flow_articles_list_find(ctx):
     from ..services import tasks as tasks_svc
     from ..services import computer as _pc
 
-    if not _ensure_wechat():
+    # 完整调用: 微信窗口初始化 + 搜一搜窗口初始化
+    ok_wx, txt_wx = tasks_svc.init_wechat_window()
+    if not ok_wx:
+        log.warning(f"点位15/16 微信窗口初始化失败: {txt_wx}")
         return None
-    # 搜一搜初始化: 点11 -> 输入1 -> 全选删除 -> 点12; 无独立窗 -> 微信左半屏 + 点9分离
-    p11 = tasks_svc._read_point(11)
-    p12 = tasks_svc._read_point(12)
-    p9 = tasks_svc._read_point(9)
-    if not p11 or not p12 or not p9:
+    ok_sw, txt_sw = tasks_svc.search_window_init()
+    if not ok_sw:
+        log.warning(f"点位15/16 搜一搜窗口初始化失败: {txt_sw}")
         return None
-    ctx.click(p11[0], p11[1], wait_after=0.2)
-    _pc.type_text("1"); _time.sleep(0.1); _pc.ctrl_key("A"); _time.sleep(0.1)
-    _pc.key_press(_pc.VK_DELETE); _time.sleep(0.2)
-    ctx.click(p12[0], p12[1], wait_after=0.8)
     u32_ = _pc._u32()
     sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
     sh_ = u32_.GetSystemMetrics(_pc.SM_CYSCREEN)
-    if not _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
-        wx = _pc.find_windows(exe=tasks_svc.WECHAT_MAIN, visible_only=True)
-        if wx:
-            _pc.move_window(wx[0][0], 0, 0, sw_ // 2, sh_)
-            _time.sleep(0.3)
-        ctx.click(p9[0], p9[1], wait_after=0.8)
 
     # 搜一搜查询测试公众号
     ok_q, _txt = tasks_svc.search_query(TEST_BIZ_QUERY)
@@ -520,29 +511,21 @@ def _flow_point18_three_dots(ctx):
     from ..services import tasks as tasks_svc
     from ..services import computer as _pc
 
-    if not _ensure_wechat():
+    # 完整调用: 微信窗口初始化 + 搜一搜窗口初始化
+    ok_wx, txt_wx = tasks_svc.init_wechat_window()
+    if not ok_wx:
+        log.warning(f"点位18 微信窗口初始化失败: {txt_wx}")
         return None, None
-    # 搜一搜初始化(同14): 点11 -> 输入1 -> 全选删除 -> 点12; 无独立窗 -> 移微信左半屏点9
-    p11 = tasks_svc._read_point(11)
-    p12 = tasks_svc._read_point(12)
-    p9 = tasks_svc._read_point(9)
+    ok_sw, txt_sw = tasks_svc.search_window_init()
+    if not ok_sw:
+        log.warning(f"点位18 搜一搜窗口初始化失败: {txt_sw}")
+        return None, None
     p14 = tasks_svc._read_point(14)
-    if not p11 or not p12 or not p9 or not p14:
+    if not p14:
         return None, None
-    ctx.click(p11[0], p11[1], wait_after=0.2)
-    _pc.type_text("1"); _time.sleep(0.1); _pc.ctrl_key("A"); _time.sleep(0.1)
-    _pc.key_press(_pc.VK_DELETE); _time.sleep(0.2)
-    ctx.click(p12[0], p12[1], wait_after=0.8)
     u32_ = _pc._u32()
     sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
     sh_ = u32_.GetSystemMetrics(_pc.SM_CYSCREEN)
-    appex = _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True)
-    if not appex:
-        wx = _pc.find_windows(exe=tasks_svc.WECHAT_MAIN, visible_only=True)
-        if wx:
-            _pc.move_window(wx[0][0], 0, 0, sw_ // 2, sh_)
-            _time.sleep(0.3)
-        ctx.click(p9[0], p9[1], wait_after=0.8)
 
     base_y = p14[1]
     x0 = p14[0] + 20                      # 以14为原点右偏20px
@@ -683,26 +666,18 @@ def _flow_article_bar_find(ctx):
     from ..services import tasks as tasks_svc
     from ..services import computer as _pc
 
-    if not _ensure_wechat():
+    # 完整调用: 微信窗口初始化 + 搜一搜窗口初始化
+    ok_wx, txt_wx = tasks_svc.init_wechat_window()
+    if not ok_wx:
+        log.warning(f"点位30/31 微信窗口初始化失败: {txt_wx}")
         return None
-    p11 = tasks_svc._read_point(11)
-    p12 = tasks_svc._read_point(12)
-    p9 = tasks_svc._read_point(9)
-    if not p11 or not p12 or not p9:
+    ok_sw, txt_sw = tasks_svc.search_window_init()
+    if not ok_sw:
+        log.warning(f"点位30/31 搜一搜窗口初始化失败: {txt_sw}")
         return None
-    ctx.click(p11[0], p11[1], wait_after=0.2)
-    _pc.type_text("1"); _time.sleep(0.1); _pc.ctrl_key("A"); _time.sleep(0.1)
-    _pc.key_press(_pc.VK_DELETE); _time.sleep(0.2)
-    ctx.click(p12[0], p12[1], wait_after=0.8)
     u32_ = _pc._u32()
     sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
     sh_ = u32_.GetSystemMetrics(_pc.SM_CYSCREEN)
-    if not _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
-        wx = _pc.find_windows(exe=tasks_svc.WECHAT_MAIN, visible_only=True)
-        if wx:
-            _pc.move_window(wx[0][0], 0, 0, sw_ // 2, sh_)
-            _time.sleep(0.3)
-        ctx.click(p9[0], p9[1], wait_after=0.8)
 
     ok_q, _txt = tasks_svc.search_query(ARTICLE_LINK_DEMO)
     if not ok_q:
@@ -791,3 +766,45 @@ def _calc_reads_box(self_name):
 
 POINT_FLOWS["阅读数左上"] = _calc_reads_box("阅读数左上")
 POINT_FLOWS["阅读数右下"] = _calc_reads_box("阅读数右下")
+
+
+# ---------------------------------------------------------------------------
+# 点位 28/29: 复制链接左上/右下 (同一流程, 一起设置)
+# 流程: 微信就位 -> 搜一搜初始化(点11/12/9) -> 等0.5s
+#   -> 截图"屏幕中间这一块再上下取上"(x∈[w/3,2w/3], y∈[0,h/2])
+#   -> 点击点位18(右上角3点弹出菜单) -> 等1s -> 再截图同一块
+#   -> 对比变化区域外接矩形 = 复制链接菜单区: 28=左上, 29=右下 双写
+# ---------------------------------------------------------------------------
+def _flow_copy_link_find(ctx):
+    """纯计算: 28/29 = 左半屏右上部分, 无需任何窗口操作"""
+    from ..services import computer as _pcc
+    u32_ = _pcc._u32()
+    sw_ = u32_.GetSystemMetrics(_pcc.SM_CXSCREEN)
+    sh_ = u32_.GetSystemMetrics(_pcc.SM_CYSCREEN)
+    x_left, y_top = sw_ // 4, 0
+    x_right, y_bot = sw_ // 2, sh_ // 2
+    log.info(f"点位28/29 设定左半屏右上: ({x_left},{y_top})-({x_right},{y_bot})")
+    return x_left, y_top, x_right, y_bot
+
+
+def _copy_link_entry(self_name):
+    def fn(ctx):
+        res = _flow_copy_link_find(ctx)
+        if res is None:
+            return None, None
+        ax1, ay1, ax2, ay2 = res
+        conn = _get_conn()
+        try:
+            conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (ax1, ay1, "复制链接左上"))
+            conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (ax2, ay2, "复制链接右下"))
+            conn.commit()
+        finally:
+            conn.close()
+        if self_name == "复制链接左上":
+            return ax1, ay1
+        return ax2, ay2
+    return fn
+
+
+POINT_FLOWS["复制链接左上"] = _copy_link_entry("复制链接左上")
+POINT_FLOWS["复制链接右下"] = _copy_link_entry("复制链接右下")
