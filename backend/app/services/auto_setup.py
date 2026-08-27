@@ -669,10 +669,9 @@ def _ensure_wechat():
         return False
 
 # ---------------------------------------------------------------------------
-# 点位 19/20: 文章底部数据栏左上/右下 (同一流程, 一起设置)
 # 流程: 微信就位->搜一搜初始化(点11/12/9)->搜一搜查询单篇文章链接
 #   -> 等5s -> 截左半屏最下1/10 -> OCR找"关注"(box取其高) -> 中心Y+高×1.2 定数据栏高
-#   -> 宽度=左半屏x中点(sw/4)到屏幕中线(sw/2) -> 19=左上, 20=右下 双写
+#   -> 宽度=左半屏x中点(sw/4)到屏幕中线(sw/2) -> 左上=30, 右下=31 双写
 # ---------------------------------------------------------------------------
 ARTICLE_LINK_DEMO = "https://mp.weixin.qq.com/s/kTArGuZi-IqE21jhwVGlTQ"
 
@@ -707,7 +706,6 @@ def _flow_article_bar_find(ctx):
 
     ok_q, _txt = tasks_svc.search_query(ARTICLE_LINK_DEMO)
     if not ok_q:
-        log.warning("点位19/20 查询文章链接失败: " + _txt)
         return None
     _time.sleep(5.0)
 
@@ -722,7 +720,6 @@ def _flow_article_bar_find(ctx):
             hit = (int(cx), y0_1 + int(cy), h)
             break
     if not hit:
-        log.warning("点位19/20 未识别到'关注'")
         return None
     cx_abs, cy_abs, box_h = hit
 
@@ -732,7 +729,6 @@ def _flow_article_bar_find(ctx):
     y_bot = int(cy_abs + H / 2)
     x_left = sw_ // 4        # 左半屏 x 中点
     x_right = sw_ // 2       # 屏幕中线
-    log.info(f"点位19/20 数据栏区: x[{x_left},{x_right}] y[{y_top},{y_bot}] (关注box高{box_h}->扩{H:.0f})")
     return x_left, y_top, x_right, y_bot
 
 
@@ -744,24 +740,23 @@ def _article_bar_entry(self_name):
         x_left, y_top, x_right, y_bot = res
         conn = _get_conn()
         try:
-            conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (x_left, y_top, "文章底部数据栏左上"))
-            conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (x_right, y_bot, "文章底部数据栏右下"))
+            conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (x_left, y_top, "4指标区域左上"))
+            conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (x_right, y_bot, "4指标区域右下"))
             conn.commit()
         finally:
             conn.close()
-        if self_name == "文章底部数据栏左上":
+        if self_name == "4指标区域左上":
             return x_left, y_top
         return x_right, y_bot
     return fn
 
 
-POINT_FLOWS["文章底部数据栏左上"] = _article_bar_entry("文章底部数据栏左上")
-POINT_FLOWS["文章底部数据栏右下"] = _article_bar_entry("文章底部数据栏右下")
+POINT_FLOWS["4指标区域左上"] = _article_bar_entry("4指标区域左上")
+POINT_FLOWS["4指标区域右下"] = _article_bar_entry("4指标区域右下")
 
 
 # ---------------------------------------------------------------------------
 # 点位 21/22: 阅读数左/右下 (同一自动设置, 依赖点位19已设值, 纯计算不操作窗口)
-#  22 = 点位19(文章底部数据栏左上)的坐标; 21 = (微信窗口最左边x=0, 屏幕中点y)
 # ---------------------------------------------------------------------------
 def _calc_reads_box(self_name):
     def fn(ctx):
@@ -770,7 +765,7 @@ def _calc_reads_box(self_name):
         conn = _get_conn()
         try:
             p19 = conn.execute(
-                "SELECT x, y FROM points WHERE name=?", ("文章底部数据栏左上",)).fetchone()
+                "SELECT x, y FROM points WHERE name=?", ("4指标区域左上",)).fetchone()
         finally:
             conn.close()
         if not p19 or not str(p19["x"] or "").strip() or not str(p19["y"] or "").strip():
