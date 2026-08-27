@@ -56,3 +56,8 @@ def auto_setup_scroll(sid: int):
     finally:
         conn.close()
     return {"ok": True, "name": name, "distance": dist}
+
+@router.post("/run-all")
+def auto_setup_run_all():
+    """一键设置: 按依赖顺序执行全部点位自动设置(输入锁定全程, ESC可停)"""
+    return as_svc.run_all_points()

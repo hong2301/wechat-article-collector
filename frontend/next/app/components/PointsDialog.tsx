@@ -10,6 +10,7 @@ import {
   EditOutlined, ScanOutlined, ExclamationCircleOutlined, BulbOutlined,
 } from "@ant-design/icons";
 import { useWechatStatus } from "./useWechatStatus";
+import { hideTaskbar, showTaskbar } from "./taskbar";
 
 const API = "http://127.0.0.1:8000/api/points";
 
@@ -141,7 +142,23 @@ export default function PointsDialog({
   // ---------- 自动设置(调用后端 auto-setup: 人工预设流程+OCR+AI识别) ----------
   const wxLogged = useWechatStatus();   // 未登录微信时自动设置不可用
   // 前置依赖: 某些点位自动设置需先有其它点位坐标(前端基于 rows 数据判断)
-  const POINT_DEPS: Record<string, string[]> = {};   // 前置依赖暂移除(后续再补)
+  const POINT_DEPS: Record<string, string[]> = {
+    "微信左上角搜索网络": ["点击微信左上角搜索输入框"],
+    "微信窗口初始化不合法时窗口分离按钮": ["点击微信左上角搜索输入框", "微信左上角搜索网络"],
+    "搜一搜窗口查询按钮": ["点击微信左上角搜索输入框", "微信左上角搜索网络", "微信窗口初始化不合法时窗口分离按钮"],
+    "文章列表左上角": ["点击微信左上角搜索输入框", "微信左上角搜索网络", "微信窗口初始化不合法时窗口分离按钮", "搜一搜窗口查询按钮"],
+    "文章列表右下角": ["点击微信左上角搜索输入框", "微信左上角搜索网络", "微信窗口初始化不合法时窗口分离按钮", "搜一搜窗口查询按钮"],
+    "文章右上角3点": ["搜一搜窗口查询按钮"],
+    "点击复制链接": ["文章右上角3点", "复制链接左上", "复制链接右下"],
+    "4指标区域左上": ["点击微信左上角搜索输入框", "微信左上角搜索网络", "微信窗口初始化不合法时窗口分离按钮", "搜一搜窗口查询按钮"],
+    "4指标区域右下": ["点击微信左上角搜索输入框", "微信左上角搜索网络", "微信窗口初始化不合法时窗口分离按钮", "搜一搜窗口查询按钮"],
+    "阅读数左上": ["4指标区域左上"],
+    "阅读数右下": ["4指标区域左上"],
+    "评论按钮": ["4指标区域左上", "4指标区域右下", "搜一搜窗口查询按钮"],
+    "评论区左上": ["评论按钮", "4指标区域左上", "4指标区域右下", "搜一搜窗口查询按钮"],
+    "评论区右下": ["评论按钮", "4指标区域左上", "4指标区域右下", "搜一搜窗口查询按钮"],
+    "搜一搜窗口第一个标签页关闭按钮": ["搜一搜窗口查询按钮"],
+  };
   const [autoLoading, setAutoLoading] = useState<number | null>(null);
   function missingDeps(p: Point): string[] {
     const deps = POINT_DEPS[p.name] || [];
@@ -153,28 +170,39 @@ export default function PointsDialog({
   useEffect(() => { if (open) load(); /* eslint-disable-next-line */ }, [open]);
   async function autoSetRow(p: Point) {
     const missing = missingDeps(p);
-    if (missing.length > 0) { message.warning(`需先设置: ${missing.join("、")}`); return; }
+    if (missing.length > 0) { message.warning(`需先设置: ${missing.join("、")}`); return false; }
     setAutoLoading(p.id);
     try {
       const d = await (await fetch(`http://127.0.0.1:8000/api/auto-setup/point/${p.id}`, { method: "POST" })).json();
       if (d.ok) {
         setRows((prev) => prev.map((x) => x.id === p.id ? { ...x, x: String(d.x), y: String(d.y) } : x));
         message.success(`自动设置成功: (${d.x}, ${d.y})`);
+        return true;
       } else {
         message.error(d.error || "自动设置失败");
+        return false;
       }
     } catch {
       message.error("无法连接后端");
+      return false;
     } finally {
       setAutoLoading(null);
     }
   }
   async function autoSetSelected() {
-    if (selectedIds.length === 0) { message.warning("请先勾选要自动设置的点位"); return; }
-    message.info(`开始自动设置 ${selectedIds.length} 个点位(将操作微信窗口)...`);
-    for (const id of selectedIds) {
-      const p = rows.find((r) => r.id === id);
-      if (p) await autoSetRow(p);
+    // 一键设置: 后端按依赖顺序执行全部点位(输入锁定全程, 任务栏隐藏)
+    if (rows.length === 0) { message.warning("点位列表为空"); return; }
+    message.info("开始一键设置(将锁定鼠标键盘, 按 ESC 可停止)...", 4);
+    hideTaskbar();
+    try {
+      const d = await (await fetch("http://127.0.0.1:8000/api/auto-setup/run-all", { method: "POST" })).json();
+      if (d.stopped) message.warning(`已停止(ESC): 完成 ${d.done} 个, 成功 ${d.ok} / 失败 ${d.fail}`);
+      else message.info(`一键设置完成: 成功 ${d.ok} / 失败 ${d.fail}`, 5);
+      if ((d.ok || 0) > 0) load();
+    } catch {
+      message.error("一键设置失败(后端不可达)");
+    } finally {
+      showTaskbar();
     }
   }
 
@@ -321,7 +349,7 @@ export default function PointsDialog({
           {!compact && (
             <>
               <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>
-              <Button icon={<BulbOutlined />} onClick={autoSetSelected}>自动设置选中</Button>
+              <Button icon={<BulbOutlined />} onClick={autoSetSelected}>一键设置</Button>
               <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>
               <Button danger icon={<DeleteOutlined />} onClick={delSelected}>删除选中</Button>
             </>

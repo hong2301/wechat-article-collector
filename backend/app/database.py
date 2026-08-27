@@ -42,7 +42,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS sort_config (
             record_id   INTEGER PRIMARY KEY,
             sort_order  INTEGER NOT NULL,
-            UNIQUE(sort_order)
+            type        TEXT DEFAULT 'account',
+            UNIQUE(type, sort_order)
         );
         CREATE TABLE IF NOT EXISTS articles (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -134,6 +135,14 @@ def init_db():
         _ccols = [r[1] for r in conn.execute("PRAGMA table_info(comments)").fetchall()]
         if _ccols and "is_first" not in _ccols:
             conn.execute("ALTER TABLE comments ADD COLUMN is_first INTEGER DEFAULT 0")
+            conn.commit()
+        # 迁移: sort_config 加 type 列(account/point 共用排序表, 唯一(type, sort_order))
+        _scols = [r[1] for r in conn.execute("PRAGMA table_info(sort_config)").fetchall()]
+        if _scols and "type" not in _scols:
+            conn.execute("CREATE TABLE sort_config_new (record_id INTEGER PRIMARY KEY, sort_order INTEGER NOT NULL, type TEXT DEFAULT 'account', UNIQUE(type, sort_order))")
+            conn.execute("INSERT INTO sort_config_new (record_id, sort_order, type) SELECT record_id, sort_order, 'account' FROM sort_config")
+            conn.execute("DROP TABLE sort_config")
+            conn.execute("ALTER TABLE sort_config_new RENAME TO sort_config")
             conn.commit()
         # 文章唯一: 同biz下 art_biz(文章id) 唯一
         try:

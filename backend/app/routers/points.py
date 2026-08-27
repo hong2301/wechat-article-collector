@@ -21,7 +21,11 @@ def _row_to_dict(row):
 def list_points():
     conn = get_conn()
     try:
-        rows = conn.execute("SELECT * FROM points ORDER BY id ASC").fetchall()
+        # 排序: 走 sort_config(type='point' 的 sort_order), 未配置的点按 id 补位末尾
+        rows = conn.execute("""
+            SELECT p.*, COALESCE(s.sort_order, 999999999) so
+            FROM points p LEFT JOIN sort_config s ON p.id = s.record_id AND s.type='point'
+            ORDER BY so ASC, p.id ASC""").fetchall()
         return [_row_to_dict(r) for r in rows]
     finally:
         conn.close()

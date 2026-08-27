@@ -1093,3 +1093,153 @@ def _comment_area_entry(self_name):
 
 POINT_FLOWS["评论区左上"] = _comment_area_entry("评论区左上")
 POINT_FLOWS["评论区右下"] = _comment_area_entry("评论区右下")
+
+
+# ---------------------------------------------------------------------------
+# 点位 39: 搜一搜窗口第一个标签页关闭按钮
+# 流程: 采集器/微信/搜一搜初始化 -> 从点位14(搜一搜按钮)位置往左点击
+#   步长=(14.x-屏幕左0)/15(每轮减半): 每点一下检测搜一搜窗口是否不存在
+#   (存在=未点到关闭; 不存在=点到关闭按钮=>记录当前坐标)
+#   若扫到屏幕左边仍存在 => 步长太大跳过了, 重新全流程步长减半
+# ---------------------------------------------------------------------------
+@flow_point("搜一搜窗口第一个标签页关闭按钮")
+def _flow_point39_close_tab(ctx):
+    import time as _time
+    from ..services import tasks as tasks_svc
+    from ..services import computer as _pc
+
+    for round_i in range(6):
+        ok_ap, txt_ap = tasks_svc.init_app_window()
+        if not ok_ap:
+            log.warning(f"点位39 采集器窗口初始化失败: {txt_ap}")
+            return None, None
+        ok_wx, txt_wx = tasks_svc.init_wechat_window()
+        if not ok_wx:
+            log.warning(f"点位39 微信窗口初始化失败: {txt_wx}")
+            return None, None
+        ok_sw, txt_sw = tasks_svc.search_window_init()
+        if not ok_sw:
+            log.warning(f"点位39 搜一搜窗口初始化失败: {txt_sw}")
+            return None, None
+
+        p14 = tasks_svc._read_point(14)
+        if not p14:
+            log.warning("点位39 缺14")
+            return None, None
+        raw_step = max(1, p14[0] // 15)          # 步长=(14.x-0)/15(不变)
+        step = max(1, raw_step // (1 << round_i)) # 每轮减半
+        log.info(f"点位39 第{round_i+1}轮: 起点x=0 步长={step}")
+        x = 0
+        while True:
+            # 超过了搜一搜按钮(14.x)窗口仍存在 => 步长过大跳过了, 重来减半
+            if x > p14[0]:
+                log.warning(f"点位39 第{round_i+1}轮经过14.x仍存在, 步长过大重来")
+                break
+            ctx.click(x, p14[1], wait_after=0.8)
+            if not _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
+                log.info(f"点位39 命中关闭按钮: ({x},{p14[1]})")
+                return x, p14[1]
+            x += step
+    log.warning("点位39 多轮未命中")
+    return None, None
+
+
+# ---------------------------------------------------------------------------
+# 一键设置: 输入锁定(同采集: 拦截人工键鼠+提示, ESC停止) + 按依赖序执行全部点位
+# ---------------------------------------------------------------------------
+_input_lock = None
+_stop_requested = [False]
+_last_block_notice = [0.0]
+
+
+def _notice_block():
+    """拦截人工输入提示(限流3s)"""
+    import time as _t
+    now = _t.monotonic()
+    if now - _last_block_notice[0] < 3.0:
+        return
+    _last_block_notice[0] = now
+    try:
+        from ..services import tasks as tasks_svc
+        tasks_svc.tasks_echo("[warn] 自动设置期间禁用鼠标和键盘，请勿操作! 按 ESC 可停止")
+    except Exception:
+        pass
+
+
+def _on_esc():
+    _stop_requested[0] = True
+    try:
+        from ..services import tasks as tasks_svc
+        tasks_svc.tasks_echo("[warn] 已请求停止: 完成当前点位后停止")
+    except Exception:
+        pass
+
+
+def locking_enter():
+    """启动输入锁定(同采集); 已是第一次则再次 start 幂等"""
+    global _input_lock
+    from ..services.inputlock import InputLock
+    if _input_lock is None:
+        _input_lock = InputLock()
+        _input_lock.on_esc = _on_esc
+        _input_lock.on_block = _notice_block
+    _stop_requested[0] = False
+    if not _input_lock._started:
+        return _input_lock.start()
+    return True
+
+
+def locking_exit():
+    """结束输入锁定 + 清停止标记"""
+    global _input_lock
+    _stop_requested[0] = False
+    if _input_lock is not None:
+        _input_lock.stop()
+        _input_lock = None
+
+
+def stop_requested():
+    return _stop_requested[0]
+
+
+POINT_ORDER = [
+    "点击微信左上角搜索输入框", "微信左上角搜索网络",
+    "微信窗口初始化不合法时窗口分离按钮", "搜一搜窗口查询按钮",
+    "文章列表左上角", "文章列表右下角", "文章右上角3点",
+    "点击复制链接", "复制链接左上", "复制链接右下",
+    "4指标区域左上", "4指标区域右下", "阅读数左上", "阅读数右下",
+    "评论按钮", "评论区左上", "评论区右下",
+    "搜一搜窗口第一个标签页关闭按钮",
+]
+
+
+def run_all_points():
+    """按依赖顺序执行全部点位自动设置(输入锁全程保护, ESC可停)
+    返回 {done, ok, fail, stopped}"""
+    locking_enter()
+    ok_n = fail_n = done = 0
+    stopped = False
+    try:
+        for name in POINT_ORDER:
+            if stop_requested():
+                stopped = True
+                break
+            try:
+                x, y, _rem, errtxt = run_point_flow(name, attach=not _is_pure_calc(name))
+            except Exception as e:
+                x = None; errtxt = f"异常: {e}"
+            done += 1
+            if x is not None:
+                ok_n += 1
+                log.info(f"一键设置 OK: {name} ({x},{y})")
+            else:
+                fail_n += 1
+                log.warning(f"一键设置 FAIL: {name} - {errtxt}")
+    finally:
+        locking_exit()
+    return {"done": done, "ok": ok_n, "fail": fail_n, "stopped": stopped}
+
+
+def _is_pure_calc(name):
+    """纯计算点位(28/29等)不 attach 微信窗口"""
+    return name in ("复制链接左上", "复制链接右下")

@@ -54,7 +54,7 @@ def list_accounts(page: int = 0, page_size: int = 20, q: str = ""):
         conn = get_conn()
         try:
             sql = "SELECT a.* FROM accounts a " \
-                  "LEFT JOIN sort_config s ON a.id = s.record_id " \
+                  "LEFT JOIN sort_config s ON a.id = s.record_id AND s.type='account' " \
                   "ORDER BY COALESCE(s.sort_order, 999999999), a.id ASC"
             params = []
             if q:
@@ -91,7 +91,7 @@ def _import_stream(rows):
     # 新增(导入)排最前: 从当前最前 order 往前递减分配
     conn0 = get_conn()
     try:
-        m = conn0.execute("SELECT MIN(sort_order) m FROM sort_config").fetchone()["m"]
+        m = conn0.execute("SELECT MIN(sort_order) m FROM sort_config WHERE type='account'").fetchone()["m"]
     finally:
         conn0.close()
     new_order = (m if m is not None else 0) - 1
@@ -123,7 +123,7 @@ def _import_stream(rows):
                     "INSERT INTO accounts(name, biz, status, remark) VALUES(?,?,?,?)",
                     (name, biz, "pending", ""))
                 new_id = cur.lastrowid
-                conn.execute("INSERT OR REPLACE INTO sort_config(record_id, sort_order) VALUES(?,?)", (new_id, new_order))
+                conn.execute("INSERT OR REPLACE INTO sort_config(record_id, sort_order, type) VALUES(?,?, 'account')", (new_id, new_order, 'account'))
                 new_order -= 1   # 下一条再往前一位
                 conn.commit()
             except Exception:
@@ -160,9 +160,9 @@ def create_account(payload: AccountCreate):
             (payload.name, payload.biz, payload.status, payload.remark))
         new_id = cur.lastrowid
         # 新增排最前
-        m = conn.execute("SELECT MIN(sort_order) m FROM sort_config").fetchone()["m"]
+        m = conn.execute("SELECT MIN(sort_order) m FROM sort_config WHERE type='account'").fetchone()["m"]
         new_order = (m if m is not None else 0) - 1
-        conn.execute("INSERT OR REPLACE INTO sort_config(record_id, sort_order) VALUES(?,?)", (new_id, new_order))
+        conn.execute("INSERT OR REPLACE INTO sort_config(record_id, sort_order, type) VALUES(?,?, 'account')", (new_id, new_order, 'account'))
         conn.commit()
         row = conn.execute(
             "SELECT a.* FROM accounts a WHERE a.id=?", (new_id,)).fetchone()
@@ -644,8 +644,8 @@ def sort_accounts(payload: SortPayload):
         if payload.ids:
             conn.execute(f"DELETE FROM sort_config WHERE record_id IN ({marks})", payload.ids)
             conn.executemany(
-                "INSERT OR REPLACE INTO sort_config(record_id, sort_order) VALUES(?,?)",
-                [(rid, i + 1) for i, rid in enumerate(payload.ids)])
+                "INSERT OR REPLACE INTO sort_config(record_id, sort_order, type) VALUES(?,?, 'account')",
+                [(rid, i + 1, 'account') for i, rid in enumerate(payload.ids)])
         conn.commit()
         return {"ok": True, "count": len(payload.ids)}
     finally:
