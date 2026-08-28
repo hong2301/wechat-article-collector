@@ -62,3 +62,4 @@ backend/_debug_*.png
 backend/_wx_state_*.json
 
 test_empty_points.db
+auto_setup_dbg.log
