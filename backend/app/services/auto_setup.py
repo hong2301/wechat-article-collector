@@ -576,7 +576,7 @@ def run_point_flow(name: str, attach: bool = True):
         else:
             x, y, remark = res[0], res[1], ""
         if x is None or y is None:
-            return None, None, "", f"识别失败(AI 定位不到目标): {name}"
+            return None, None, "", f"识别失败: {name}"
         return x, y, remark, ""
     except Exception as e:
         return None, None, "", f"流程异常: {e}"
@@ -1061,28 +1061,32 @@ POINT_FLOWS["评论区左上"] = _comment_area_entry("评论区左上")
 POINT_FLOWS["评论区右下"] = _comment_area_entry("评论区右下")
 
 
-# ---------------------------------------------------------------------------
-
-
-POINT_ORDER = [
-    "点击微信左上角搜索输入框", "微信左上角搜索网络",
-    "微信窗口初始化不合法时窗口分离按钮", "搜一搜窗口查询按钮",
-    "文章列表左上角", "文章列表右下角", "文章右上角3点",
-    "复制链接左上", "复制链接右下", "点击复制链接",
-    "4指标区域左上", "4指标区域右下", "阅读数左上", "阅读数右下",
-    "评论按钮", "评论区左上", "评论区右下",
-]
+def _point_order_from_db():
+    """点位执行顺序: 基于 sort_config(type='point') 数据库排序, 未配置的点按 id 补位末尾
+    (与 /api/points 列表排序一致, 前端拖拽调整后一键设置同步生效)"""
+    from ..database import get_conn as _gc
+    conn = _gc()
+    try:
+        rows = conn.execute("""
+            SELECT p.name FROM points p
+            LEFT JOIN sort_config s ON p.id = s.record_id AND s.type='point'
+            ORDER BY COALESCE(s.sort_order, 999999999) ASC, p.id ASC""").fetchall()
+        return [r["name"] for r in rows if r["name"]]
+    finally:
+        conn.close()
 
 
 def run_all_points_stream(names: str = ""):
     """流式一键设置: 逐点位 yield 事件(step/progress/ok/fail/warn/done), 前端边收边渲染
     关键: 必须边执行边 yield(真生成器), 路由逐条转发; 攒到队列尾部一次性返回会导致前端收不到实时事件
-    names: 逗号分隔点位名(空=全部); 单点位自动设置传单个名"""
+    names: 逗号分隔点位名(空=全部); 单点位自动设置传单个名
+    执行顺序: 基于数据库 sort_config(type='point'), 不再硬编码"""
+    db_order = _point_order_from_db()
     if names:
         want = set(names.split(","))
-        order = [n for n in POINT_ORDER if n in want]
+        order = [n for n in db_order if n in want]
     else:
-        order = POINT_ORDER
+        order = db_order
     yield f"[step] 一键设置开始: 共 {len(order)} 个点位({'全部' if not names else '指定'})"
 
     ok_n = fail_n = done = 0
