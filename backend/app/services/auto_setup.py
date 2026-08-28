@@ -592,21 +592,23 @@ POINT_FLOWS["文章列表右下角"] = _articles_list_entry("文章列表右下�
 
 # ---------------------------------------------------------------------------
 # 点位 18: 文章右上角3点 (依赖前面全部 11/12/9/14/15/16)
-# 流程: 与点位14相同(微信就位->点11/12/9分离)但到OCR搜一搜那步不用,
-#   以点位14为原点往右偏移20px起, 向右步长点击(步长=14到屏幕中线/15):
-#     截图有变化 -> 命中记录; 无变化或窗口变大(点了全屏键, 步长跳过) ->
-#     搜一搜窗口恢复左半屏, 再往回(左)点击, 步长=原1/5
+# 流程: 初始化(微信/采集器/搜一搜) -> 从搜一搜窗口最右边向左探测:
+#   原点 x=搜一搜窗口最右边, y=搜一搜按钮(点位14)的y
+#   步长 = (搜一搜按钮.x - 搜一搜窗口左边) / 30, 每轮减半
+#   识别: 先截图 -> 点击 -> 截图对比(第一下等3s, 其余0.5s):
+#     有变化记为第1次变化, 继续动; 数到第4次变化后原地再点击确认:
+#       点击后窗口无变化 => 目标点位; 有变化 => 步长过大
+#     扫过搜一搜按钮位置仍未凑满4次变化 => 步长过大
 # ---------------------------------------------------------------------------
 @flow_point("文章右上角3点")
 def _flow_point18_three_dots(ctx):
-    import ctypes
     import time as _time
-    from PIL import ImageGrab
     import numpy as np
+    from PIL import ImageGrab
     from ..services import tasks as tasks_svc
     from ..services import computer as _pc
 
-    # 完整调用: 微信窗口初始化 + 搜一搜窗口初始化
+    # 完整调用: 微信窗口初始化 + 采集器 + 搜一搜窗口初始化
     ok_wx, txt_wx = tasks_svc.init_wechat_window()
     if not ok_wx:
         log.warning(f"点位18 微信窗口初始化失败: {txt_wx}")
@@ -615,66 +617,85 @@ def _flow_point18_three_dots(ctx):
     if not ok_ap:
         log.warning(f"点位18 采集器窗口初始化失败: {txt_ap}")
         return None, None
-
     ok_sw, txt_sw = tasks_svc.search_window_init()
     if not ok_sw:
         log.warning(f"点位18 搜一搜窗口初始化失败: {txt_sw}")
         return None, None
-    p14 = tasks_svc._read_point(14)
+    p14 = tasks_svc._read_point(14)          # 搜一搜按钮(查询)
     if not p14:
         return None, None
+    appex = _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True)
+    if not appex:
+        log.warning("点位18 未找到可见搜一搜窗口")
+        return None, None
+    import ctypes
+    r_ap = ctypes.wintypes.RECT()
+    _pc._u32().GetWindowRect(appex[0][0], ctypes.byref(r_ap))
+    x_left = r_ap.left                      # 搜一搜窗口左边
+    x_right = r_ap.right - 1                # 搜一搜窗口最右边(探测原点)
     u32_ = _pc._u32()
     sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
     sh_ = u32_.GetSystemMetrics(_pc.SM_CYSCREEN)
-
-    base_y = p14[1]
-    x0 = p14[0] + 20                      # 以14为原点右偏20px
-    mid_x = sw_ // 2                       # 屏幕中线(左半屏右缘)
     half_w = sw_ // 2
-    raw_step = max(1, int(p14[0] / 30))      # 14.x 分成30份作为步长
+    base_y = int(p14[1])                      # y = 搜一搜按钮的y
+    raw_step = max(1, (int(p14[0]) - x_left) // 30)   # 搜索按钮到窗口左边 / 30
 
-    def click_and_check(cx, step_now):
-        # 点击前/后截图对比; 返回 (变化率, 搜一搜窗口是否仍可见)
-        before = np.array(ImageGrab.grab(bbox=(0, 0, half_w, sh_)).convert("RGB"))
-        ctx.click(cx, base_y, wait_after=0.7)
-        appex_now = _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True)
-        hidden = not appex_now       # 3点右边是最小化键: 点过头(步长过大)窗口会被最小化=>不可见
-        after = np.array(ImageGrab.grab(bbox=(0, 0, half_w, sh_)).convert("RGB"))
-        changed = (np.abs(after.astype(int) - before.astype(int)).sum(axis=2) > 15).mean()
-        return changed, hidden
+    def snap():
+        # 截图范围: 宽=左半屏中线(sw/4) 到 屏幕中线(sw/2); 高=搜一搜按钮y×2
+        return np.array(ImageGrab.grab(
+            bbox=(half_w // 2, 0, half_w, base_y * 2)).convert("RGB"))
 
-    # 右向探测: 从 x0 向右, 步长 raw_step
-    i = 0
-    while True:
-        cx = x0 + i * raw_step
-        if cx > mid_x:
-            break
-        changed, hidden = click_and_check(cx, raw_step)
-        if changed > 0.001:
-            log.info(f"点位18 右向({cx},{base_y}) 变化率={changed:.4f} => 命中")
-            return cx, base_y
-        if hidden:
-            # 窗口被最小化(点到最小化键, 步长过大跳过3点) -> 恢复窗口+左半屏, 往回(左)点击 步长1/5
-            log.warning(f"点位18 右向({cx},{base_y}) 搜一搜窗口不可见, 恢复后往左(步长{raw_step//5})")
-            appex_all = _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=False)
-            if appex_all:
-                _pc.show_window(appex_all[0][0])
-                _pc.move_window(appex_all[0][0], 0, 0, half_w, sh_)
-                _time.sleep(0.5)
-            small = max(1, raw_step // 5)
-            j = 0
-            while True:
-                cx2 = mid_x - j * small
-                if cx2 <= p14[0]:
+    def changed(a, b):
+        return (np.abs(a.astype(int) - b.astype(int)).sum(axis=2) > 15).mean()
+
+    for round_idx in range(4):
+        step = max(1, raw_step // (1 << round_idx))   # 每轮减半
+        log.info(f"点位18 第{round_idx+1}轮: y={base_y} 右缘={x_right} 步长={step} (基准={raw_step})")
+        prev = snap()
+        changes = 0
+        cx = x_right
+        first_click = True
+        overshoot = False   # 步长过大标志
+        while cx > int(p14[0]):   # 扫到搜一搜按钮为止(越过即步长过大)
+            # 横向探测: 移动鼠标(不点击)触发 hover 变化
+            _pc._u32().SetCursorPos(cx, base_y)
+            # 第一下动完等3s, 其余0.5s
+            _time.sleep(3.0 if first_click else 0.5)
+            first_click = False
+            cur = snap()
+            if changed(cur, prev) > 0.001:
+                changes += 1
+                if changes == 1:
+                    # 第一次变化: 停3秒等界面稳定, 再截图作为变化基准
+                    _time.sleep(3.0)
+                    cur = snap()
+                log.info(f"点位18 第{round_idx+1}轮({cx},{base_y}) 第{changes}次变化")
+                if changes >= 4:
+                    # 第4次: 连续点击两次(间隔0.5s), 然后判定搜一搜窗口是否在左半屏:
+                    #   在左半屏 => 目标点位; 不在(切走/收起) => 步长过大
+                    ctx.click(cx, base_y)
+                    _time.sleep(0.5)
+                    ctx.click(cx, base_y)
+                    _time.sleep(0.5)
+                    appex_now = _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True)
+                    if not appex_now:
+                        log.warning(f"点位18 第{changes}次后搜一搜窗口不可见, 步长过大")
+                    else:
+                        r_chk = ctypes.wintypes.RECT()
+                        _pc._u32().GetWindowRect(appex_now[0][0], ctypes.byref(r_chk))
+                        if abs(r_chk.left) <= 2:
+                            log.info(f"点位18 第{round_idx+1}轮({cx},{base_y}) 搜一搜仍在左半屏 => 命中")
+                            return cx, base_y
+                        log.warning(f"点位18 第{changes}次后搜一搜不在左半屏, 步长过大")
+                    overshoot = True
                     break
-                changed2, _hidden2 = click_and_check(cx2, small)
-                if changed2 > 0.001:
-                    log.info(f"点位18 左回({cx2},{base_y}) 变化率={changed2:.4f} => 命中")
-                    return cx2, base_y
-                j += 1
-            break
-        i += 1
-    log.warning("点位18 探测未命中")
+            prev = cur
+            cx -= step
+        if overshoot:
+            continue   # 确认有变化 => 步长过大, 下一轮更小步长重试
+        # while 正常结束(扫过搜一搜按钮)仍未凑满4次变化 => 步长过大
+        log.warning("点位18 扫过搜一搜按钮仍未达4次变化, 步长过大, 换更小步长")
+    log.warning("点位18 探测未命中(多次步长过大或扫过按钮)")
     return None, None
 def run_point_flow(name: str, attach: bool = True):
     """执行点位自动设置流程 -> (x, y, remark, err); 流程函数可返回 (x,y) 或 (x,y,remark)"""
