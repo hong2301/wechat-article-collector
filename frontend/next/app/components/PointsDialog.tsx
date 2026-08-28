@@ -190,7 +190,7 @@ export default function PointsDialog({
       const reader = resp.body.getReader();
       const dec = new TextDecoder();
       let buf = "";
-      for (;;) {
+      for (; ;) {
         const { done, value } = await reader.read();
         if (done) break;
         buf += dec.decode(value, { stream: true });
@@ -219,7 +219,7 @@ export default function PointsDialog({
     } catch {
       message.error("自动设置失败(后端不可达)");
     } finally {
-      fetch("http://127.0.0.1:8000/api/auto-setup/unlock", { method: "POST" }).catch(() => {});   // 结束输入锁
+      fetch("http://127.0.0.1:8000/api/auto-setup/unlock", { method: "POST" }).catch(() => { });   // 结束输入锁
       showTaskbar();
       setTimeout(() => { setRunProg(null); setRunCur(""); }, 1500);
       load();
@@ -336,10 +336,14 @@ export default function PointsDialog({
         ) : null}{p.name}</>
       ),
     },
-    { title: "x", dataIndex: "x", width: 60, align: "center" as const, render: (_: unknown, p: Point) =>
-      <span style={{ color: !String(p.x ?? "").trim() ? "#ff4d4f" : undefined, fontWeight: !String(p.x ?? "").trim() ? 600 : undefined }}>{p.x || "—"}</span> },
-    { title: "y", dataIndex: "y", width: 60, align: "center" as const, render: (_: unknown, p: Point) =>
-      <span style={{ color: !String(p.y ?? "").trim() ? "#ff4d4f" : undefined, fontWeight: !String(p.y ?? "").trim() ? 600 : undefined }}>{p.y || "—"}</span> },
+    {
+      title: "x", dataIndex: "x", width: 60, align: "center" as const, render: (_: unknown, p: Point) =>
+        <span style={{ color: !String(p.x ?? "").trim() ? "#ff4d4f" : undefined, fontWeight: !String(p.x ?? "").trim() ? 600 : undefined }}>{p.x || "—"}</span>
+    },
+    {
+      title: "y", dataIndex: "y", width: 60, align: "center" as const, render: (_: unknown, p: Point) =>
+        <span style={{ color: !String(p.y ?? "").trim() ? "#ff4d4f" : undefined, fontWeight: !String(p.y ?? "").trim() ? 600 : undefined }}>{p.y || "—"}</span>
+    },
     {
       title: "操作", dataIndex: "op", width: 76, align: "center" as const,
       render: (_: unknown, p: Point) => (
@@ -350,9 +354,9 @@ export default function PointsDialog({
           </Space>
           <Space size={2}>
             <Tooltip title={missingDeps(p).length > 0 ? `需先设置: ${missingDeps(p).join("、")}` : wxLogged === false ? "请先登录微信后再自动设置" : undefined}>
-            <Button size="small" type="link" icon={<BulbOutlined />} disabled={missingDeps(p).length > 0 || wxLogged === false}
-              loading={autoLoading === p.id} onClick={() => autoSetRow(p)}>自动设置</Button>
-          </Tooltip>
+              <Button size="small" type="link" icon={<BulbOutlined />} disabled={missingDeps(p).length > 0 || wxLogged === false}
+                loading={autoLoading === p.id} onClick={() => autoSetRow(p)}>自动设置</Button>
+            </Tooltip>
             {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(p)}>删除</Button>}
           </Space>
         </Space>
@@ -405,19 +409,19 @@ export default function PointsDialog({
               {runCur ? `正在设置: ${runCur}` : "正在准备…"}
             </div>
             <div style={{ fontSize: 12, color: "#f5222d", marginTop: 2 }}>
-              ⚠ 设置期间已禁用鼠标和键盘，请勿操作！如需停止请按 ESC
+              ⚠ 设置期间已禁用鼠标和键盘，请勿操作！如需停止请按 ESC，等待数秒即刻停止
             </div>
           </div>
         )}
 
         {/* 点位表 */}
         <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-        <Table
-          rowKey="id" size="small" bordered loading={loading}
-          dataSource={rows} pagination={false} columns={columns}
-          locale={{ emptyText: <Empty description="暂无点位" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
-          sticky scroll={{ x: true }}
-        />
+          <Table
+            rowKey="id" size="small" bordered loading={loading}
+            dataSource={rows} pagination={false} columns={columns}
+            locale={{ emptyText: <Empty description="暂无点位" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+            sticky scroll={{ x: true }}
+          />
         </div>
       </div>
 
