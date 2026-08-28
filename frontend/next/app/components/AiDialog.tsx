@@ -15,8 +15,7 @@ const MODEL_OPTIONS = [
   { value: "doubao-1-5-vision-pro-32k-250115", label: "doubao-1-5-vision-pro-32k-250115" },
   { value: "doubao-1-5-vision-lite-32k-250115", label: "doubao-1-5-vision-lite-32k-250115" },
 ];
-// 默认可用配置
-const DEFAULT_API_KEY = "802ffe3f-4bc9-4030-a3f4-cc00409a4d4e";
+// 默认可用配置(仅默认选中模型; key 必须由用户填写, 不硬编码)
 const DEFAULT_MODELS = ["doubao-seed-2-0-mini-260428"];
 
 export default function AiDialog({
@@ -35,11 +34,11 @@ export default function AiDialog({
       const r = await fetch(API);
       const d = await r.json();
       setProvider(d.provider || "doubao");
-      setApiKey(d.api_key || DEFAULT_API_KEY);
+      setApiKey(d.api_key || "");
       setModels(d.models && d.models.length ? d.models : DEFAULT_MODELS);
     } catch {
       message.error("AI设置加载失败");
-      setApiKey(DEFAULT_API_KEY);
+      setApiKey("");
       setModels(DEFAULT_MODELS);
     }
   }
