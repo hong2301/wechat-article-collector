@@ -137,22 +137,14 @@ export default function ScrollsDialog({
       const d = await (await fetch(`http://127.0.0.1:8000/api/auto-setup/scroll/${s.id}`, { method: "POST" })).json();
       if (d.ok) {
         setRows((prev) => prev.map((x) => x.id === s.id ? { ...x, distance: String(d.distance) } : x));
-        message.success(`自动设置成功: 距离 ${d.distance}`);
+        message.success(`获取成功: 距离 ${d.distance} (=${d.from} y差)`);
       } else {
-        message.error(d.error || "自动设置失败");
+        message.error(d.error || "获取失败");
       }
     } catch {
       message.error("无法连接后端");
     } finally {
       setAutoLoading(null);
-    }
-  }
-  async function autoSetSelected() {
-    if (selectedKeys.length === 0) { message.warning("请先勾选要自动设置的滚动配置"); return; }
-    message.info(`开始自动设置 ${selectedKeys.length} 条滚动配置(将操作微信窗口)...`);
-    for (const id of selectedKeys) {
-      const s = rows.find((r) => r.id === id);
-      if (s) await autoSetRow(s);
     }
   }
 
@@ -299,7 +291,7 @@ export default function ScrollsDialog({
           <Space size={2}>
             <Tooltip title={wxLogged === false ? "请先登录微信后再自动设置" : undefined}>
             <Button size="small" type="link" icon={<BulbOutlined />} loading={autoLoading === s.id}
-              disabled={wxLogged === false} onClick={() => autoSetRow(s)}>自动设置</Button>
+              disabled={wxLogged === false} onClick={() => autoSetRow(s)}>获取</Button>
           </Tooltip>
             {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(s)}>删除</Button>}
           </Space>
@@ -326,7 +318,7 @@ export default function ScrollsDialog({
           {!compact && (
             <>
               <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>
-              <Button icon={<BulbOutlined />} onClick={autoSetSelected}>一键设置</Button>
+
               <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>
               <Button danger icon={<DeleteOutlined />} onClick={delSelected}>删除选中</Button>
             </>

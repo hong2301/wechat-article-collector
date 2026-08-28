@@ -63,6 +63,17 @@ export default function CommentsPage() {
   const retryRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const retryCountRef = useRef(0);   // 连不上后端时的自动重试计数(上限5次)
   const tableWrapRef = useRef<HTMLDivElement>(null);
+  // 表格可视高度(供 scroll.y, 让横向滚动条常驻表体底部)
+  const [tableY, setTableY] = useState(0);
+  useEffect(() => {
+    const measure = () => {
+      if (tableWrapRef.current) setTableY(Math.max(100, tableWrapRef.current.clientHeight - 56));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const t = setInterval(measure, 800);   // 数据/布局变化兜底
+    return () => { window.removeEventListener("resize", measure); clearInterval(t); };
+  }, []);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -455,7 +466,7 @@ export default function CommentsPage() {
         </div>
         ) : shown.length > 0 ? (
         <div ref={tableWrapRef} style={{ flex: 1, minHeight: 0, position: "relative", overflow: "auto" }}>
-          <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" sticky scroll={{ x: 1200 }}
+          <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" sticky scroll={{ x: 1200, y: tableY }}
             rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
             locale={{ emptyText: <Empty description={loadErr ? "加载失败，请重试" : "暂无评论"} /> }}
             columns={[
@@ -495,7 +506,7 @@ export default function CommentsPage() {
           <Empty description={loadErr ? "加载失败，请重试" : "暂无评论"} />
         </div>
         )}
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 10, flexShrink: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Button size="small" icon={<FileExcelOutlined />} onClick={exportExcel}>导出表格</Button>
           </div>

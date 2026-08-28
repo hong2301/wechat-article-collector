@@ -3,7 +3,6 @@
 
 设计: 每个点位/每条滚动配置 匹配一个流程函数(代码模板式)
   POINT_FLOWS[点位名称] = fn(ctx) -> (x, y)      识别成功后由路由写回 points 表
-  SCROLL_FLOWS[滚动名称] = fn(ctx) -> distance    识别成功后由路由写回 scrolls 表
 
 流程函数可用的能力(通过 FlowContext):
   ctx.click(x, y)         鼠标点击
@@ -28,7 +27,6 @@ log = logging.getLogger("auto_setup")
 # 流程函数注册表: {name: fn}  (前置依赖由前端 POINT_DEPS 维护)
 # ---------------------------------------------------------------------------
 POINT_FLOWS = {}
-SCROLL_FLOWS = {}
 
 
 # ---------------------------------------------------------------------------
@@ -93,13 +91,6 @@ def flow_point(name):
     """装饰器: 注册点位流程函数(名称须与 points.name 一致)"""
     def deco(fn):
         POINT_FLOWS[name] = fn
-        return fn
-    return deco
-
-
-def flow_scroll(name):
-    def deco(fn):
-        SCROLL_FLOWS[name] = fn
         return fn
     return deco
 
@@ -608,21 +599,6 @@ def run_point_flow(name: str, attach: bool = True):
         return None, None, "", f"流程异常: {e}"
 
 
-def run_scroll_flow(name: str, attach: bool = True):
-    fn = SCROLL_FLOWS.get(name)
-    if not fn:
-        return None, None, f"未找到滚动流程: {name}"
-    if attach:
-        _attach_wechat()
-    try:
-        dist = fn(FlowContext())
-        if dist is None:
-            return None, None, f"识别失败: {name}"
-        return dist, "", None
-    except Exception as e:
-        return None, None, f"流程异常: {e}"
-
-
 def _attach_wechat():
     """前置微信窗口到前台(自动设置需要操作屏幕)"""
     from ..services import computer as _pc
@@ -1078,6 +1054,9 @@ def _comment_area_entry(self_name):
         if res is None:
             return None, None
         ax1, ay1, ax2, ay2 = res
+        # 点位36(评论区右下): x 改为屏幕中线
+        sw = pc._u32().GetSystemMetrics(pc.SM_CXSCREEN)
+        ax2 = sw // 2
         conn = _get_conn()
         try:
             conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (ax1, ay1, "评论区左上"))
@@ -1140,115 +1119,3 @@ def _is_pure_calc(name):
     """纯计算点位(28/29等)不 attach 微信窗口"""
     return name in ("复制链接左上", "复制链接右下")
 
-
-# ---------------------------------------------------------------------------
-# 滚动3: 文章列表滚动 自动设置
-# 流程(用户指定): 采集器/微信/搜一搜初始化 -> 搜一搜查公众号TEST_BIZ
-#   -> 复制 article_list_wait_stable 前半(稳定检测+识别灰字"文章"标记点击进入详情)
-#   -> 点位15滚1000 -> 截15/16(A) -> 滚15/16高度差h -> 等0.5s -> 截(B)
-#   -> 重合率(相同像素%) 目标20-30%: >30变化不足距离+=h再滚; <20过头距离减半
-# ---------------------------------------------------------------------------
-@flow_scroll("文章列表滚动")
-def _flow_scroll3_list(ctx):
-    import time as _time
-    import numpy as np
-    from PIL import Image, ImageGrab
-    from ..services import tasks as tasks_svc
-
-    # 1) 三窗口初始化
-    ok_ap, txt_ap = tasks_svc.init_app_window()
-    if not ok_ap:
-        log.warning(f"滚动3 采集器窗口初始化失败: {txt_ap}")
-        return None
-    ok_wx, txt_wx = tasks_svc.init_wechat_window()
-    if not ok_wx:
-        log.warning(f"滚动3 微信窗口初始化失败: {txt_wx}")
-        return None
-    ok_sw, txt_sw = tasks_svc.search_window_init()
-    if not ok_sw:
-        log.warning(f"滚动3 搜一搜窗口初始化失败: {txt_sw}")
-        return None
-
-    # 2) 搜一搜查询测试公众号(用户指定 MzA4OTQ5NTk2Mw== = TEST_BIZ)
-    ok_q, txt_q = tasks_svc.search_query(TEST_BIZ_QUERY)
-    if not ok_q:
-        log.warning("滚动3 搜一搜查询失败: " + txt_q)
-        return None
-    _time.sleep(5.0)                        # 等加载
-
-    # 3) 点位15/16
-    p15 = tasks_svc._read_point(15)
-    p16 = tasks_svc._read_point(16)
-    if not (p15 and p16):
-        log.warning("滚动3 缺少点位15/16")
-        return None
-    x1, y1 = p15
-    x2, y2 = p16
-
-    # 4) 复制 article_list_wait_stable 前半: 页面稳定 -> 识别灰字"文章"标记点击进入详情
-    ok0, info0 = tasks_svc.wait_page_stable(x1, y1, x2, y2, same_need=20, timeout=100, interval=0.1)
-    if not ok0:
-        log.warning(f"滚动3 列表页未稳定: {info0}")
-        return None
-    shot_path, _b64 = pc.screenshot(x1, y1, x2, y2, img_format="png")
-    if not shot_path:
-        log.warning("滚动3 列表截图失败")
-        return None
-    # 识别"文章"标记(灰色系深色文字)并点击
-    try:
-        items = ocr_service.ocr(Image.open(shot_path))
-        clicked = False
-        for cx, cy, text, score, sbox, brightness in items:
-            if not text or not text.strip() or "文章" not in text:
-                continue
-            gray = ocr_service._region_grayish(sbox, (x1, y1))
-            if gray is True:
-                xs = [p[0] + x1 for p in sbox]
-                ys = [p[1] + y1 for p in sbox]
-                click_x = int(sum(xs) / len(xs))
-                click_y = int(sum(ys) / len(ys))
-                log.info(f"滚动3 识别文章标记: {text!r} @({click_x},{click_y})")
-                pc.mouse_click(click_x, click_y)
-                clicked = True
-                break
-        if not clicked:
-            log.warning("滚动3 未识别到灰字'文章'标记, 无法进入详情")
-            return None
-    except Exception as e:
-        log.warning(f"滚动3 文章标记识别失败: {e}")
-        return None
-    _time.sleep(1.0)                        # 等文章详情打开
-
-    # 5) 特定逻辑: 点位15滚1000
-    pc.scroll(x1, y1, 1000, direction="down", wait_after=0.8)
-
-    # 6) 截15/16(A) -> 滚候选距离=15/16高度差 -> 等0.5s -> 截(B) -> 算重合率
-    h = abs(y2 - y1)
-    dist = h
-
-    def grab_box():
-        return ImageGrab.grab(bbox=(x1, y1, x2, y2)).convert("RGB")
-
-    def overlap_pct(img_a, img_b):
-        """重合率: 相同像素占比(%), diff阈值30"""
-        da = np.array(img_a, dtype=int)
-        db = np.array(img_b, dtype=int)
-        diff = np.abs(da - db).sum(axis=2)
-        same = (diff < 30).sum() / diff.size * 100.0
-        return same
-
-    imgA = grab_box()
-    for i in range(8):
-        pc.scroll(x1, y1, dist, direction="down", wait_after=0.5)
-        imgB = grab_box()
-        rate = overlap_pct(imgA, imgB)
-        log.info(f"滚动3 第{i+1}轮: dist={dist} 重合率={rate:.1f}%")
-        if 20.0 <= rate <= 30.0:
-            log.info(f"滚动3 命中: 滚动距离 {dist} (重合率{rate:.1f}%)")
-            return dist
-        if rate > 30.0:
-            dist += h          # 变化不足(重合过多) -> 再滚动一次的量
-        else:
-            dist = max(h, dist // 2)   # 变化过头 -> 减小距离
-    log.warning(f"滚动3 8轮未收敛, 返回最后距离 {dist}")
-    return dist

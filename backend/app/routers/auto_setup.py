@@ -41,7 +41,8 @@ def auto_setup_point(pid: int):
 
 @router.post("/scroll/{sid}")
 def auto_setup_scroll(sid: int):
-    """执行滚动自动识别流程, 成功则写回 distance"""
+    """获取滚动距离: 按滚动配置对应点位对(文章列表->15/16, 评论区->35/36)计算
+    distance = |左下角.y - 左上角.y|(区域高度), 写回 scrolls"""
     conn = get_conn()
     try:
         row = conn.execute("SELECT id, name FROM scrolls WHERE id=?", (sid,)).fetchone()
@@ -49,17 +50,30 @@ def auto_setup_scroll(sid: int):
         conn.close()
     if not row:
         raise HTTPException(404, f"滚动配置不存在 id={sid}")
-    name = row["name"]
-    dist, _unused, err = as_svc.run_scroll_flow(name)
-    if dist is None:
-        return {"ok": False, "name": name, "error": err or "识别失败"}
+    # 滚动配置 -> 对应范围点位对
+    pair = {
+        "文章列表滚动": (15, 16),
+        "评论区滚动": (35, 36),
+    }.get(row["name"])
+    if not pair:
+        return {"ok": False, "name": row["name"], "error": f"未配置点位对应: {row['name']}"}
+    p1, p2 = pair
+    conn = get_conn()
+    try:
+        pt1 = conn.execute("SELECT x, y FROM points WHERE id=?", (p1,)).fetchone()
+        pt2 = conn.execute("SELECT x, y FROM points WHERE id=?", (p2,)).fetchone()
+    finally:
+        conn.close()
+    if not (pt1 and pt2):
+        return {"ok": False, "name": row["name"], "error": f"缺少点位{p1}/{p2}, 无法计算"}
+    dist = int(abs(int(pt2["y"]) - int(pt1["y"])) * 0.95)   # 区域高度(y绝对值差)再小5%
     conn = get_conn()
     try:
         conn.execute("UPDATE scrolls SET distance=? WHERE id=?", (dist, sid))
         conn.commit()
     finally:
         conn.close()
-    return {"ok": True, "name": name, "distance": dist}
+    return {"ok": True, "name": row["name"], "distance": dist, "from": f"点位{p1}/{(p2)}"}
 
 @router.post("/run-all")
 def auto_setup_run_all():
