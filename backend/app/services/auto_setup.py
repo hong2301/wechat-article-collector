@@ -452,10 +452,10 @@ def _flow_articles_list_find(ctx):
         return None
     _time.sleep(5.0)                        # 等加载
 
-    # 先下滚1000 -> 截图1; 再下滚500 -> 截图2; 对比得出列表区
+    # 先下滚1000 -> 截图1; 再下滚1000 -> 截图2; 对比得出列表区
     _pc.scroll(sw_ // 4, sh_ // 2, 1000, direction="down", wait_after=0.8)
     img1 = np.array(ImageGrab.grab(bbox=(0, 0, sw_ // 2, sh_)).convert("RGB"))
-    _pc.scroll(sw_ // 4, sh_ // 2, 500, direction="down", wait_after=0.8)
+    _pc.scroll(sw_ // 4, sh_ // 2, 1000, direction="down", wait_after=0.8)
     img2 = np.array(ImageGrab.grab(bbox=(0, 0, sw_ // 2, sh_)).convert("RGB"))
 
     # 对比: 变化区域的外接矩形 = 文章列表区
