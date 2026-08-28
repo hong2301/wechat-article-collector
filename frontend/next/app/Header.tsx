@@ -32,7 +32,7 @@ export default function Header() {
           </div>
           <div style={{ fontSize: 12, color: "#8b949e" }}>基于 微信 Windows 版 4.1.12.55</div>
         </div>
-        <Tooltip title="快速开始">
+        <Tooltip title="如果是第一次使用，建议先运行快速开始（会自动校准点位/滚动/公众号）">
           <button onClick={() => setQsOpen(true)}
             style={{ height: 34, padding: "0 12px", borderRadius: 9, background: "#fff", border: "1px solid #d0d7de", color: "#57606a", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="#f5a623" xmlns="http://www.w3.org/2000/svg"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z" /></svg>
@@ -47,7 +47,7 @@ export default function Header() {
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeMiterlimit="10"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>
           </button>
         </Tooltip>
-        <Tooltip title={wxLogged === null ? "检测中..." : (wxOn ? "微信: 已登录" : "微信: 未登录, 点击启动微信")}
+        <Tooltip title={wxLogged === null ? "检测中..." : (wxOn ? "微信: 已登录" : "微信未登录或者微信窗口未唤醒")}
           open={wxLogged === false}  >
           <span onClick={() => { if (wxLogged === false) fetch("http://127.0.0.1:8000/api/settings/launch-wechat", { method: "POST" }).catch(() => {}); }}
             style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", border: "1px solid #d0d7de", color: wxOn ? "#07c160" : "#a6adb4", display: "flex", alignItems: "center", justifyContent: "center", cursor: wxLogged === false ? "pointer" : "default", transition: ".2s" }}>

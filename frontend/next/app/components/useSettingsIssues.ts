@@ -15,6 +15,17 @@ export function useSettingsIssues() {
 
   const refresh = () => setTick((t) => t + 1);
 
+  // 监听全局刷新事件(快速开始/一键设置等完成后广播, 组件不共享实例无法直接调用)
+  useEffect(() => {
+    const h = () => refresh();
+    window.addEventListener("fast-refresh-settings", h);
+    window.addEventListener("focus", h);
+    return () => {
+      window.removeEventListener("fast-refresh-settings", h);
+      window.removeEventListener("focus", h);
+    };
+  }, []);
+
   useEffect(() => {
     (async () => {
       // 点位: x/y 空或非数字

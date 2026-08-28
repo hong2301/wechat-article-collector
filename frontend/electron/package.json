@@ -27,12 +27,6 @@
       "icon.png",
       "out/**/*"
     ],
-    "extraResources": [
-      {
-        "from": "extra/backend",
-        "to": "backend"
-      }
-    ],
     "win": {
       "target": [
         "dir",

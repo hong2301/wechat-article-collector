@@ -307,7 +307,7 @@ def _flow_point11_search_box(ctx):
 # 点位 14: 搜一搜窗口查询按钮 (依赖 11/12/9)
 # 流程: 微信初始化 -> 初始化搜一搜(点11+输入1+全选删除+点12, 无独立窗则点9分离)
 #   -> 截图左半屏最上1/10, OCR"搜一搜"取中心y
-#   -> 从左半屏一半x(sw//4)往左点击, 步长=(sw//4-搜一搜x)/20:
+#   -> 从左半屏右边的中线(sw*3//8)往左点击, 步长=(sw*3//8-搜一搜x)/20:
 #      点击后截图对比有变化=>命中查询按钮(成功);
 #      搜一搜窗口被关闭=>步长过大(点到关闭), 整轮重来步长减半
 # ---------------------------------------------------------------------------
@@ -346,8 +346,8 @@ def _flow_point14_query_button(ctx):
             return None, None
         sx, sy = hit[0], hit[1]
 
-        # 从左半屏一半x(sw//4)往左点击; 步长=(sw//4 - sx)/20 / 本轮减半
-        start_x = sw // 4
+        # 从左半屏右边的中线(sw*3//8)往左点击; 步长=(sw*3//8 - sx)/20 / 本轮减半
+        start_x = sw * 3 // 8
         divide = 1 << round_idx
         step = max(1, int((start_x - sx) / 20 / divide))
         log.info(f"点位14 第{round_idx+1}轮: y={sy} 起点={start_x} 搜一搜x={sx} 步长={step}")
@@ -515,7 +515,7 @@ def _flow_point18_three_dots(ctx):
     x0 = p14[0] + 20                      # 以14为原点右偏20px
     mid_x = sw_ // 2                       # 屏幕中线(左半屏右缘)
     half_w = sw_ // 2
-    raw_step = max(1, int((mid_x - p14[0]) / 15))
+    raw_step = max(1, int(p14[0] / 30))      # 14.x 分成30份作为步长
 
     def click_and_check(cx, step_now):
         # 点击前/后截图对比; 返回 (变化率, 搜一搜窗口是否仍可见)

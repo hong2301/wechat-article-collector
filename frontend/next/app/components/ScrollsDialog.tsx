@@ -324,11 +324,6 @@ export default function ScrollsDialog({
             </>
           )}
           <div style={{ flex: 1 }} />
-          {pointName.length > 0 && (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              共 {rows.length} 条滚动配置
-            </Typography.Text>
-          )}
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }} onChange={onPick} />
         </div>
         <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>

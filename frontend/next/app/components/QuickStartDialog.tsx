@@ -29,6 +29,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
   const [logs, setLogs] = useState<QLog[]>([]);
   const [running, setRunning] = useState(false);
   const [finished, setFinished] = useState(false);
+  const [failed, setFailed] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const runningRef = useRef(false);
@@ -54,6 +55,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
     setLogs([]);
     setRunning(true);
     setFinished(false);
+    setFailed(false);
     hideTaskbar();
     abortRef.current = new AbortController();
     const sig = abortRef.current.signal;
@@ -122,23 +124,34 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
+      let collectOk = true;
       await readSSE(cResp, (d) => {
         if (d.type === "log" && d.msg) emit(d.msg);
         else if (d.type === "task" && d.done !== undefined) add(`进度: 已完成文章 ${d.done} 篇`, "#c9d1d9");
         else if (d.type === "done") {
+          collectOk = d.ok === true;
           add(d.ok ? "✅ 采集流程结束" : `❌ 采集失败: ${d.reason || ""}`, d.ok ? "#3fb950" : "#f85149");
         }
       });
+      if (!collectOk) {
+        add("[fail] 快速开始流程失败: 采集未成功", "#f85149");
+        setFailed(true);
+        window.dispatchEvent(new Event("fast-refresh-settings"));
+        return;   // 不进完成路径
+      }
       add("[done] 快速开始流程全部完成", "#ffffff");
       setFinished(true);
+      window.dispatchEvent(new Event("fast-refresh-settings"));   // 通知各页刷新点位/滚动完整性状态
     } catch (e: unknown) {
       if ((e as Error)?.name !== "AbortError") {
         add(`❌ 快速开始异常: ${(e as Error)?.message || e}`, "#f85149");
+        setFailed(true);
       }
     } finally {
       fetch("http://127.0.0.1:8000/api/auto-setup/unlock", { method: "POST" }).catch(() => {});
       showTaskbar();
       setRunning(false);
+      window.dispatchEvent(new Event("fast-refresh-settings"));   // 结束/退出也刷新(可能部分写入)
     }
   }
 
@@ -177,6 +190,11 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
             ✅ 快速开始流程已全部完成：点位校准、滚动距离获取、采集执行均已就绪。
           </div>
         )}
+        {failed && (
+          <div style={{ padding: "10px 12px", borderRadius: 8, background: "#fff1f0", border: "1px solid #ffa39e", fontSize: 14, color: "#cf1322", fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
+            ❌ 快速开始流程失败，可关闭弹窗。请到点位设置和滚动设置人工设置参数。
+          </div>
+        )}
         <div ref={logRef} style={{ flex: 1, minHeight: 0, overflow: "auto", background: "#0d1117", borderRadius: 8, padding: "8px 10px", fontFamily: "Consolas, monospace", fontSize: 12 }}>
           {logs.length === 0 && <div style={{ color: "#8b949e" }}>等待开始…</div>}
           {logs.map((m, i) => (
@@ -187,8 +205,8 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
           <div style={{ fontSize: 12, color: "#8b949e" }}>
             {running ? "流程执行中…" : (finished ? "🎉 全部完成" : (logs.length > 0 ? "流程已停止" : ""))}
           </div>
-          {finished && (
-            <Button type="primary" style={{ minWidth: 96 }} onClick={onClose}>完成</Button>
+          {(finished || failed) && (
+            <Button type="primary" style={{ minWidth: 96 }} onClick={onClose}>{finished ? "完成" : "关闭"}</Button>
           )}
         </div>
       </div>

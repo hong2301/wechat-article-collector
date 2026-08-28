@@ -345,7 +345,7 @@ export default function PointsDialog({
       render: (_: unknown, p: Point) => (
         <Space orientation="vertical" size={0} style={{ gap: 0, alignItems: "center" }}>
           <Space size={2}>
-            {!compact && <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => previewPoint(p)}>预览</Button>}
+            <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => previewPoint(p)}>预览</Button>
             <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(p)}>修改</Button>
           </Space>
           <Space size={2}>
@@ -380,7 +380,9 @@ export default function PointsDialog({
       >
         {/* 顶部操作栏 */}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {!compact && (
+          {compact ? (
+            <Button icon={<BulbOutlined />} onClick={autoSetSelected}>一键设置</Button>
+          ) : (
             <>
               <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>
               <Button icon={<BulbOutlined />} onClick={autoSetSelected}>一键设置</Button>
