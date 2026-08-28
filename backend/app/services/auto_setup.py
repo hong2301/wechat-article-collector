@@ -125,7 +125,7 @@ def _flow_point12_search_network(ctx):
     # 3) (采集此处点击点位12, 自动设置改为:) 截图左上1/16 -> OCR找"搜索网络结果"
     sw = ctypes.windll.user32.GetSystemMetrics(0)
     sh = ctypes.windll.user32.GetSystemMetrics(1)
-    for attempt in range(4):
+    for attempt in range(3):
         img = ImageGrab.grab(bbox=(0, 0, sw // 4, sh // 4)).convert("RGB")
         for cx, cy, text, score, sbox, _bright in ctx.ocr_box(img):
             if "网络结果" not in text:
@@ -327,7 +327,7 @@ def _p9_probe(ctx, weixin_hwnd):
     sy = int(p11[1])                    # y 直接用点位11的y
     # 初始步长 = 点位11.x 到微信主窗口最左边 / 10(第1轮), 后续轮次依次减半
     base_step = max(1, (int(p11[0]) - x_left) // 10)
-    for round_idx in range(4):
+    for round_idx in range(3):
         divide = 1 << round_idx         # 每轮减半: 1, 2, 4, 8
         step = max(1, base_step // divide)
         log.info(f"点位9 第{round_idx+1}轮: y={sy} 右缘={x_right} 宽度={w0} 步长={step} (基准={base_step})")
@@ -436,7 +436,7 @@ def _flow_point14_query_button(ctx):
     from ..services import tasks as tasks_svc
     from ..services import computer as _pc
 
-    for round_idx in range(4):
+    for round_idx in range(3):
         if not _ensure_wechat():
             return None, None
         # 搜一搜完整初始化: 点11+输入1+全选删除+点12+自动分离判断+AppEx移左半屏
@@ -648,7 +648,7 @@ def _flow_point18_three_dots(ctx):
     def changed(a, b):
         return (np.abs(a.astype(int) - b.astype(int)).sum(axis=2) > 15).mean()
 
-    for round_idx in range(4):
+    for round_idx in range(3):
         step = max(1, raw_step // (1 << round_idx))   # 每轮减半
         log.info(f"点位18 第{round_idx+1}轮: y={base_y} 右缘={x_right} 步长={step} (基准={raw_step})")
         prev = snap()
@@ -1057,7 +1057,7 @@ def _flow_point34_comment(ctx):
     except Exception as e:
         log.warning(f"基准图保存失败: {e}")
 
-    for round_i in range(6):
+    for round_i in range(3):
         step = max(1, raw_step // (1 << round_i))
         log.info(f"点位34 第{round_i+1}轮: y={sy} 起点={mid_x} 步长={step}")
         x = mid_x
