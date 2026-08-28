@@ -122,7 +122,8 @@ try {
   }
   // 2.2 后端移入 resources/backend(与 main.js process.resourcesPath 一致)
   move(BACKEND_DIST, path.join(RELEASE, 'resources', 'backend'))
-  // 2.3 模板库 -> release/data
+  // 2.3 模板库 -> release/data(先同步微信版本号: dev库 -> 模板库, 保证打包版版本号最新)
+  run('python scripts/sync-template-wx.py')
   console.log('\n>>> 复制模板数据库 -> release/data')
   fs.mkdirSync(path.join(RELEASE, 'data'), { recursive: true })
   fs.copyFileSync(TPL_DB, path.join(RELEASE, 'data', 'collector.db'))
