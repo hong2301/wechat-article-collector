@@ -68,9 +68,42 @@ function clearRelease() {
   }
 }
 
+// 打包前预检: 提前发现 release 被占用, 避免打包完成才卡在组装阶段
+function preflightCheck() {
+  console.log('\n>>> 预检 release 是否可写/可清空...')
+  // 1) 正在运行的程序(会锁住 release 文件)
+  for (const exe of ['WeChatCollector.exe', 'collector-backend.exe']) {
+    try {
+      const out = execSync(`tasklist /FI "IMAGENAME eq ${exe}" /FO CSV /NH`, { encoding: 'utf8', windowsHide: true })
+      // 只统计真正含 exe 名进程的行(tasklist 无匹配时会输出 INFO: No tasks... 信息行, 不能算)
+      const n = out.split(/\r?\n/).filter(l => l.toLowerCase().includes(exe.toLowerCase())).length
+      if (n > 0) {
+        console.error(`❌ 检测到 ${n} 个 ${exe} 正在运行, 会锁住 release 文件!`)
+        console.error(`   请先关闭程序再打包 (或执行 taskkill /IM ${exe} /F 强制结束)`)
+        process.exit(1)
+      }
+    } catch (e) { /* tasklist 失败则跳过进程检查 */ }
+  }
+  // 2) release 读写探针: 能写能删才认为可用(防资源管理器/杀软占用)
+  fs.mkdirSync(RELEASE, { recursive: true })
+  const probe = path.join(RELEASE, '.writable-probe')
+  try {
+    fs.writeFileSync(probe, '')
+    fs.rmSync(probe, { force: true })
+    console.log('   预检通过: release 未占用')
+  } catch (e) {
+    console.error('❌ release 目录不可写, 可能被资源管理器/杀毒软件占用!')
+    console.error('   请关闭占用 release 的程序后重试')
+    process.exit(1)
+  }
+}
+
 async function main() {
 const t0 = Date.now()
 try {
+  // ---- 0. 预检: release 是否被占用(提前失败, 避免白打包) ----
+  preflightCheck()
+
   // ---- 1. 并行: 前端链(next->electron) 与 后端(PyInstaller) 同时打包 ----
   await Promise.all([
     (async () => {
