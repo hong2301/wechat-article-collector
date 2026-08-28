@@ -226,14 +226,19 @@ function createWindow() {
       try {
         const u = new URL(urlStr)
         let page = u.pathname.replace(/^\//, '')
+        // 情形A: Next 客户端导航产物 file:///C:/articles(带盘符无扩展名) -> out/articles.html
+        let m = page.match(/^[a-zA-Z]:\/([a-z0-9_-]+)$/)
+        // 情形B: out 目录内完整路径 file:///C:/.../out/articles.html -> 取文件名重载
+        if (!m) m = page.match(/[\/]([a-z0-9_-]+\.html?)$/i)
+        if (m) {
+          const base = /^[a-z0-9_-]+\.html?$/i.test(m[1]) ? m[1] : m[1] + '.html'
+          event.preventDefault()
+          win.loadFile(path.join(__dirname, 'out', base), { search: u.search.slice(1) })
+          return
+        }
         if (page === 'index.html' || page === '') {
           event.preventDefault()
           win.loadFile(path.join(__dirname, 'out', 'index.html'), { search: u.search.slice(1) })
-          return
-        }
-        if (/^[a-z0-9_-]+\.html?$/i.test(page)) {
-          event.preventDefault()
-          win.loadFile(path.join(__dirname, 'out', page), { search: u.search.slice(1) })
           return
         }
         // 其他未知 file 路径: 阻止, 忽略

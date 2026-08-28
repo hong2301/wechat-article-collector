@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import { DndProvider, useDrag, useDrop } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, message, Modal, Spin, Progress, Empty, Switch, InputNumber } from "antd";
@@ -113,7 +112,6 @@ function CollectCalendar({ daily, monthKey, onMonthChange }: {
 }
 
 export default function Home() {
-  const router = useRouter();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -809,7 +807,7 @@ export default function Home() {
                   render: (_: unknown, row: Task) => (
                     <Space>
                       <span>{row.collected_count ?? 0}</span>
-                      <Button size="small" type="link" icon={<ProfileOutlined />} onClick={() => router.push(`/articles?biz=${encodeURIComponent(row.biz || "")}&name=${encodeURIComponent(row.name || "")}`)}>查看</Button>
+                      <Button size="small" type="link" icon={<ProfileOutlined />} onClick={() => { window.location.href = `articles.html?biz=${encodeURIComponent(row.biz || "")}&name=${encodeURIComponent(row.name || "")}` }}>查看</Button>
                     </Space>
                   ),
                 },
@@ -839,7 +837,7 @@ export default function Home() {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 10, flexShrink: 0 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <Button size="small" color="primary" variant="outlined" icon={<UnorderedListOutlined />} onClick={() => router.push("/articles?biz=all&name=全部文章")}>查看全部文章</Button>
+            <Button size="small" color="primary" variant="outlined" icon={<UnorderedListOutlined />} onClick={() => { window.location.href = `articles.html?biz=all&name=${encodeURIComponent("全部文章")}` }}>查看全部文章</Button>
             <Button size="small" icon={<FolderOpenOutlined />} onClick={openDownloads}>打开下载数据</Button>
             <Button size="small" icon={<FileExcelOutlined />} onClick={exportExcel}>导出表格</Button>
           </div>
@@ -992,17 +990,18 @@ export default function Home() {
       <Modal title="新增公众号" open={addOpen} onOk={save} okText="保存" confirmLoading={saving}
         onCancel={() => setAddOpen(false)} cancelText="取消">
         <Space vertical style={{ width: "100%" }} size="middle">
-          <Space vertical style={{ width: "100%" }}>
-            <Input placeholder="公众号名称" value={name} onChange={(e) => setName(e.target.value)} />
-            <Input placeholder="biz 代码" value={biz} onChange={(e) => setBiz(e.target.value)} />
-          </Space>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>或通过公众号文章链接自动获取：</Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>通过公众号文章链接自动获取：</Typography.Text>
           <Space.Compact style={{ width: "100%" }}>
             <Input placeholder="粘贴文章链接" value={link} onChange={(e) => setLink(e.target.value)} />
             <Button type="default" loading={resolving} icon={<ScanOutlined />} onClick={resolve}>
               {resolving ? <Spin size="small" /> : "识别"}
             </Button>
           </Space.Compact>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>或直接输入公众号名称和 biz 代码：</Typography.Text>
+          <Space vertical style={{ width: "100%" }}>
+            <Input placeholder="公众号名称" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input placeholder="biz 代码" value={biz} onChange={(e) => setBiz(e.target.value)} />
+          </Space>
         </Space>
       </Modal>
     </div>

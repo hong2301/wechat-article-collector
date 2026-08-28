@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
 import dayjs from "dayjs";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber, Spin, Switch, Select } from "antd";
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined, FolderOpenOutlined, DownloadOutlined, ReloadOutlined, FileExcelOutlined, ExclamationCircleOutlined, QuestionCircleOutlined } from "@ant-design/icons";
@@ -50,7 +49,6 @@ interface Article {
 }
 
 export default function ArticlePage() {
-  const router = useRouter();
   const [biz, setBiz] = useState("");
   const [name, setName] = useState("");
   const [articles, setArticles] = useState<Article[]>([]);
@@ -609,7 +607,7 @@ export default function ArticlePage() {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden", gap: 10, background: "#f5f6f8" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 0 8px" }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/")}>返回</Button>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => { window.location.href = "index.html" }}>返回</Button>
         <Typography.Title level={5} style={{ margin: 0 }}>「{name || "..."}」的文章列表</Typography.Title>
       </div>
       {/* 更新设置卡片(开关行 + 评论采集设置行) */}
@@ -785,7 +783,7 @@ export default function ArticlePage() {
                     {r.comment_count ?? 0}/{v || 0}
                   </span>
                   <Button size="small" type="link" icon={<MessageOutlined />}
-                    onClick={() => router.push(`/comments?art_biz=${encodeURIComponent(r.art_biz || "")}&biz=${encodeURIComponent(biz)}&name=${encodeURIComponent(name || "")}&title=${encodeURIComponent(r.title || "")}`)}>查看</Button>
+                    onClick={() => { window.location.href = `comments.html?art_biz=${encodeURIComponent(r.art_biz || "")}&biz=${encodeURIComponent(biz)}&name=${encodeURIComponent(name || "")}&title=${encodeURIComponent(r.title || "")}` }}>查看</Button>
                 </Space>
               ),
             },

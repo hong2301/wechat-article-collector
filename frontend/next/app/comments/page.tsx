@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Tooltip, Spin, DatePicker, InputNumber, Input, Checkbox, Progress, Switch, Select } from "antd";
 import { ArrowLeftOutlined, ReloadOutlined, PlusOutlined, ImportOutlined, DeleteOutlined, SearchOutlined, ClearOutlined, FileExcelOutlined, ExclamationCircleOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
@@ -49,7 +48,6 @@ function NumRange({ value, onChange }: {
 }
 
 export default function CommentsPage() {
-  const router = useRouter();
   const [artBiz, setArtBiz] = useState("");
   const [biz, setBiz] = useState("");
   const [title, setTitle] = useState("");
@@ -370,7 +368,7 @@ export default function CommentsPage() {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 0 8px" }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => router.push(`/articles?biz=${encodeURIComponent(biz)}&name=${encodeURIComponent(name)}`)}>返回</Button>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => { window.location.href = `articles.html?biz=${encodeURIComponent(biz)}&name=${encodeURIComponent(name)}` }}>返回</Button>
         <Typography.Title level={5} style={{ margin: 0 }}>「{title || "..."}」的评论列表</Typography.Title>
       </div>
       {/* 评论采集设置卡片 */}
