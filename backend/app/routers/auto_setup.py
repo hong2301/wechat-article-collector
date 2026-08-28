@@ -76,13 +76,13 @@ def auto_setup_scroll(sid: int):
     return {"ok": True, "name": row["name"], "distance": dist, "from": f"点位{p1}/{(p2)}"}
 
 @router.post("/run-all")
-def auto_setup_run_all():
-    """一键设置: 按依赖顺序执行全部点位(输入锁全程, ESC可停), SSE流式逐点位提示"""
+def auto_setup_run_all(names: str = ""):
+    """一键设置: 按依赖顺序执行全部点位(names为空)或仅指定点位(逗号分隔, 单点位自动设置用), SSE流式逐点位提示"""
     from fastapi.responses import StreamingResponse
 
     def gen():
         # 直接迭代真生成器: 每条事件立即转发(不要攒队列!)
-        for msg in as_svc.run_all_points_stream():
+        for msg in as_svc.run_all_points_stream(names):
             yield "data: " + json.dumps({"msg": msg}, ensure_ascii=False) + "\n\n"
             if msg.startswith("[done]"):
                 break

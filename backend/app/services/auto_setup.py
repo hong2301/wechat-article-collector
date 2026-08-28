@@ -1077,16 +1077,32 @@ POINT_FLOWS["评论区右下"] = _comment_area_entry("评论区右下")
 # ---------------------------------------------------------------------------
 
 
-def run_all_points_stream():
+POINT_ORDER = [
+    "点击微信左上角搜索输入框", "微信左上角搜索网络",
+    "微信窗口初始化不合法时窗口分离按钮", "搜一搜窗口查询按钮",
+    "文章列表左上角", "文章列表右下角", "文章右上角3点",
+    "点击复制链接", "复制链接左上", "复制链接右下",
+    "4指标区域左上", "4指标区域右下", "阅读数左上", "阅读数右下",
+    "评论按钮", "评论区左上", "评论区右下",
+]
+
+
+def run_all_points_stream(names: str = ""):
     """流式一键设置: 逐点位 yield 事件(step/progress/ok/fail/warn/done), 前端边收边渲染
-    关键: 必须边执行边 yield(真生成器), 路由逐条转发; 攒到队列尾部一次性返回会导致前端收不到实时事件"""
-    yield "[step] 一键设置开始: 按依赖顺序执行全部点位"
+    关键: 必须边执行边 yield(真生成器), 路由逐条转发; 攒到队列尾部一次性返回会导致前端收不到实时事件
+    names: 逗号分隔点位名(空=全部); 单点位自动设置传单个名"""
+    if names:
+        want = set(names.split(","))
+        order = [n for n in POINT_ORDER if n in want]
+    else:
+        order = POINT_ORDER
+    yield f"[step] 一键设置开始: 共 {len(order)} 个点位({'全部' if not names else '指定'})"
 
     ok_n = fail_n = done = 0
-    total = len(POINT_ORDER)
+    total = len(order)
     stopped = False
     try:
-        for name in POINT_ORDER:
+        for name in order:
             # 锁(前端开的)产生的拦截提示实时转发
             for nmsg in drain_lock_notices():
                 yield nmsg
@@ -1119,3 +1135,95 @@ def _is_pure_calc(name):
     """纯计算点位(28/29等)不 attach 微信窗口"""
     return name in ("复制链接左上", "复制链接右下")
 
+
+
+# ---------------------------------------------------------------------------
+# 一键设置: 输入锁定(同采集: 拦截人工键鼠+提示, ESC停止) + 按依赖序执行全部点位
+# ---------------------------------------------------------------------------
+_input_lock = None
+_stop_requested = [False]
+_last_block_notice = [0.0]
+
+
+def _notice_block():
+    """拦截人工输入提示(限流3s)"""
+    import time as _t
+    now = _t.monotonic()
+    if now - _last_block_notice[0] < 3.0:
+        return
+    _last_block_notice[0] = now
+    try:
+        from ..services import tasks as tasks_svc
+        tasks_svc.tasks_echo("[warn] 自动设置期间禁用鼠标和键盘，请勿操作! 按 ESC 可停止")
+    except Exception:
+        pass
+
+
+def _on_esc():
+    _stop_requested[0] = True
+    try:
+        from ..services import tasks as tasks_svc
+        tasks_svc.tasks_echo("[warn] 已请求停止: 完成当前点位后停止")
+    except Exception:
+        pass
+
+
+_lock_notices = []      # 拦截提示队列(lock 产生, run-all 流消费)
+
+
+def _notice_block_push():
+    """拦截提示 -> 写入队列(供一键设置流读取)"""
+    import time as _t
+    now = _t.monotonic()
+    if now - _last_block_notice[0] < 3.0:
+        return
+    _last_block_notice[0] = now
+    _lock_notices.append("[warn] 自动设置期间禁用鼠标和键盘，请勿操作! 按 ESC 可停止")
+
+
+def locked():
+    """一键设置输入锁是否开着"""
+    return _input_lock is not None and _input_lock._started
+
+
+def lock():
+    """前端点击一键设置: 开启输入锁定(人工键鼠拦截+提示, ESC设置停止标记)
+    互斥: 采集进行中则拒绝开启"""
+    global _input_lock
+    try:
+        from ..routers import collect as collect_mod
+        if collect_mod._task_running_count() > 0:
+            return False
+    except Exception:
+        pass
+    from ..services.inputlock import InputLock
+    if _input_lock is None:
+        _input_lock = InputLock()
+        _input_lock.on_esc = _on_esc
+        _input_lock.on_block = _notice_block_push
+    _stop_requested[0] = False
+    if not _input_lock._started:
+        return _input_lock.start()
+    return True
+
+
+def unlock():
+    """任务结束: 停止输入锁定 + 清标记 + 清提示队列"""
+    global _input_lock
+    _stop_requested[0] = False
+    _lock_notices.clear()
+    if _input_lock is not None:
+        _input_lock.stop()
+        _input_lock = None
+    return True
+
+
+def drain_lock_notices():
+    """取走锁产生的提示消息(供 run-all 流逐条发出)"""
+    out = list(_lock_notices)
+    _lock_notices.clear()
+    return out
+
+
+def stop_requested():
+    return _stop_requested[0]

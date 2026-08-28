@@ -169,42 +169,23 @@ export default function PointsDialog({
     });
   }
   useEffect(() => { if (open) load(); /* eslint-disable-next-line */ }, [open]);
-  async function autoSetRow(p: Point) {
-    const missing = missingDeps(p);
-    if (missing.length > 0) { message.warning(`需先设置: ${missing.join("、")}`); return false; }
-    setAutoLoading(p.id);
-    try {
-      const d = await (await fetch(`http://127.0.0.1:8000/api/auto-setup/point/${p.id}`, { method: "POST" })).json();
-      if (d.ok) {
-        setRows((prev) => prev.map((x) => x.id === p.id ? { ...x, x: String(d.x), y: String(d.y) } : x));
-        message.success(`自动设置成功: (${d.x}, ${d.y})`);
-        return true;
-      } else {
-        message.error(d.error || "自动设置失败");
-        return false;
-      }
-    } catch {
-      message.error("无法连接后端");
-      return false;
-    } finally {
-      setAutoLoading(null);
-    }
-  }
-  async function autoSetSelected() {
-    // 一键设置: 后端流式执行全部点位(输入锁全程, 任务栏隐藏), 顶部message逐条提示
-    if (rows.length === 0) { message.warning("点位列表为空"); return; }
-    setRunProg({ done: 0, total: 17 });
+  // 通用自动设置执行(点位一键/单点位共用): 锁+任务栏+进度+日志文本+流式
+  async function runAutoSetup(names: string[], loadingId?: number) {
+    if (names.length === 0) return;
+    if (loadingId != null) setAutoLoading(loadingId);
+    setRunProg({ done: 0, total: names.length });
     setRunCur("正在准备…");
     hideTaskbar();
     // 开启输入锁; 失败(采集进行中)则不执行
     let locked = true;
     try {
       const l = await (await fetch("http://127.0.0.1:8000/api/auto-setup/lock", { method: "POST" })).json();
-      if (!l.ok) { message.warning(l.error || "无法开始一键设置"); locked = false; }
+      if (!l.ok) { message.warning(l.error || "无法开始自动设置"); locked = false; }
     } catch { /* 后端不可达, 继续尝试 */ }
-    if (!locked) { showTaskbar(); return; }
+    if (!locked) { showTaskbar(); if (loadingId != null) setAutoLoading(null); return; }
+    const q = names.length > 0 ? `?names=${encodeURIComponent(names.join(","))}` : "";
     try {
-      const resp = await fetch("http://127.0.0.1:8000/api/auto-setup/run-all", { method: "POST" });
+      const resp = await fetch(`http://127.0.0.1:8000/api/auto-setup/run-all${q}`, { method: "POST" });
       if (!resp.ok || !resp.body) throw new Error("接口失败");
       const reader = resp.body.getReader();
       const dec = new TextDecoder();
@@ -236,13 +217,27 @@ export default function PointsDialog({
         }
       }
     } catch {
-      message.error("一键设置失败(后端不可达)");
+      message.error("自动设置失败(后端不可达)");
     } finally {
       fetch("http://127.0.0.1:8000/api/auto-setup/unlock", { method: "POST" }).catch(() => {});   // 结束输入锁
       showTaskbar();
       setTimeout(() => { setRunProg(null); setRunCur(""); }, 1500);
       load();
+      if (loadingId != null) setAutoLoading(null);
     }
+  }
+
+  // 单点位自动设置: 同机制跑一个点位(锁+任务栏+进度+日志)
+  async function autoSetRow(p: Point) {
+    const missing = missingDeps(p);
+    if (missing.length > 0) { message.warning(`需先设置: ${missing.join("、")}`); return; }
+    runAutoSetup([p.name], p.id);
+  }
+
+  // 一键设置: 全部点位
+  function autoSetSelected() {
+    if (rows.length === 0) { message.warning("点位列表为空"); return; }
+    runAutoSetup(rows.map((r) => r.name));
   }
 
   async function delRow(p: Point) {
