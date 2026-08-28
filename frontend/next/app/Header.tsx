@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { Tooltip } from "antd";
 import { useWechatStatus } from "./components/useWechatStatus";
+import QuickStartDialog from "./components/QuickStartDialog";
 
 const WechatIcon = ({ color }: { color: string }) => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill={color} xmlns="http://www.w3.org/2000/svg"><path d="M9.5 4C5.36 4 2 6.69 2 10c0 1.89.96 3.58 2.5 4.71L3.7 17.2a.35.35 0 0 0 .5.4l2.9-1.66c.74.2 1.53.31 2.4.31.01 0 .02 0 .03-.01a4.2 4.2 0 0 1-.2-1.29c0-2.68 2.58-4.95 5.73-4.95.3 0 .59.03.88.07C15.08 6.28 12.58 4 9.5 4zm-2.58 3.84a.87.87 0 1 1 0-1.74.87.87 0 0 1 0 1.74zm5.16 0a.87.87 0 1 1 0-1.74.87.87 0 0 1 0 1.74zM22 15.09c0-2.4-2.69-4.34-6.02-4.34-3.32 0-6.02 1.94-6.02 4.34 0 2.39 2.7 4.33 6.02 4.33.7 0 1.38-.1 2-.29l2.37 1.36a.27.27 0 0 0 .39-.3l-.74-2.01C21.4 17.51 22 16.36 22 15.09zm-7.35-.15a.67.67 0 1 1 0-1.34.67.67 0 0 1 0 1.34zm2.66 0a.67.67 0 1 1 0-1.34.67.67 0 0 1 0 1.34z"/></svg>
@@ -19,17 +20,25 @@ const GithubIcon = () => (
 export default function Header() {
   const wxLogged = useWechatStatus();
   const wxOn = wxLogged === true;
+  const [qsOpen, setQsOpen] = useState(false);
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0 14px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ width: 34, height: 34, borderRadius: 9, background: "#1565c0", display: "flex", alignItems: "center", justifyContent: "center" }}><Telescope /></div>
-        <div>
+        <div style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
             <span style={{ fontSize: 19, fontWeight: 700 }}>微信公众号采集器</span>
             <span style={{ fontSize: 12, color: "#8b949e" }}>v{process.env.NEXT_PUBLIC_APP_VERSION || ""}</span>
           </div>
           <div style={{ fontSize: 12, color: "#8b949e" }}>基于 微信 Windows 版 4.1.12.55</div>
         </div>
+        <Tooltip title="快速开始">
+          <button onClick={() => setQsOpen(true)}
+            style={{ height: 34, padding: "0 12px", borderRadius: 9, background: "#fff", border: "1px solid #d0d7de", color: "#57606a", display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="#f5a623" xmlns="http://www.w3.org/2000/svg"><path d="M13 2 3 14h7l-1 8 10-12h-7l1-8z" /></svg>
+            快速开始
+          </button>
+        </Tooltip>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <Tooltip title="刷新">
@@ -50,6 +59,7 @@ export default function Header() {
              style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", border: "1px solid #d0d7de", color: "#57606a", display: "flex", alignItems: "center", justifyContent: "center" }}><GithubIcon /></a>
         </Tooltip>
       </div>
+      <QuickStartDialog open={qsOpen} onClose={() => setQsOpen(false)} />
     </div>
   );
 }
