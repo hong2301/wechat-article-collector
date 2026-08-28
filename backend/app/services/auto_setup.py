@@ -1213,17 +1213,51 @@ POINT_ORDER = [
 ]
 
 
-def run_all_points():
-    """按依赖顺序执行全部点位自动设置(输入锁全程保护, ESC可停)
-    返回 {done, ok, fail, stopped}"""
-    locking_enter()
+def run_all_points_stream():
+    """流式一键设置: 逐点位发出事件(step/ok/fail/warn/done), 前端实时展示
+    输入锁全程, ESC可停; 拦截提示实时入流"""
+    import queue as _queue
+    q = _queue.Queue()
+
+    def emit(msg):
+        try:
+            q.put(msg)
+        except Exception:
+            pass
+
+    # 拦截/ESC 回调 -> 事件流(限流在 _notice_block 内)
+    _notices = [0.0]
+    import time as _t
+    def on_block():
+        now = _t.monotonic()
+        if now - _notices[0] < 3.0:
+            return
+        _notices[0] = now
+        emit("[warn] 自动设置期间禁用鼠标和键盘，请勿操作! 按 ESC 可停止")
+    stop_pending = [False]
+    def on_esc():
+        stop_pending[0] = True
+        emit("[warn] 已请求停止: 完成当前点位后停止")
+
+    global _input_lock
+    from ..services.inputlock import InputLock
+    if _input_lock is None:
+        _input_lock = InputLock()
+        _input_lock.on_esc = on_esc
+        _input_lock.on_block = on_block
+    _stop_requested[0] = False
+    if not _input_lock._started:
+        _input_lock.start()
+    emit("[step] 一键设置开始: 按依赖顺序执行全部点位")
+
     ok_n = fail_n = done = 0
     stopped = False
     try:
         for name in POINT_ORDER:
-            if stop_requested():
+            if stop_pending[0] or stop_requested():
                 stopped = True
                 break
+            emit(f"[step] ⏳ 开始设置: {name}")
             try:
                 x, y, _rem, errtxt = run_point_flow(name, attach=not _is_pure_calc(name))
             except Exception as e:
@@ -1231,13 +1265,14 @@ def run_all_points():
             done += 1
             if x is not None:
                 ok_n += 1
-                log.info(f"一键设置 OK: {name} ({x},{y})")
+                emit(f"[ok] ✓ {name} = ({x},{y})")
             else:
                 fail_n += 1
-                log.warning(f"一键设置 FAIL: {name} - {errtxt}")
+                emit(f"[fail] ✗ {name}: {errtxt}")
     finally:
         locking_exit()
-    return {"done": done, "ok": ok_n, "fail": fail_n, "stopped": stopped}
+    emit(f"[done] 一键设置完成: 成功 {ok_n} / 失败 {fail_n}" + (" (已停止)" if stopped else ""))
+    return q
 
 
 def _is_pure_calc(name):

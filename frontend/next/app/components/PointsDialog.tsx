@@ -160,6 +160,7 @@ export default function PointsDialog({
     "搜一搜窗口第一个标签页关闭按钮": ["搜一搜窗口查询按钮"],
   };
   const [autoLoading, setAutoLoading] = useState<number | null>(null);
+  const [runLogs, setRunLogs] = useState<string[]>([]);   // 一键设置过程日志
   function missingDeps(p: Point): string[] {
     const deps = POINT_DEPS[p.name] || [];
     return deps.filter((d) => {
@@ -190,19 +191,39 @@ export default function PointsDialog({
     }
   }
   async function autoSetSelected() {
-    // 一键设置: 后端按依赖顺序执行全部点位(输入锁定全程, 任务栏隐藏)
+    // 一键设置: 后端流式执行全部点位(输入锁全程, 任务栏隐藏), 日志逐条展示
     if (rows.length === 0) { message.warning("点位列表为空"); return; }
-    message.info("开始一键设置(将锁定鼠标键盘, 按 ESC 可停止)...", 4);
+    setRunLogs([]);
     hideTaskbar();
     try {
-      const d = await (await fetch("http://127.0.0.1:8000/api/auto-setup/run-all", { method: "POST" })).json();
-      if (d.stopped) message.warning(`已停止(ESC): 完成 ${d.done} 个, 成功 ${d.ok} / 失败 ${d.fail}`);
-      else message.info(`一键设置完成: 成功 ${d.ok} / 失败 ${d.fail}`, 5);
-      if ((d.ok || 0) > 0) load();
+      const resp = await fetch("http://127.0.0.1:8000/api/auto-setup/run-all", { method: "POST" });
+      if (!resp.ok || !resp.body) throw new Error("接口失败");
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i2;
+        while ((i2 = buf.indexOf("
+
+")) !== -1) {
+          const block = buf.slice(0, i2); buf = buf.slice(i2 + 2);
+          const dm = block.match(/^data: (.+)$/m);
+          if (dm) {
+            try {
+              const ev = JSON.parse(dm[1]);
+              if (ev.msg) setRunLogs((p) => [...p, ev.msg]);
+            } catch { /* 忽略 */ }
+          }
+        }
+      }
     } catch {
       message.error("一键设置失败(后端不可达)");
     } finally {
       showTaskbar();
+      load();
     }
   }
 

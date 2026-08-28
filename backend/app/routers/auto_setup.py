@@ -4,6 +4,7 @@
 POST /api/auto-setup/point/{pid}    自动设置单个点位(识别后写回 x/y)
 POST /api/auto-setup/scroll/{sid}   自动设置单条滚动(识别后写回 distance)
 """
+import json
 from fastapi import APIRouter, HTTPException
 
 from ..database import get_conn
@@ -26,6 +27,9 @@ def auto_setup_point(pid: int):
     x, y, remark, err = as_svc.run_point_flow(name)
     if x is None:
         return {"ok": False, "name": name, "error": err or "识别失败"}
+    # 点位9: 非99999(真实识别到坐标)时清除备注(待定场景99999才保留备注)
+    if x != 99999:
+        remark = ""
     conn = get_conn()
     try:
         conn.execute("UPDATE points SET x=?, y=?, remark=? WHERE id=?", (x, y, remark, pid))
@@ -59,5 +63,19 @@ def auto_setup_scroll(sid: int):
 
 @router.post("/run-all")
 def auto_setup_run_all():
-    """一键设置: 按依赖顺序执行全部点位自动设置(输入锁定全程, ESC可停)"""
-    return as_svc.run_all_points()
+    """一键设置: 按依赖顺序执行全部点位(输入锁全程, ESC可停), SSE流式逐点位提示"""
+    from fastapi.responses import StreamingResponse
+
+    def gen():
+        q = as_svc.run_all_points_stream()
+        while True:
+            try:
+                msg = q.get(timeout=30)
+            except Exception:
+                break
+            yield "data: " + json.dumps({"msg": msg}, ensure_ascii=False) + "\n\n"
+            if msg.startswith("[done]"):
+                break
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
