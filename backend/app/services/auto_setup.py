@@ -1175,6 +1175,63 @@ def _on_esc():
         pass
 
 
+_lock_notices = []      # 拦截提示队列(lock 产生, run-all 流消费)
+
+
+def _notice_block_push():
+    """拦截提示 -> 写入队列(供一键设置流读取)"""
+    import time as _t
+    now = _t.monotonic()
+    if now - _last_block_notice[0] < 3.0:
+        return
+    _last_block_notice[0] = now
+    _lock_notices.append("[warn] 自动设置期间禁用鼠标和键盘，请勿操作! 按 ESC 可停止")
+
+
+def locked():
+    """一键设置输入锁是否开着"""
+    return _input_lock is not None and _input_lock._started
+
+
+def lock():
+    """前端点击一键设置: 开启输入锁定(人工键鼠拦截+提示, ESC设置停止标记)
+    互斥: 采集进行中则拒绝开启"""
+    global _input_lock
+    try:
+        from ..routers import collect as collect_mod
+        if collect_mod._task_running_count() > 0:
+            return False
+    except Exception:
+        pass
+    from ..services.inputlock import InputLock
+    if _input_lock is None:
+        _input_lock = InputLock()
+        _input_lock.on_esc = _on_esc
+        _input_lock.on_block = _notice_block_push
+    _stop_requested[0] = False
+    if not _input_lock._started:
+        return _input_lock.start()
+    return True
+
+
+def unlock():
+    """任务结束: 停止输入锁定 + 清标记 + 清提示队列"""
+    global _input_lock
+    _stop_requested[0] = False
+    _lock_notices.clear()
+    if _input_lock is not None:
+        _input_lock.stop()
+        _input_lock = None
+    return True
+
+
+def drain_lock_notices():
+    """取走锁产生的提示消息(供 run-all 流逐条发出)"""
+    out = list(_lock_notices)
+    _lock_notices.clear()
+    return out
+
+
 def locking_enter():
     """启动输入锁定(同采集); 已是第一次则再次 start 幂等"""
     global _input_lock
@@ -1214,65 +1271,41 @@ POINT_ORDER = [
 
 
 def run_all_points_stream():
-    """流式一键设置: 逐点位发出事件(step/ok/fail/warn/done), 前端实时展示
-    输入锁全程, ESC可停; 拦截提示实时入流"""
-    import queue as _queue
-    q = _queue.Queue()
-
-    def emit(msg):
-        try:
-            q.put(msg)
-        except Exception:
-            pass
-
-    # 拦截/ESC 回调 -> 事件流(限流在 _notice_block 内)
-    _notices = [0.0]
-    import time as _t
-    def on_block():
-        now = _t.monotonic()
-        if now - _notices[0] < 3.0:
-            return
-        _notices[0] = now
-        emit("[warn] 自动设置期间禁用鼠标和键盘，请勿操作! 按 ESC 可停止")
-    stop_pending = [False]
-    def on_esc():
-        stop_pending[0] = True
-        emit("[warn] 已请求停止: 完成当前点位后停止")
-
-    global _input_lock
-    from ..services.inputlock import InputLock
-    if _input_lock is None:
-        _input_lock = InputLock()
-        _input_lock.on_esc = on_esc
-        _input_lock.on_block = on_block
-    _stop_requested[0] = False
-    if not _input_lock._started:
-        _input_lock.start()
-    emit("[step] 一键设置开始: 按依赖顺序执行全部点位")
+    """流式一键设置: 逐点位 yield 事件(step/progress/ok/fail/warn/done), 前端边收边渲染
+    关键: 必须边执行边 yield(真生成器), 路由逐条转发; 攒到队列尾部一次性返回会导致前端收不到实时事件"""
+    yield "[step] 一键设置开始: 按依赖顺序执行全部点位"
 
     ok_n = fail_n = done = 0
+    total = len(POINT_ORDER)
     stopped = False
     try:
         for name in POINT_ORDER:
-            if stop_pending[0] or stop_requested():
+            # 锁(前端开的)产生的拦截提示实时转发
+            for nmsg in drain_lock_notices():
+                yield nmsg
+            if stop_requested():
+                yield "[warn] 已请求停止"
                 stopped = True
                 break
-            emit(f"[step] ⏳ 开始设置: {name}")
+            yield f"[step] ⏳ 开始设置: {name}"
             try:
                 x, y, _rem, errtxt = run_point_flow(name, attach=not _is_pure_calc(name))
             except Exception as e:
                 x = None; errtxt = f"异常: {e}"
             done += 1
+            # 进度优先: 每个点位完成立即 yield [progress] done/total
+            yield f"[progress] {done}/{total}"
             if x is not None:
                 ok_n += 1
-                emit(f"[ok] ✓ {name} = ({x},{y})")
+                yield f"[ok] ✓ {name} = ({x},{y})"
             else:
                 fail_n += 1
-                emit(f"[fail] ✗ {name}: {errtxt}")
+                yield f"[fail] ✗ {name}: {errtxt}"
     finally:
-        locking_exit()
-    emit(f"[done] 一键设置完成: 成功 {ok_n} / 失败 {fail_n}" + (" (已停止)" if stopped else ""))
-    return q
+        unlock()   # 兜底: 无论前端是否正常 unlock, run-all 结束即释放(幂等)
+    for nmsg in drain_lock_notices():
+        yield nmsg
+    yield f"[done] 一键设置完成: 成功 {ok_n} / 失败 {fail_n}" + (" (已停止)" if stopped else "")
 
 
 def _is_pure_calc(name):

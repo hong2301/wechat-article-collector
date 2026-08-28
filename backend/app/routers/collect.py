@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from ..services import tasks as tasks_service
 from ..services import computer as pc
+from ..services import auto_setup as auto_setup_svc
 
 router = APIRouter(prefix="/api/collect", tags=["collect"])
 
@@ -149,6 +150,11 @@ def _collect_generate(payload: CollectStart):
 
     def worker():
         _worker_tid["tid"] = threading.get_ident()
+        # 互斥: 一键设置进行中则拒绝启动采集
+        if auto_setup_svc.locked():
+            log_q.put(("log", "一键设置进行中, 无法启动采集"))
+            log_q.put(("done", False, "一键设置进行中"))
+            return
         _task_begin()
         prev_hook = tasks_service.bind_tasks_echo(hook)
         try:
@@ -255,6 +261,11 @@ def _update_generate(payload: UpdateStart):
 
     def worker():
         _worker_tid["tid"] = threading.get_ident()
+        # 互斥: 一键设置进行中则拒绝启动采集
+        if auto_setup_svc.locked():
+            log_q.put(("log", "一键设置进行中, 无法启动采集"))
+            log_q.put(("done", False, "一键设置进行中"))
+            return
         _task_begin()
         prev_hook = tasks_service.bind_tasks_echo(hook)
         try:
@@ -356,6 +367,11 @@ def _comment_generate(payload: CommentStart):
 
     def worker():
         _worker_tid["tid"] = threading.get_ident()
+        # 互斥: 一键设置进行中则拒绝启动采集
+        if auto_setup_svc.locked():
+            log_q.put(("log", "一键设置进行中, 无法启动采集"))
+            log_q.put(("done", False, "一键设置进行中"))
+            return
         _task_begin()
         prev_hook = tasks_service.bind_tasks_echo(hook)
         try:

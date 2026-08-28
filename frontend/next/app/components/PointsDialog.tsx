@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  Modal, Table, Button, Input, Space, message, Checkbox, Empty, Tooltip,
+  Modal, Table, Button, Input, Space, message, Progress, Checkbox, Empty, Tooltip,
 } from "antd";
 import {
   PlusOutlined, ImportOutlined, DeleteOutlined, EyeOutlined,
@@ -160,7 +160,8 @@ export default function PointsDialog({
     "搜一搜窗口第一个标签页关闭按钮": ["搜一搜窗口查询按钮"],
   };
   const [autoLoading, setAutoLoading] = useState<number | null>(null);
-  const [runLogs, setRunLogs] = useState<string[]>([]);   // 一键设置过程日志
+  const [runProg, setRunProg] = useState<{ done: number; total: number } | null>(null);
+  const [runCur, setRunCur] = useState<string>("");   // 当前正在设置的点位名(实时)
   function missingDeps(p: Point): string[] {
     const deps = POINT_DEPS[p.name] || [];
     return deps.filter((d) => {
@@ -191,10 +192,18 @@ export default function PointsDialog({
     }
   }
   async function autoSetSelected() {
-    // 一键设置: 后端流式执行全部点位(输入锁全程, 任务栏隐藏), 日志逐条展示
+    // 一键设置: 后端流式执行全部点位(输入锁全程, 任务栏隐藏), 顶部message逐条提示
     if (rows.length === 0) { message.warning("点位列表为空"); return; }
-    setRunLogs([]);
+    setRunProg({ done: 0, total: 18 });
+    setRunCur("正在准备…");
     hideTaskbar();
+    // 开启输入锁; 失败(采集进行中)则不执行
+    let locked = true;
+    try {
+      const l = await (await fetch("http://127.0.0.1:8000/api/auto-setup/lock", { method: "POST" })).json();
+      if (!l.ok) { message.warning(l.error || "无法开始一键设置"); locked = false; }
+    } catch { /* 后端不可达, 继续尝试 */ }
+    if (!locked) { showTaskbar(); return; }
     try {
       const resp = await fetch("http://127.0.0.1:8000/api/auto-setup/run-all", { method: "POST" });
       if (!resp.ok || !resp.body) throw new Error("接口失败");
@@ -206,15 +215,23 @@ export default function PointsDialog({
         if (done) break;
         buf += dec.decode(value, { stream: true });
         let i2;
-        while ((i2 = buf.indexOf("
-
-")) !== -1) {
+        while ((i2 = buf.indexOf("\n\n")) !== -1) {
           const block = buf.slice(0, i2); buf = buf.slice(i2 + 2);
           const dm = block.match(/^data: (.+)$/m);
           if (dm) {
             try {
               const ev = JSON.parse(dm[1]);
-              if (ev.msg) setRunLogs((p) => [...p, ev.msg]);
+              const m: string = ev.msg || "";
+              if (m.startsWith("[progress] ")) {
+                const mm = m.match(/(\d+)\/(\d+)/);   // 消息格式: [progress] 3/18 (数字无方括号)
+                if (mm) setRunProg({ done: Number(mm[1]), total: Number(mm[2]) });
+              } else if (m.startsWith("[step]")) {
+                setRunCur(m.replace(/^\[step\] ⏳ /, ""));   // 实时显示正在设置的点位
+              } else if (m.startsWith("[done]")) {
+                message.success(m.replace(/^\[done\] /, ""), 5);
+              } else if (m.startsWith("[warn]") && !m.includes("禁用鼠标和键盘")) {
+                message.warning(m.replace(/^\[warn\] /, ""), 4);   // 拦截提示不弹, 仅"已请求停止"等
+              }
             } catch { /* 忽略 */ }
           }
         }
@@ -222,7 +239,9 @@ export default function PointsDialog({
     } catch {
       message.error("一键设置失败(后端不可达)");
     } finally {
+      fetch("http://127.0.0.1:8000/api/auto-setup/unlock", { method: "POST" }).catch(() => {});   // 结束输入锁
       showTaskbar();
+      setTimeout(() => { setRunProg(null); setRunCur(""); }, 1500);
       load();
     }
   }
@@ -378,6 +397,22 @@ export default function PointsDialog({
           <div style={{ flex: 1 }} />
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }} onChange={onPick} />
         </div>
+
+        {/* 一键设置进度条(实时) */}
+        {runProg && (
+          <div style={{ padding: "4px 2px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Progress percent={Math.round((runProg.done / runProg.total) * 100)} size="small" style={{ flex: 1 }} />
+              <span style={{ fontSize: 12, color: "#888", whiteSpace: "nowrap" }}>{runProg.done}/{runProg.total}</span>
+            </div>
+            <div style={{ fontSize: 12, color: "#1677ff", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {runCur ? `正在设置: ${runCur}` : "正在准备…"}
+            </div>
+            <div style={{ fontSize: 12, color: "#f5222d", marginTop: 2 }}>
+              ⚠ 设置期间已禁用鼠标和键盘，请勿操作！如需停止请按 ESC
+            </div>
+          </div>
+        )}
 
         {/* 点位表 */}
         <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>

@@ -67,15 +67,26 @@ def auto_setup_run_all():
     from fastapi.responses import StreamingResponse
 
     def gen():
-        q = as_svc.run_all_points_stream()
-        while True:
-            try:
-                msg = q.get(timeout=30)
-            except Exception:
-                break
+        # 直接迭代真生成器: 每条事件立即转发(不要攒队列!)
+        for msg in as_svc.run_all_points_stream():
             yield "data: " + json.dumps({"msg": msg}, ensure_ascii=False) + "\n\n"
             if msg.startswith("[done]"):
                 break
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@router.post("/lock")
+def auto_setup_lock():
+    """前端点击一键设置: 开启输入锁定(人工键鼠拦截+提示); 采集进行中则拒绝"""
+    if not as_svc.lock():
+        return {"ok": False, "error": "采集进行中，无法开始一键设置"}
+    return {"ok": True}
+
+
+@router.post("/unlock")
+def auto_setup_unlock():
+    """前端任务结束: 停止输入锁定"""
+    return {"ok": as_svc.unlock()}
+
