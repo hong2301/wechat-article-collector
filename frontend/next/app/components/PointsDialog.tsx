@@ -157,7 +157,6 @@ export default function PointsDialog({
     "评论按钮": ["4指标区域左上", "4指标区域右下", "搜一搜窗口查询按钮"],
     "评论区左上": ["评论按钮", "4指标区域左上", "4指标区域右下", "搜一搜窗口查询按钮"],
     "评论区右下": ["评论按钮", "4指标区域左上", "4指标区域右下", "搜一搜窗口查询按钮"],
-    "搜一搜窗口第一个标签页关闭按钮": ["搜一搜窗口查询按钮"],
   };
   const [autoLoading, setAutoLoading] = useState<number | null>(null);
   const [runProg, setRunProg] = useState<{ done: number; total: number } | null>(null);
@@ -194,7 +193,7 @@ export default function PointsDialog({
   async function autoSetSelected() {
     // 一键设置: 后端流式执行全部点位(输入锁全程, 任务栏隐藏), 顶部message逐条提示
     if (rows.length === 0) { message.warning("点位列表为空"); return; }
-    setRunProg({ done: 0, total: 18 });
+    setRunProg({ done: 0, total: 17 });
     setRunCur("正在准备…");
     hideTaskbar();
     // 开启输入锁; 失败(采集进行中)则不执行

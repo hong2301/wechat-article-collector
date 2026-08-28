@@ -374,15 +374,6 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
         return False, "; ".join(logs)
     logs.append(f"初始页面稳定: {info0}")
 
-    # 页面稳定后: 立即点击点位39(打开公众号主页/定位到列表)
-    p39 = _read_point(39)
-    if not p39:
-        logs.append("缺少点位39, 流程停止")
-        return False, "; ".join(logs)
-    pc.mouse_click(p39[0], p39[1])
-    time.sleep(0.3)
-    pc.ctrl_key("W")
-    logs.append(f"稳定后点击点位39({p39[0]},{p39[1]}) + Ctrl+W")
 
     # 稳定后: 截图点位15-16 => OCR => 识别"文章"标记(灰色系深色文字)并点击
     try:
@@ -858,55 +849,40 @@ def _bg_reads_ocr(png_path, box, biz, art):
 
 
 def _collect_reads(collect_type, link, biz, art):
-    """采集阅读数: 滚到底->Ctrl+W->搜一搜按钮->粘贴链接->回车->稳定检测OCR识别
+    """采集阅读数: 滚到底->Ctrl+R刷新->稳定检测OCR识别
     写库按 biz+art_biz 匹配, 不依赖写表结果; 列表页已识别到阅读数时主函数跳过高不此调用"""
     # 实时输出: 每步直接 tasks_echo
     p15 = _read_point(15)
-    # 搜一搜按钮统一点位14
-    p_sou = _read_point(14)
-    _tag_n = 14
-    if not p15 or not p_sou:
-        tasks_echo(f"[warn] 阅读数: 缺少点位15={bool(p15)}/{_tag_n}={bool(p_sou)}, 跳过阅读数采集")
+    if not p15:
+        tasks_echo(f"[warn] 阅读数: 缺少点位15={bool(p15)}, 跳过阅读数采集")
         return
     # 1) 鼠标移到文章列表左上(点位15), 向下滚动5000px(0.5s内完成)
     pc.scroll(p15[0], p15[1], 50000, direction="down", duration=0.5)
     tasks_echo("阅读数: 在点位15滚动5000px")
     time.sleep(0.5)
-    # 2) Ctrl+W 关闭当前页
-    pc.ctrl_key("W")
-    tasks_echo("阅读数: Ctrl+W 关闭")
+    # 2) Ctrl+R 刷新当前页(刷新后阅读数区域可见), 等0.8s
+    pc.ctrl_key("R")
+    tasks_echo("阅读数: Ctrl+R 刷新")
     time.sleep(0.8)
-    # 3) 点击搜一搜按钮(类型1=点位23 / 类型2=点位14), 等0.2s
-    if collect_type in (1, 2):
-        pc.mouse_click(p_sou[0], p_sou[1])
-        tasks_echo(f"阅读数: 点击搜一搜按钮(点位{_tag_n})({p_sou[0]},{p_sou[1]})")
-        time.sleep(0.2)
-        # 4) 剪贴板粘贴复制的链接(与搜一搜查询一致), 等0.2s, 回车
-        pc.set_clipboard_text(link)
-        pc.ctrl_key("V")
-        tasks_echo("阅读数: 剪贴板粘贴链接")
-        time.sleep(0.2)
-        pc.key_press(pc.VK_RETURN)
-        tasks_echo("阅读数: 按回车")
-        # 回车后: 页面稳定检测(点位32/33区域, 50次机会, 连续20次相同) -> OCR提取阅读数
-        p32 = _read_point(32)
-        p33 = _read_point(33)
-        if not (p32 and p33):
-            tasks_echo("缺少点位32/33(阅读数区域), 跳过阅读数识别")
+    # 3) 刷新后: 页面稳定检测(点位32/33区域, 50次机会, 连续20次相同) -> OCR提取阅读数
+    p32 = _read_point(32)
+    p33 = _read_point(33)
+    if not (p32 and p33):
+        tasks_echo("缺少点位32/33(阅读数区域), 跳过阅读数识别")
+    else:
+        ok_stable, info = wait_page_stable(
+            p32[0], p32[1], p33[0], p33[1], same_need=20, timeout=50, interval=0.1)
+        if not ok_stable:
+            # 未稳定也继续: 页面可能仍在加载/动, 不等稳定直接截图识别
+            tasks_echo(f"阅读数: 结果页未稳定({info}), 继续尝试识别...")
+        # 稳定或未稳定: 都截图 -> OCR识别丢后台异步, 识别到写文章表
+        png_path, b64 = pc.screenshot(
+            p32[0], p32[1], p33[0], p33[1], img_format="png", as_base64=True)
+        if not b64:
+            tasks_echo("阅读数: 稳定后截图失败")
         else:
-            ok_stable, info = wait_page_stable(
-                p32[0], p32[1], p33[0], p33[1], same_need=20, timeout=50, interval=0.1)
-            if not ok_stable:
-                # 未稳定也继续: 页面可能仍在加载/动, 不等稳定直接截图识别
-                tasks_echo(f"阅读数: 结果页未稳定({info}), 继续尝试识别...")
-            # 稳定或未稳定: 都截图 -> OCR识别丢后台异步, 识别到写文章表
-            png_path, b64 = pc.screenshot(
-                p32[0], p32[1], p33[0], p33[1], img_format="png", as_base64=True)
-            if not b64:
-                tasks_echo("阅读数: 稳定后截图失败")
-            else:
-                tasks_echo("阅读数: 截图完成, OCR识别后台进行...")
-                _submit_bg(_bg_reads_ocr, png_path, (p32[0], p32[1]), biz, art)
+            tasks_echo("阅读数: 截图完成, OCR识别后台进行...")
+            _submit_bg(_bg_reads_ocr, png_path, (p32[0], p32[1]), biz, art)
 
 
 def _save_debug_shot(shot_path, folder, tag):
@@ -1291,6 +1267,7 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         _collect_metrics(biz, art)
 
     # 5) 采集阅读数(开启且列表无阅读数时)
+    # 列表页已识别到阅读数时不再重复采集
     if capture_read and list_reads is None:
         tasks_echo("[step] 正在采集阅读数...")
         _collect_reads(collect_type, link, biz, art)
