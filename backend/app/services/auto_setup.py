@@ -322,12 +322,15 @@ def _p9_probe(ctx, weixin_hwnd):
     rect = ctypes.wintypes.RECT()
     u32.GetWindowRect(weixin_hwnd, ctypes.byref(rect))
     x_right = rect.right - 1            # 探测原点: 微信主窗口最右边
+    x_left = rect.left
+    w0 = rect.right - rect.left        # 主窗口宽度(命中判据: 点击后变窄)
     sy = int(p11[1])                    # y 直接用点位11的y
-    w0 = rect.right - rect.left
+    # 初始步长 = 点位11.x 到微信主窗口最左边 / 10(第1轮), 后续轮次依次减半
+    base_step = max(1, (int(p11[0]) - x_left) // 10)
     for round_idx in range(4):
         divide = 1 << round_idx         # 每轮减半: 1, 2, 4, 8
-        step = max(1, w0 // 10 // divide)
-        log.info(f"点位9 第{round_idx+1}轮: y={sy} 右缘={x_right} 宽度={w0} 步长={step}")
+        step = max(1, base_step // divide)
+        log.info(f"点位9 第{round_idx+1}轮: y={sy} 右缘={x_right} 宽度={w0} 步长={step} (基准={base_step})")
         i = 0
         while True:
             cx = x_right - i * step
