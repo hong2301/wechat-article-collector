@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from ..database import get_conn, default_html_dir
 from ..services import computer as pc
+from ..services import wechat_check as wx_check
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -21,7 +22,7 @@ class AiSettings(BaseModel):
 
 
 # ---- 程序特殊变量(单值 key-value, 存 settings 表) ----
-# 微信基准版本: 程序点位/流程基于该微信版本设计; 模板库预置, 用户可改
+# 微信基准版本: 程序点位/流程基于该微信版本设计; 存库, 可更新
 def _get_setting(key: str) -> str:
     conn = get_conn()
     try:
@@ -42,7 +43,7 @@ def _set_setting(key: str, value: str) -> None:
 
 
 class WechatVersion(BaseModel):
-    version: str = ""                 # 微信基准版本号(如 4.1.12.55)
+    version: str = ""                 # 微信基准版本号
 
 
 @router.get("/wechat-version")
@@ -50,6 +51,13 @@ def get_wechat_version():
     """读微信基准版本(数据库存储值); 未设置返回空"""
     return {"version": _get_setting("wechat_version")}
 
+
+@router.get("/wechat-check")
+def wechat_check_api():
+    """微信版本确认: 读本地版本 + 网络试探更高版本(数据库版本为准)
+    返回 {db, local, online}"""
+    db = _get_setting("wechat_version")
+    return wx_check.check(db)
 
 @router.post("/wechat-version")
 def save_wechat_version(p: WechatVersion):

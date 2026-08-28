@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Tooltip } from "antd";
+import { ExclamationCircleOutlined } from "@ant-design/icons";
 import { useWechatStatus } from "./components/useWechatStatus";
 import QuickStartDialog from "./components/QuickStartDialog";
 
@@ -17,20 +18,41 @@ const GithubIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.1.1 1.7 1.2 1.7 1.2 1 1.7 2.6 1.2 3.2.9.1-.7.4-1.2.7-1.5-2.4-.3-4.9-1.2-4.9-5.3 0-1.2.4-2.1 1.1-2.9-.1-.3-.5-1.4.1-2.9 0 0 .9-.3 2.9 1.1.8-.2 1.7-.3 2.6-.3s1.8.1 2.6.3c2-1.4 2.9-1.1 2.9-1.1.6 1.5.2 2.6.1 2.9.7.8 1.1 1.7 1.1 2.9 0 4.1-2.5 5-4.9 5.3.4.3.8 1 .8 2.1v3.1c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
 );
 
+// 数值段版本比较: a<b -> -1, 相等 -> 0, a>b -> 1
+function cmpVersion(a: string, b: string): number {
+  const pa = (a || "").split(".").map(Number);
+  const pb = (b || "").split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] || 0, y = pb[i] || 0;
+    if (x !== y) return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
 export default function Header() {
   const wxLogged = useWechatStatus();
   const wxOn = wxLogged === true;
   const [qsOpen, setQsOpen] = useState(false);
-  const [wxVersion, setWxVersion] = useState("");
-  // 微信基准版本: 存数据库(特殊单值变量), 从接口读
+  // 微信版本确认: db=数据库基准, local=本地实际, online=网络最新(有则返回); 页面加载即调用
+  const [wxc, setWxc] = useState<{ db: string; local: string; online: string }>({ db: "", local: "", online: "" });
   useEffect(() => {
     (async () => {
       try {
-        const d = await (await fetch("http://127.0.0.1:8000/api/settings/wechat-version")).json();
-        setWxVersion(d.version || "");
+        const d = await (await fetch("http://127.0.0.1:8000/api/settings/wechat-check")).json();
+        setWxc({ db: d.db || "", local: d.local || "", online: d.online || "" });
       } catch { /* 后端不可达 */ }
     })();
   }, []);
+  // 数据库基准 vs 本地实际不一致 -> 基于微信行变红+感叹号
+  const mismatch = !!(wxc.db && wxc.local && wxc.db !== wxc.local);
+  const higher = mismatch && cmpVersion(wxc.local, wxc.db) > 0;
+  const mismatchTip = higher
+    ? "本地微信版本过高，可能会有不适配的情况，可点击前往项目的github网站查看是否有更新版本"
+    : "本地微信版本过低，可更新微信再使用，否则可能会出现不适配的情况";
+  const GITHUB_RELEASES = "https://github.com/hong2301/wechat-article-collector/releases";
+  // 数据库版本 < 网络最新 -> 程序版本号变红(仅开发模式显示, 打包版不显示)
+  const isDev = process.env.NODE_ENV === "development";
+  const hasNew = isDev && !!(wxc.online && wxc.db && cmpVersion(wxc.online, wxc.db) > 0);
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0 14px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -38,9 +60,36 @@ export default function Header() {
         <div style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
             <span style={{ fontSize: 19, fontWeight: 700 }}>微信公众号采集器</span>
-            <span style={{ fontSize: 12, color: "#8b949e" }}>v{process.env.NEXT_PUBLIC_APP_VERSION || ""}</span>
+            {hasNew ? (
+              <Tooltip title={`微信已有新版本 ${wxc.online}`}>
+                <span style={{ fontSize: 12, color: hasNew ? "#ff4d4f" : "#8b949e" }}>v{process.env.NEXT_PUBLIC_APP_VERSION || ""}</span>
+              </Tooltip>
+            ) : (
+              <span style={{ fontSize: 12, color: "#8b949e" }}>v{process.env.NEXT_PUBLIC_APP_VERSION || ""}</span>
+            )}
           </div>
-          <div style={{ fontSize: 12, color: "#8b949e" }}>基于 微信 Windows 版 {wxVersion || "未设置"}</div>
+          <div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>
+            {mismatch ? (
+              <Tooltip title={mismatchTip}>
+                <span style={{ color: "#ff4d4f", display: "flex", alignItems: "center", gap: 4 }}>
+                  <ExclamationCircleOutlined />
+                  {higher ? (
+                    /* 本地过高: 版本信息可点击跳转 GitHub releases, hover 出现下划线 */
+                    <a href={GITHUB_RELEASES}
+                      style={{ color: "#ff4d4f", textDecoration: "none", cursor: "pointer" }}
+                      onMouseEnter={(e) => { e.currentTarget.style.textDecoration = "underline" }}
+                      onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none" }}>
+                      基于 微信 Windows 版 {wxc.db}
+                    </a>
+                  ) : (
+                    <span>基于 微信 Windows 版 {wxc.db || "版本待指定"}</span>
+                  )}
+                </span>
+              </Tooltip>
+            ) : (
+              <span style={{ color: "#8b949e" }}>基于 微信 Windows 版 {wxc.db || "版本待指定"}</span>
+            )}
+          </div>
         </div>
         <Tooltip title="如果是第一次使用，建议先运行快速开始（会自动校准点位/滚动/公众号）">
           <button onClick={() => setQsOpen(true)}
