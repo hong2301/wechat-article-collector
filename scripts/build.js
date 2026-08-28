@@ -138,6 +138,10 @@ try {
   fs.writeFileSync(f, updaterYml)
   console.log('   app-update.yml -> release/resources/app-update.yml')
 
+  // 2.5 修正 exe 版本资源: 文件说明=项目名 + 语言=中文(简体)
+  //   electron-builder 只能写 productName/copyright/author, FileDescription 固定=productName、语言默认 en-US
+  run(`node scripts/fix-exe-meta.js "${path.join(RELEASE, 'WeChatCollector.exe')}" 微信公众号文章与评论自动化采集工具`)
+
   // ---- 3. 清理 ----
   if (withClean) {
     console.log('\n>>> 清理全部中间产物')

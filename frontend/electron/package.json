@@ -1,6 +1,7 @@
 {
   "name": "wechat-collector-electron",
   "version": "4.1.3",
+  "author": { "name": "honononong" },
   "main": "main.js",
   "scripts": {
     "dev": "concurrently -k -n next,electron -c blue,green \"npm run dev:next\" \"npm run dev:wait\"",
@@ -18,7 +19,8 @@
   },
   "build": {
     "appId": "com.wechat.collector",
-    "productName": "WeChatCollector",
+    "productName": "微信公众号采集器",
+    "copyright": "Copyright © 2026 honononong",
     "directories": {
       "output": "../build"
     },
@@ -32,7 +34,8 @@
         "dir",
         "zip"
       ],
-      "icon": "icon.ico"
+      "icon": "icon.ico",
+      "executableName": "WeChatCollector"
     },
     "electronVersion": "31.7.7",
     "publish": [
