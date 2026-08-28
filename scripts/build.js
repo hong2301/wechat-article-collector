@@ -75,11 +75,30 @@ try {
     fs.cpSync(path.join(WIN_UNPACKED, entry), path.join(RELEASE, entry), { recursive: true })
   }
 
-  // 7. 复制静态模板数据库到 release/data(含 深圳本地宝3篇文章+评论 测试数据)
+  // 7. 复制静态模板数据库到 release/data(含 深圳本地宝文章+评论 测试数据)
   console.log('\n>>> 复制模板数据库 -> release/data')
   fs.mkdirSync(path.join(RELEASE, 'data'), { recursive: true })
   fs.copyFileSync(path.join(ROOT, 'scripts', 'template_collector.db'), path.join(RELEASE, 'data', 'collector.db'))
   console.log('   template_collector.db -> release/data/collector.db')
+  // 同步进 win-unpacked(让 electron-builder 生成的 zip 也含模板库)
+  try {
+    fs.mkdirSync(path.join(WIN_UNPACKED, 'data'), { recursive: true })
+    fs.copyFileSync(path.join(ROOT, 'scripts', 'template_collector.db'), path.join(WIN_UNPACKED, 'data', 'collector.db'))
+    console.log('   template_collector.db -> win-unpacked/data/collector.db')
+  } catch (e) {
+    console.log('   (win-unpacked 模板库复制跳过: ' + e.message + ')')
+  }
+
+  // 7.1 复制分发包 zip 到 release(用户指定 zip 放 release 目录)
+  try {
+    const zips = fs.readdirSync(path.join(ROOT, 'frontend', 'build')).filter((f) => f.endsWith('-win.zip'))
+    for (const z of zips) {
+      fs.copyFileSync(path.join(ROOT, 'frontend', 'build', z), path.join(RELEASE, z))
+      console.log('   zip -> release/' + z)
+    }
+  } catch (e) {
+    console.log('   (zip 复制跳过: ' + e.message + ')')
+  }
 
   // 7.5 补充 app-update.yml(目录版/win-unpacked 不会自动生成, 自动更新必需)
   const updaterYml = 'owner: hong2301\n' +

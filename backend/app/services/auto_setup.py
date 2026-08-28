@@ -323,28 +323,11 @@ def _flow_point14_query_button(ctx):
     for round_idx in range(4):
         if not _ensure_wechat():
             return None, None
-        # 搜一搜前段: 点11 -> 输入1 -> 全选删除 -> 点12
-        p11 = tasks_svc._read_point(11)
-        p12 = tasks_svc._read_point(12)
-        if not p11 or not p12:
+        # 搜一搜完整初始化: 点11+输入1+全选删除+点12+自动分离判断+AppEx移左半屏
+        ok_sw, txt_sw = tasks_svc.search_window_init()
+        if not ok_sw:
+            log.warning(f"点位14 搜一搜窗口初始化失败: {txt_sw}")
             return None, None
-        ctx.click(p11[0], p11[1], wait_after=0.2)
-        _pc.type_text("1"); _time.sleep(0.1); _pc.ctrl_key("A"); _time.sleep(0.1)
-        _pc.key_press(_pc.VK_DELETE); _time.sleep(0.2)
-        ctx.click(p12[0], p12[1], wait_after=0.8)
-        # 无独立搜一搜窗口 -> 先移微信主窗口到左半屏, 等0.3s 再点9分离
-        if not _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
-            p9 = tasks_svc._read_point(9)
-            if not p9:
-                return None, None
-            u32_ = _pc._u32()
-            sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
-            sh_ = u32_.GetSystemMetrics(_pc.SM_CYSCREEN)
-            wx = _pc.find_windows(exe=tasks_svc.WECHAT_MAIN, visible_only=True)
-            if wx:
-                _pc.move_window(wx[0][0], 0, 0, sw_ // 2, sh_)
-                _time.sleep(0.3)
-            ctx.click(p9[0], p9[1], wait_after=0.8)
 
         # 截左半屏 OCR 找"搜一搜"(窄条1/10 OCR不稳, 用全左半屏图+限定y在最上1/10)
         u32 = _pc._u32()
@@ -832,7 +815,7 @@ def _flow_point27_copy(ctx):
     if not ok_q:
         log.warning(f"点位27 查询文章链接失败: {txt_q}")
         return None, None
-    _time.sleep(1.0)
+    _time.sleep(3.0)                        # 等3秒加载(文章内容/菜单可用)
 
     p18 = tasks_svc._read_point(18)
     p28 = tasks_svc._read_point(28)
@@ -840,21 +823,25 @@ def _flow_point27_copy(ctx):
     if not p18 or not p28 or not p29:
         log.warning(f"点位27 缺前置(18{bool(p18)} 28{bool(p28)} 29{bool(p29)})")
         return None, None
-    ctx.click(p18[0], p18[1], wait_after=0.5)      # 弹菜单
 
-    # 截[28,29]区域 OCR
-    img = ImageGrab.grab(bbox=(p28[0], p28[1], p29[0], p29[1])).convert("RGB")
-    hit = None
-    for cx, cy, text, score, sbox, _br in ctx.ocr_box(img):
-        if "复制" in text:
-            hit = (int(cx), int(cy))
-            break
-    if not hit:
-        log.warning("点位27 未识别到'复制'字样")
-        return None, None
-    ax, ay = p28[0] + hit[0], p28[1] + hit[1]
-    log.info(f"点位27 识别复制按钮: ({ax},{ay})")
-    return ax, ay
+    # 参考 tasks 文章采集的复制链接循环: 2次机会, 点18弹菜单 -> 截图[28,29]OCR检"复制"
+    for _try in range(1, 3):
+        ctx.click(p18[0], p18[1], wait_after=0.5)      # 点18弹菜单, 等0.5s菜单弹出
+        img = ImageGrab.grab(bbox=(p28[0], p28[1], p29[0], p29[1])).convert("RGB")
+        hit = None
+        for cx, cy, text, score, sbox, _br in ctx.ocr_box(img):
+            if "复制" in text:
+                hit = (int(cx), int(cy))
+                break
+        if hit:
+            ax, ay = p28[0] + hit[0], p28[1] + hit[1]
+            log.info(f"点位27 第{_try}次 识别复制按钮: ({ax},{ay})")
+            return ax, ay
+        # 未检测到"复制": 再点一次18弹菜单, 等0.5s后进入下一次尝试
+        log.warning(f"点位27 第{_try}次未识别到'复制', 再次点18重试")
+        ctx.click(p18[0], p18[1], wait_after=0.5)
+    log.warning("点位27 2次均未识别到'复制'字样")
+    return None, None
 
 
 # ---------------------------------------------------------------------------
@@ -1120,6 +1107,17 @@ def run_all_points_stream(names: str = ""):
             yield f"[progress] {done}/{total}"
             if x is not None:
                 ok_n += 1
+                # 写库(与 /point/{pid} 一致): 99999 保留备注, 其余清备注
+                try:
+                    conn = _get_conn()
+                    try:
+                        conn.execute("UPDATE points SET x=?, y=?, remark=? WHERE name=?",
+                                     (x, y, (_rem if x == 99999 else ""), name))
+                        conn.commit()
+                    finally:
+                        conn.close()
+                except Exception as _e2:
+                    log.warning(f"点位写库失败 {name}: {_e2}")
                 yield f"[ok] ✓ {name} = ({x},{y})"
             else:
                 fail_n += 1
