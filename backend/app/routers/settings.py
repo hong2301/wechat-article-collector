@@ -20,6 +20,48 @@ class AiSettings(BaseModel):
     models: list[str] = []            # 多个模型id
 
 
+# ---- 程序特殊变量(单值 key-value, 存 settings 表) ----
+# 微信基准版本: 程序点位/流程基于该微信版本设计; 模板库预置, 用户可改
+def _get_setting(key: str) -> str:
+    conn = get_conn()
+    try:
+        r = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+        return r["value"] if r else ""
+    finally:
+        conn.close()
+
+
+def _set_setting(key: str, value: str) -> None:
+    conn = get_conn()
+    try:
+        conn.execute("INSERT INTO settings(key,value) VALUES(?,?)"
+                     " ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+class WechatVersion(BaseModel):
+    version: str = ""                 # 微信基准版本号(如 4.1.12.55)
+
+
+@router.get("/wechat-version")
+def get_wechat_version():
+    """读微信基准版本(数据库存储值); 未设置返回空"""
+    return {"version": _get_setting("wechat_version")}
+
+
+@router.post("/wechat-version")
+def save_wechat_version(p: WechatVersion):
+    """保存微信基准版本"""
+    v = (p.version or "").strip()
+    if not v:
+        return {"ok": False, "error": "版本号不能为空"}
+    _set_setting("wechat_version", v)
+    return {"ok": True, "version": v}
+
+
+
 @router.get("/ai")
 def get_ai_settings():
     """返回 {provider, api_key, models:[...]}; 无数据则空"""

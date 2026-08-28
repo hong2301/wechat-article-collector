@@ -101,6 +101,10 @@ def init_db():
             api_key     TEXT DEFAULT '',
             model_id    TEXT DEFAULT ''
         );
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT DEFAULT ''
+        );
         """)
         # biz 唯一(同 biz 不允许重复公众号)
         try:

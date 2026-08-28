@@ -21,6 +21,16 @@ export default function Header() {
   const wxLogged = useWechatStatus();
   const wxOn = wxLogged === true;
   const [qsOpen, setQsOpen] = useState(false);
+  const [wxVersion, setWxVersion] = useState("");
+  // 微信基准版本: 存数据库(特殊单值变量), 从接口读
+  useEffect(() => {
+    (async () => {
+      try {
+        const d = await (await fetch("http://127.0.0.1:8000/api/settings/wechat-version")).json();
+        setWxVersion(d.version || "");
+      } catch { /* 后端不可达 */ }
+    })();
+  }, []);
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0 14px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -30,7 +40,7 @@ export default function Header() {
             <span style={{ fontSize: 19, fontWeight: 700 }}>微信公众号采集器</span>
             <span style={{ fontSize: 12, color: "#8b949e" }}>v{process.env.NEXT_PUBLIC_APP_VERSION || ""}</span>
           </div>
-          <div style={{ fontSize: 12, color: "#8b949e" }}>基于 微信 Windows 版 4.1.12.55</div>
+          <div style={{ fontSize: 12, color: "#8b949e" }}>基于 微信 Windows 版 {wxVersion || "未设置"}</div>
         </div>
         <Tooltip title="如果是第一次使用，建议先运行快速开始（会自动校准点位/滚动/公众号）">
           <button onClick={() => setQsOpen(true)}
