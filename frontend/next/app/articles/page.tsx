@@ -61,6 +61,18 @@ export default function ArticlePage() {
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
   const [quickActive, setQuickActive] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(true);
+  // 表格可视高度(供 scroll.y, 让横向滚动条常驻表体底部)
+  const [tableY, setTableY] = useState(0);
+  const [tbH, setTbH] = useState(0);
+  useEffect(() => {
+    const measure = () => {
+      if (tableWrapRef.current) setTableY(Math.max(100, tableWrapRef.current.clientHeight - 56));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const t = setInterval(measure, 800);   // 数据/布局变化兜底
+    return () => { window.removeEventListener("resize", measure); clearInterval(t); };
+  }, []);
   // 更新设置(与公众号页共享配置): 窗口分离/4指标/阅读数/保存Html
   const [capture4metrics, setCapture4metrics] = useState(false);
   const [captureRead, setCaptureRead] = useState(false);
@@ -595,13 +607,13 @@ export default function ArticlePage() {
   }
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden", gap: 10, background: "#f5f6f8" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 0 8px" }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/")}>返回</Button>
         <Typography.Title level={5} style={{ margin: 0 }}>「{name || "..."}」的文章列表</Typography.Title>
       </div>
       {/* 更新设置卡片(开关行 + 评论采集设置行) */}
-      <div style={{ display: "flex", flexDirection: "column", background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px", margin: "0 0 12px" }}>
+      <div style={{ display: "flex", flexDirection: "column", background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px", margin: "0 0 12px", flexShrink: 0 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minHeight: 32 }}>
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，4指标采集不可用:\n${si.ai.join("\n")}` : undefined}>
@@ -639,7 +651,7 @@ export default function ArticlePage() {
         )}
       </div>
       {/* 筛选面板 */}
-      <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "14px 18px", margin: "0 0 12px" }}>
+      <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "14px 18px", margin: "0 0 12px", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
           <DatePicker.RangePicker
             value={dateRange}
@@ -699,7 +711,7 @@ export default function ArticlePage() {
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) importFile(f); }}
-        style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
+        style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Tooltip
             title={(si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能更新" : wxLogged === false ? "请先登录微信后再更新" : undefined)}>
@@ -723,7 +735,7 @@ export default function ArticlePage() {
         </div>
         ) : shown.length > 0 ? (
         <div ref={tableWrapRef} style={{ flex: 1, minHeight: 0, position: "relative", overflow: "auto" }}>
-        <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" sticky scroll={{ x: 1500 }}
+        <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" scroll={{ x: 1500, y: tableY }}
           onChange={(_p: any, _f: any, sorter: any) => {
             const s = Array.isArray(sorter) ? sorter[0] : sorter;
             const key = s?.columnKey || s?.field;
