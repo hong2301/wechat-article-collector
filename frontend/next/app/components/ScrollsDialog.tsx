@@ -326,7 +326,7 @@ export default function ScrollsDialog({
           {!compact && (
             <>
               <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>
-              <Button icon={<BulbOutlined />} onClick={autoSetSelected}>自动设置选中</Button>
+              <Button icon={<BulbOutlined />} onClick={autoSetSelected}>一键设置</Button>
               <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>
               <Button danger icon={<DeleteOutlined />} onClick={delSelected}>删除选中</Button>
             </>
