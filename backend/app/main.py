@@ -28,6 +28,10 @@ def _setup_logging():
         def __init__(self, stream, fh):
             self._s = stream
             self._f = fh
+        def isatty(self):
+            return False          # 非终端(uvicorn 据此禁用彩色日志)
+        def fileno(self):
+            return self._f.fileno()
         def _trim(self):
             self._f.flush()
             size = os.fstat(self._f.fileno()).st_size
