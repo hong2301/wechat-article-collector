@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from ..database import default_html_dir
-from ..services import computer as pc
+from ..core import computer as pc
 from ..services import wechat_check as wx_check
 from ..repositories import settings_repo
 

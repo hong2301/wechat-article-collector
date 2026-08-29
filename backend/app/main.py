@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .database import init_db
 from .routers import accounts, resolve_api, points, scrolls, collect, settings, auto_setup
-from .services import ocr as ocr_service
+from .core import ocr as ocr_service
 
 app = FastAPI(title="微信公众号采集器后端", version="4.1.3")
 
@@ -30,7 +30,7 @@ def startup():
 def shutdown():
     """后端退出: 恢复任务栏(防采集结束时任务栏仍隐藏/异常退出遗留)"""
     try:
-        from .services import computer as pc
+        from .core import computer as pc
         pc.show_taskbar()
     except Exception:
         pass

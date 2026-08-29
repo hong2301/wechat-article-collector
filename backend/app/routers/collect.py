@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..services import tasks as tasks_service
-from ..services import computer as pc
+from ..core import computer as pc
 from ..services import auto_setup as auto_setup_svc
 
 router = APIRouter(prefix="/api/collect", tags=["collect"])
@@ -67,7 +67,7 @@ def _notice_input_block():
 
 def _start_esc_listener():
     """启动采集期间输入锁定: 人工键盘/鼠标拦截, 程序注入放行, ESC=停止"""
-    from ..services.inputlock import InputLock
+    from ..core.inputlock import InputLock
     global _input_lock
     if _input_lock is None:
         _input_lock = InputLock()

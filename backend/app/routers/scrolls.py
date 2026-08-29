@@ -116,7 +116,7 @@ def import_scrolls(file: UploadFile = File(...)):
 @router.post("/{sid}/run")
 def run_scroll(sid: int):
     """执行滚动: 把鼠标移到滚动点位所在坐标, 按配置方向/距离滚动"""
-    from ..services import computer as pc
+    from ..core import computer as pc
     s = scrolls_repo.get(sid)
     if not s:
         raise HTTPException(404, "滚动配置不存在")

@@ -19,11 +19,11 @@ import time
 import requests as _requests
 from PIL import Image
 
-from . import computer as pc
-from . import ocr as ocr_service
-from .common import (_read_point, _finish, _save_reads,
+from ..core import computer as pc
+from ..core import ocr as ocr_service
+from ..core.common import (_read_point, _finish, _save_reads,
                      _extract_read_from_items, wait_page_stable)
-from .robot import (request_stop, clear_stop, stop_requested,
+from ..core.robot import (request_stop, clear_stop, stop_requested,
                     bind_tasks_echo, tasks_echo)
 from ..database import get_conn
 from .doubao_api import recognize_interact as doubao_recognize_interact
@@ -976,7 +976,7 @@ def _bg_ai_comments(shot_b64s, art_biz, max_level1, max_level2, shot_x=None):
             tasks_echo(f"[async:{tag}] 无AI配置或截图失败, 评论识别跳过")
             return
         # 多图(上一轮+本轮)拼接为一张完整图
-        from .common import merge_comment_shots
+        from ..core.common import merge_comment_shots
         if len(shot_b64s) >= 2:
             merged_img = merge_comment_shots(shot_b64s[0], shot_b64s[1])
         else:
@@ -1032,7 +1032,7 @@ def _bg_ai_comments(shot_b64s, art_biz, max_level1, max_level2, shot_x=None):
             tasks_echo(f"[async:{tag}] 无符合数量上限的评论")
             _save_debug_shot_b64(shot_b64s[0], "豆包", tag)
             return
-        from .common import save_comments
+        from ..core.common import save_comments
         wrote = save_comments(art_biz, comments)
         tasks_echo(f"[async:{tag}] 识别评论{len(comments)}条, 写入{wrote}条")
         # 更新采集计数(一级/二级/总数)

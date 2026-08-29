@@ -49,7 +49,7 @@ class PreviewPayload(BaseModel):
 def preview_point(payload: PreviewPayload):
     """在屏幕坐标 (x,y) 亮红点预览 duration 秒(默认1)
     返回: {"ok": true}"""
-    from ..services import computer as pc
+    from ..core import computer as pc
     pc.enable_dpi_awareness()
     pc.preview_point(payload.x, payload.y, duration=payload.duration or 1.0)
     return {"ok": True}
@@ -60,7 +60,7 @@ def capture_point():
     """阻塞采集屏幕坐标: 前端遮罩期间调用;
     左键单击记录(前端轮询preview)、双击确认、右键退出。
     返回: {"x":..,"y":..} 或 {"canceled": true}"""
-    from ..services import computer as pc
+    from ..core import computer as pc
     pc.enable_dpi_awareness()
     pc.clear_latest_click()
     r = pc.capture_point()
@@ -73,7 +73,7 @@ def capture_point():
 def capture_preview():
     """返回最近一次左键单击坐标(用于前端实时预览), 供遮罩期间轮询
     返回: {"x":..,"y":..} 或 {"none": true}"""
-    from ..services import computer as pc
+    from ..core import computer as pc
     r = pc.get_latest_click()
     if r is None:
         return {"none": True}

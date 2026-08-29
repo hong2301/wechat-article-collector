@@ -8,7 +8,7 @@ import json
 from fastapi import APIRouter, HTTPException
 
 from ..services import auto_setup as as_svc
-from ..services.computer import enable_dpi_awareness
+from ..core.computer import enable_dpi_awareness
 from ..repositories import points_repo, scrolls_repo
 
 router = APIRouter(prefix="/api/auto-setup", tags=["auto-setup"])
