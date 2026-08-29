@@ -11,8 +11,35 @@ from .engine import POINT_FLOWS, flow_point, log, _ensure_wechat   # noqa: F401
 
 
 from .engine import _ensure_wechat  # noqa: F401
+
+
+def _top2_colors(img, region):
+    """白色区域主色: 取文字框内像素按颜色出现频率排序的前两主色(降采样+量化去噪)
+    返回 [(r,g,b), (r,g,b)] 或 None(区域太小)"""
+    crop = img.crop(region)
+    if crop.width < 4 or crop.height < 4:
+        return None
+    small = crop.resize((30, 30))   # 降采样, 主色占比更稳
+    counts = {}
+    for px in small.convert("RGB").getdata():
+        q = ((px[0] // 40) * 40, (px[1] // 40) * 40, (px[2] // 40) * 40)  # 量化到 40 级
+        counts[q] = counts.get(q, 0) + 1
+    if len(counts) < 2:
+        return None
+    top = [c for c, _ in sorted(counts.items(), key=lambda kv: -kv[1])[:2]]
+    return top
+
+
+def _is_bilevel(top2):
+    """自然语言校验: 前两主色应是一明一暗(黑字白底), 不管顺序
+    用两主色亮度之差的相对判断, 不卡绝对值, 跨显示器稳健"""
+    l0 = sum(top2[0])
+    l1 = sum(top2[1])
+    return abs(l0 - l1) > 200   # 一极亮一极暗(如白-黑 / 白-深灰 均成立)
+
+
 # 点位 12: 微信左上角搜索网络 (依赖点位11已设值)
-# 流程: 同点位11初始化 -> 截图左上1/16 -> OCR找"搜索网络结果" -> 黑字白底校验
+# 流程: 同点位11初始化 -> 截图左上1/16 -> OCR找"搜索网络结果" -> 两主色一明一暗校验
 # ---------------------------------------------------------------------------
 @flow_point("微信左上角搜索网络")
 def _flow_point12_search_network(ctx):
@@ -43,20 +70,13 @@ def _flow_point12_search_network(ctx):
         for cx, cy, text, score, sbox, _bright in ctx.ocr_box(img):
             if "网络结果" not in text:
                 continue
-            # 校验: 黑字(深色像素近似黑灰) + 白底
-            crop = img.crop((min(p[0] for p in sbox), min(p[1] for p in sbox),
-                             max(p[0] for p in sbox), max(p[1] for p in sbox)))
-            dark = [px_ for px_ in crop.convert("RGB").getdata() if sum(px_) < 400]
-            if not dark:
+            # 校验: OCR 文字框内取两主色 -> 应为一明一暗(黑字白底, 不管顺序)
+            top2 = _top2_colors(img, (min(p[0] for p in sbox), min(p[1] for p in sbox),
+                                       max(p[0] for p in sbox), max(p[1] for p in sbox)))
+            if not top2 or not _is_bilevel(top2):
+                log.info(f"点位12 文本命中但颜色不符({top2}): {text}")
                 continue
-            r = sum(p[0] for p in dark)/len(dark); g = sum(p[1] for p in dark)/len(dark); b = sum(p[2] for p in dark)/len(dark)
-            avg, spread = (r+g+b)/3, max(r,g,b)-min(r,g,b)
-            if not (avg < 100 and spread < 60):
-                continue
-            px = list(crop.convert("L").getdata())
-            if sum(1 for v in px if v > 235)/max(1, len(px)) < 0.5:
-                continue
-            log.info(f"点位12 识别成功: 文本={text} box=({cx},{cy}) 黑字avg={avg:.0f}")
+            log.info(f"点位12 识别成功: 文本={text} box=({cx},{cy}) 两主色={top2}")
             return cx, cy
         if attempt == 1:
             # 兜底: 重复点位11动作(下拉未弹出时)
