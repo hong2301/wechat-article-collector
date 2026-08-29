@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
-"""点位自动设置: 分离/查询类点位 9(窗口分离按钮) 14(搜一搜查询按钮)
 import ctypes
 from ctypes import wintypes as _wt
 import time as _time
+"""点位自动设置: 分离/查询类点位 9(窗口分离按钮) 14(搜一搜查询按钮)
 横向探测类: 初始化(不点点位9) + 横向点击找目标"""
 from ...database import get_conn as _get_conn
 from .engine import POINT_FLOWS, flow_point, log   # noqa: F401

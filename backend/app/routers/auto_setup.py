@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""自动识别流程路由: 触发点位/滚动自动设置(执行对应流程函数, 识别成功写回数据库)
 import os as _os
+"""自动识别流程路由: 触发点位/滚动自动设置(执行对应流程函数, 识别成功写回数据库)
 
 POST /api/auto-setup/point/{pid}    自动设置单个点位(识别后写回 x/y)
 POST /api/auto-setup/scroll/{sid}   自动设置单条滚动(识别后写回 distance)

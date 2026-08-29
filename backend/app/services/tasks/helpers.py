@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """任务子包: 后台线程池 + 调试截图辅助"""
+from concurrent.futures import wait
 import os, shutil, time as _t
 import os, shutil, time as _t
 import os, base64, time as _t

@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-"""backend.app.services.computer: 电脑交互原语模块
+import queue as _queue
 import base64
 import io
 import os
 import tempfile
 from PIL import Image, ImageGrab
+"""backend.app.services.computer: 电脑交互原语模块
 
 把 main.py / core.win32util / core.image_ocr 中分散的"电脑交互"方法统一整理，
 封装为可复用的模块，供采集流程（以及未来新增流程）多次调用。

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""backend.app.services.doubao_api: 豆包识图(4指标识别)
 import json as _json
+"""backend.app.services.doubao_api: 豆包识图(4指标识别)
 
 识别文章底部互动栏截图: 点赞/转发/喜欢/留言
 依赖: requests

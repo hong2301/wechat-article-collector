@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 """任务子包: 文章采集(列表定位/保存/4指标/阅读数OCR/主流程)"""
+from PIL import Image, ImageGrab
+from .comment_collect import _collect_comments
+import requests as _requests
+from datetime import datetime
 import ctypes
 import hashlib
 import time

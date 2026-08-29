@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
+import base64
+import io, base64
 """backend.app.services.common: tasks 主函数共用的辅助工具
-import io, base64
-import io, base64
 
 包含: 点位读取 / 页面稳定检测 / 阅读数识别 / 阅读数写库 / 采集统一退出
 只依赖 computer / ocr / database, 不依赖 tasks 主函数。

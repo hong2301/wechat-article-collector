@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """任务子包: 评论采集(展开回复/豆包AI识别/主采集循环)"""
+from PIL import Image, ImageGrab
+from .helpers import _save_debug_shot_b64
 import io as _io, base64
 import io as _io, base64
 import re as _re

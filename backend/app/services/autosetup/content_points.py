@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
-"""点位自动设置: 文章内容区点位 30/31(4指标) 34(评论按钮) 35/36(评论区)
+from PIL import Image, ImageGrab
+from ...core import computer as pc
 import time as _time
 from PIL import ImageGrab
 import numpy as np
+"""点位自动设置: 文章内容区点位 30/31(4指标) 34(评论按钮) 35/36(评论区)
 依赖前置点位搜索出文章后 OCR/截图识别"""
 from ...database import get_conn as _get_conn
 from .engine import POINT_FLOWS, flow_point, log   # noqa: F401  (POINT_FLOWS 注册 / flow_point 装饰器)

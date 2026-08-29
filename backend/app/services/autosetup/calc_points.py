@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-"""点位自动设置: 纯计算类点位 28/29(复制链接区域) 32/33(阅读数区域)
 import ctypes
+"""点位自动设置: 纯计算类点位 28/29(复制链接区域) 32/33(阅读数区域)
 不操作窗口, 依赖对应点位坐标直接计算"""
 from ...database import get_conn as _get_conn
 from .engine import POINT_FLOWS, log   # noqa: F401  (POINT_FLOWS 用于注册)

@@ -1,10 +1,5 @@
 # -*- coding: utf-8 -*-
 """自动识别流程(auto_setup): 人工预设流程 + OCR + AI 视觉识别 -> 自动设置点位坐标/滚动距离
-import ctypes
-import numpy as np
-from PIL import ImageGrab
-import ctypes
-import threading
 
 设计: 每个点位/每条滚动配置 匹配一个流程函数(代码模板式)
   POINT_FLOWS[点位名称] = fn(ctx) -> (x, y)      识别成功后由路由写回 points 表
@@ -19,6 +14,12 @@ import threading
 
 示例流程函数见 _flow_demo(未接入真实点位), 各点位按此模板逐个实现。
 """
+# ---------- imports ----------
+from PIL import Image, ImageGrab
+import ctypes
+import numpy as np
+import threading
+import time
 import logging
 import time as _t
 import time as _time

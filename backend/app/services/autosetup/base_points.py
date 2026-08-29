@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """点位自动设置: 基础 OCR 点位 11(搜索框) 12(搜索网络)"""
+from ...core import ocr as ocr_service
+from ...core import computer as pc
 import ctypes
 import time as _time
 from PIL import Image, ImageGrab
