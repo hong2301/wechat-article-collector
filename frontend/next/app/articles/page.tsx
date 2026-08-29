@@ -838,7 +838,7 @@ export default function ArticlePage() {
       </div>
       {/* 导入进度/失败弹窗 */}
       <Modal title={failedLinks.length || dupRows.length ? "导入结果" : "正在导入"} open={importing}
-        footer={(failedLinks.length || dupRows.length) ? <Button type="primary" onClick={() => setImporting(false)}>关闭</Button> : null}
+        footer={(failedLinks.length || dupRows.length) ? <Button type="primary" onClick={() = mask={{ closable: false }}> setImporting(false)}>关闭</Button> : null}
         closable={(failedLinks.length || dupRows.length) > 0} onCancel={() => setImporting(false)} width={520}>
         {(failedLinks.length || dupRows.length) ? (
           <div>
@@ -873,7 +873,7 @@ export default function ArticlePage() {
 
       {/* 下载选中进度弹窗 */}
       <Modal title={`下载进度 ${dlCount}/${dlItems.length}`} open={dlOpen}
-        footer={dlRun ? <Button danger onClick={() => { dlAbortRef.current?.abort(); setDlRun(false); setDlOpen(false); }}>取消</Button>
+        footer={dlRun ? <Button danger onClick={() = mask={{ closable: false }}> { dlAbortRef.current?.abort(); setDlRun(false); setDlOpen(false); }}>取消</Button>
                       : <Button type="primary" onClick={() => setDlOpen(false)}>关闭</Button>}
         closable={false} mask={{ closable: false }} width={520}>
         <Progress percent={dlItems.length ? Math.round((dlCount / dlItems.length) * 100) : 0}
@@ -889,7 +889,7 @@ export default function ArticlePage() {
         </div>
       </Modal>
 
-      <Modal title="新增文章" open={addOpen} onOk={saveNew} confirmLoading={saving} onCancel={() => setAddOpen(false)}
+      <Modal title="新增文章" open={addOpen} onOk={saveNew} confirmLoading={saving} onCancel={() = mask={{ closable: false }}> setAddOpen(false)}
         okText="保存" cancelText="取消">
         <Space vertical style={{ width: "100%" }}>
           <div>请输入文章链接，保存后显示在标题列（无标题则显示链接）。</div>
@@ -900,7 +900,7 @@ export default function ArticlePage() {
       {/* 更新弹窗: 确认阶段 -> 更新进行中 */}
       <Modal
         open={updOpen}
-        title={updStarted ? `正在更新「${updTask?.title || updTask?.art_biz || ""}」 (${updIdx}/${updQueue.length || 1})` : updQueue.length > 1 ? `确认更新设置 (共 ${updQueue.length} 个)` : "确认更新设置"}
+        title={updStarted ? `正在更新「${updTask?.title || updTask?.art_biz || ""}」 (${updIdx}/${updQueue.length || 1})` : updQueue.length  mask={{ closable: false }}> 1 ? `确认更新设置 (共 ${updQueue.length} 个)` : "确认更新设置"}
         onCancel={() => { if (updStarted) { stopUpdate(); return; } closeUpd(); }}
         footer={updStarted ? (
           updStopped ? (

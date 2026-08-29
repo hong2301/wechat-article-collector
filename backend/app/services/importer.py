@@ -14,6 +14,10 @@ LINK_KEYS = {"链接", "公众号链接", "文章链接", "url", "link", "文章
 
 BIZ_RE = re.compile(r"^m[A-Za-z0-9+/=_-]{5,}={1,2}$", re.I)   # m开头, 1/2个=结尾
 LINK_RE = re.compile(r"mp\.weixin\.qq\.com|^https?://")
+# 公众号链接: 带 __biz= / profile_ext(可提取 biz)
+GZH_LINK_RE = re.compile(r"__biz=|profile_ext", re.I)
+# 文章链接: mp.weixin.qq.com/s/<base64>
+ARTICLE_LINK_RE = re.compile(r"mp\.weixin\.qq\.com/s/[A-Za-z0-9_-]+", re.I)
 
 
 def _is_biz(v):
@@ -26,11 +30,32 @@ def _is_link(v):
     return bool(LINK_RE.search(v))
 
 
+def _is_gzh_link(v):
+    """公众号链接列: 带 biz 的链接"""
+    v = (v or "").strip()
+    return bool(GZH_LINK_RE.search(v))
+
+
+def _is_article_link(v):
+    """文章链接列: mp.weixin.qq.com/s/ + base64"""
+    v = (v or "").strip()
+    return bool(ARTICLE_LINK_RE.search(v))
+
+
 def _is_name(v):
     v = (v or "").strip()
     if not v:
         return False
     return not _is_biz(v) and not _is_link(v) and len(v) >= 2
+
+
+def _cn_ratio(v):
+    """中文字符占比(名称列判定用)"""
+    v = (v or "").strip()
+    if not v:
+        return 0.0
+    cn = sum(1 for ch in v if "\u4e00" <= ch <= "\u9fff")
+    return cn / len(v)
 
 
 def parse_file(filename, raw):
@@ -78,15 +103,35 @@ def _extract(rows):
     for r in body:
         item = {"name": "", "biz": "", "link": ""}
         if head_map:
-            # 有表头: 按列映射
-            for i, v in enumerate(r):
-                if i >= len(r):
-                    break
+            # 有表头: 按列映射; 多链接列时 __biz 链接优先, 其余文章链接留作补全
+            src = {"name": "", "biz": "", "links": []}
+            ncols = max(head_map) + 1
+            for i in range(min(len(r), ncols)):
                 role = head_map.get(i)
-                if role and v:
-                    item[role] = v
+                v = r[i]
+                if role == "link" and v:
+                    src["links"].append(v)
+                elif role and v:
+                    src[role] = v
+            links = src["links"]
+            if links:
+                # 公众号链接(带 __biz)优先; 否则按出现顺序最后(常见 url 在前 公众号链接在后)
+                gzh = next((x for x in links if _is_gzh_link(x)), None)
+                item["link"] = gzh or links[-1]
+                # 其余链接里的文章链接留作数据不全时的网络补全
+                others = [x for x in links if x != item["link"]]
+                art = next((x for x in others if _is_article_link(x)), None)
+                if art is None and not gzh and len(links) > 1:
+                    art = links[-2] if links[-1] == item["link"] else links[-1]
+                if art is not None and _is_article_link(art or ""):
+                    item["article_link"] = art
+                elif art is not None:
+                    item["article_link"] = art
+            item["name"] = src["name"]
+            item["biz"] = src["biz"]
         else:
-            # 无表头: 逐格特征识别
+            # 无表头: 逐格特征识别; 名称列取所有候选里中文占比最高者(兼容全英文名)
+            name_cands = []
             for v in r:
                 if not v:
                     continue
@@ -94,8 +139,10 @@ def _extract(rows):
                     item["biz"] = v
                 elif _is_link(v) and not item["link"]:
                     item["link"] = v
-                elif _is_name(v) and not item["name"]:
-                    item["name"] = v
+                elif _is_name(v):
+                    name_cands.append(v)
+            if name_cands:
+                item["name"] = max(name_cands, key=_cn_ratio)
         result.append(item)
     return result
 

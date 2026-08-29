@@ -177,7 +177,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
   }, [open]);
 
   return (
-    <Modal open={open} onCancel={onClose} footer={null} width={780} title="快速开始" destroyOnHidden>
+    <Modal open={open} onCancel={onClose} footer={null} width={780} title="快速开始" destroyOnHidden mask={{ closable: false }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, height: 420 }}>
         {running && (
           <div style={{ padding: "8px 10px", borderRadius: 8, background: "#fff8e1", border: "1px solid #ffe082", fontSize: 13, color: "#b26a00" }}>

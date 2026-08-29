@@ -72,7 +72,7 @@ export default function AiDialog({
       onOk={save} okText="保存" confirmLoading={saving}
       onCancel={onClose} cancelText="取消"
       footer={(
-        <>
+        < mask={{ closable: false }}>
           <Button onClick={onClose}>取消</Button>
           <Button type="primary" loading={saving} onClick={save}>保存</Button>
         </>

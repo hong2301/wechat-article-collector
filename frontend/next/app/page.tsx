@@ -852,7 +852,7 @@ export default function Home() {
 
       {/* 导入进度/失败弹窗 */}
       <Modal title={failedRows.length ? "导入结果" : "正在导入"} open={importing}
-        footer={failedRows.length ? <Button type="primary" onClick={() => setImporting(false)}>关闭</Button> : null}
+        footer={failedRows.length ? <Button type="primary" onClick={() = mask={{ closable: false }}> setImporting(false)}>关闭</Button> : null}
         closable={failedRows.length > 0} onCancel={() => setImporting(false)} width={420}>
         {failedRows.length ? (
           <div>
@@ -871,14 +871,14 @@ export default function Home() {
 
       {/* 采集日历弹窗 */}
       <Modal title={calData ? `${calData.name} · 采集日历` : "采集日历"} open={calOpen}
-        footer={null} onCancel={() => setCalOpen(false)} width={760} style={{ maxHeight: "80vh", overflow: "auto" }}>
+        footer={null} onCancel={() = mask={{ closable: false }}> setCalOpen(false)} width={760} style={{ maxHeight: "80vh", overflow: "auto" }}>
         {calData && <CollectCalendar daily={calData.daily} monthKey={calMonthKey} onMonthChange={(m) => loadCalendar(calData.id, m)} />}
       </Modal>
 
       {/* 采集弹窗: 确认阶段 -> 采集进行中(停止由后端ESC监听) */}
       <Modal
         open={collectOpen}
-        title={collectStarted ? `正在采集「${collectTask?.name || ""}」 (${queueIdx}/${queue.length})` : queue.length > 1 ? `确认采集设置 (共 ${queue.length} 个)` : "确认采集设置"}
+        title={collectStarted ? `正在采集「${collectTask?.name || ""}」 (${queueIdx}/${queue.length})` : queue.length  mask={{ closable: false }}> 1 ? `确认采集设置 (共 ${queue.length} 个)` : "确认采集设置"}
         onCancel={() => {
           if (collectStarted) { stopCollect(); return; }
           closeCollect();
@@ -990,7 +990,7 @@ export default function Home() {
 
       {/* 新增弹窗 */}
       <Modal title="新增公众号" open={addOpen} onOk={save} okText="保存" confirmLoading={saving}
-        onCancel={() => setAddOpen(false)} cancelText="取消">
+        onCancel={() = mask={{ closable: false }}> setAddOpen(false)} cancelText="取消">
         <Space vertical style={{ width: "100%" }} size="middle">
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>通过公众号文章链接自动获取：</Typography.Text>
           <Space.Compact style={{ width: "100%" }}>

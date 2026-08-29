@@ -85,46 +85,69 @@ def _import_stream(rows):
         name = (item.get("name") or "").strip()
         biz = (item.get("biz") or "").strip()
         link = (item.get("link") or "").strip()
-        # 链接本身能提取 biz(公众号主页 __biz)就不必网络请求
+        article_link = (item.get("article_link") or "").strip()
+        # 公众号链接(含 __biz)本地提取 biz, 不发网络请求
         if not biz:
             biz = _extract_biz_from_link(link)
-        need_full = (not name or not biz) and link   # 仍有缺项才需要网络补全
+        # 数据完整性: 完整 = 有名称 + 有 biz
+        need_name = not name
+        need_biz = not biz
         full_ok = True
-        if need_full:
-            import time as _t
-            _t0 = _t.time()
-            print(f"[import] 缺项(name={name!r} biz={biz!r}) 请求网络补全: {link[:60]}", flush=True)
-            r = resolve_account(link)
-            print(f"[import] 补全耗时 {_t.time() - _t0:.1f}s -> {r}", flush=True)
-            if r:
-                if not name and r.get("name"):
-                    name = r["name"]
-                if not biz and r.get("biz"):
-                    biz = r["biz"]
-                full_ok = True
+        err_reason = None
+        if need_name or need_biz:
+            # 用文章链接提取(只有文章链接才能解析出名称/biz)
+            src_link = article_link
+            if not src_link:
+                from ..services.importer import _is_article_link as _is_art
+                src_link = link if _is_art(link) else ""
+            if src_link:
+                r = resolve_account(src_link)
+                if r:
+                    if need_name and r.get("name"):
+                        name = r["name"]
+                    if need_biz and r.get("biz"):
+                        biz = r["biz"]
+                    full_ok = True
+                else:
+                    full_ok = False
+                    err_reason = "文章链接解析失败"
             else:
-                full_ok = False   # 需要补全但识别失败
+                full_ok = False
+                err_reason = "缺" + (("名称" if need_name else "") + ("biz" if need_biz else "")) + "且文件无文章链接, 跳过"
         ok = True
         if not name:
             ok = False
-        elif need_full and not full_ok:
-            ok = False   # 需要补全但补全失败 -> 判定失败
-        else:
+            err_reason = err_reason or "缺公众号名称"
+        elif not biz:
+            ok = False
+            err_reason = err_reason or "缺biz"
+        elif not full_ok:
+            ok = False
+        if ok:
             try:
                 accounts_repo.create(name, biz, "pending", "")
             except Exception:
                 ok = False
+                err_reason = "入库失败(可能已存在)"
         done += 1
-        yield {"done": done, "total": total, "name": name, "ok": ok}
+        yield {"done": done, "total": total, "name": name, "ok": ok, "reason": err_reason}
 
 
 def _import_sse(rows):
-    """SSE 生成器: 逐条 yield 导入进度"""
+    """SSE 生成器: 逐条 yield 导入进度, done 带失败汇总(供前端最后提示)"""
     total = len(rows)
+    failed = 0
+    reasons = []
     yield 'event: start' + chr(10) + 'data: ' + _json.dumps({'total': total}) + chr(10) + chr(10)
     for evt in _import_stream(rows):
+        if not evt.get('ok'):
+            failed += 1
+            r = evt.get('reason')
+            if r:
+                reasons.append(f"{(evt.get('name') or '?')[:12]}: {r}")
         yield 'event: progress' + chr(10) + 'data: ' + _json.dumps(evt) + chr(10) + chr(10)
-    yield 'event: done' + chr(10) + 'data: {}' + chr(10) + chr(10)
+    yield 'event: done' + chr(10) + 'data: ' + _json.dumps(
+        {"failed": failed, "reasons": reasons[:10]}) + chr(10) + chr(10)
 
 @router.post("/import")
 def import_accounts(file: UploadFile = File(...)):
