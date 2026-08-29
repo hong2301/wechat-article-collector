@@ -7,7 +7,7 @@ import sys
 import uvicorn
 
 HOST = "127.0.0.1"
-PORT = 8000
+PORT = int(os.environ.get("BACKEND_PORT", "8000"))   # 与打包版一致, 可用环境变量改端口
 
 
 def port_in_use(host, port):

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { API_BASE } from "./lib/api";
 import { DndProvider, useDrag, useDrop } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, message, Modal, Spin, Progress, Empty, Switch, InputNumber } from "antd";
@@ -17,9 +18,9 @@ import { useWechatStatus } from "./components/useWechatStatus";
 import ScrollsDialog from "./components/ScrollsDialog";
 import AiDialog from "./components/AiDialog";
 
-const API = "http://127.0.0.1:8000/api/accounts";
-const RESOLVE = "http://127.0.0.1:8000/api/resolve-name";
-const COLLECT = "http://127.0.0.1:8000/api/collect/start";
+const API = API_BASE + "/api/accounts";
+const RESOLVE = API_BASE + "/api/resolve-name";
+const COLLECT = API_BASE + "/api/collect/start";
 // 采集触发类型枚举(可扩展)
 const COLLECT_TYPE = {
   ACCOUNT_CLICK: 1,   // 公众号列表点击采集
@@ -487,7 +488,7 @@ export default function Home() {
   }
   // 停止采集: 通知后端中止 + 断开SSE, 按钮变关闭
   function stopCollect() {
-    fetch("http://127.0.0.1:8000/api/collect/stop", { method: "POST" }).catch(() => {});
+    fetch(API_BASE + "/api/collect/stop", { method: "POST" }).catch(() => {});
     collectAbortRef.current?.abort();
     setCollectStopped(true);
   }
@@ -517,14 +518,14 @@ export default function Home() {
   // 打开下载数据文件夹(D:/article_data)
   async function openDownloads() {
     try {
-      const d = await (await fetch("http://127.0.0.1:8000/api/settings/open-downloads", { method: "POST" })).json();
+      const d = await (await fetch(API_BASE + "/api/settings/open-downloads", { method: "POST" })).json();
       if (!d.ok) message.error(d.error || "打开失败");
     } catch { message.error("无法连接后端"); }
   }
   // 选择存储路径(保存HTML根目录): 弹系统文件夹选择器(从当前路径打开)
   async function pickSaveDir() {
     try {
-      const d = await (await fetch("http://127.0.0.1:8000/api/settings/pick-dir?current=" + encodeURIComponent(saveDir), { method: "POST" })).json();
+      const d = await (await fetch(API_BASE + "/api/settings/pick-dir?current=" + encodeURIComponent(saveDir), { method: "POST" })).json();
       if (d.dir) setSaveDir(d.dir);
     } catch { message.error("无法连接后端"); }
   }

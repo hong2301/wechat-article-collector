@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { API_BASE } from "../lib/api";
 import {
   Modal, Table, Button, Input, Space, message, Select, InputNumber,
   Empty, Typography, Checkbox, Tooltip,
@@ -11,8 +12,8 @@ import {
 } from "@ant-design/icons";
 import { useWechatStatus } from "./useWechatStatus";
 
-const API = "http://127.0.0.1:8000/api/scrolls";
-const POINTS_API = "http://127.0.0.1:8000/api/points";
+const API = API_BASE + "/api/scrolls";
+const POINTS_API = API_BASE + "/api/points";
 
 interface Scroll {
   id: number;
@@ -134,7 +135,7 @@ export default function ScrollsDialog({
   async function autoSetRow(s: Scroll) {
     setAutoLoading(s.id);
     try {
-      const d = await (await fetch(`http://127.0.0.1:8000/api/auto-setup/scroll/${s.id}`, { method: "POST" })).json();
+      const d = await (await fetch(`${API_BASE}/api/auto-setup/scroll/${s.id}`, { method: "POST" })).json();
       if (d.ok) {
         setRows((prev) => prev.map((x) => x.id === s.id ? { ...x, distance: String(d.distance) } : x));
         message.success(`获取成功: 距离 ${d.distance} (=${d.from} y差)`);

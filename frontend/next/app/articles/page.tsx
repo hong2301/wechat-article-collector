@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
+import { API_BASE } from "../lib/api";
 import dayjs from "dayjs";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber, Spin, Switch, Select } from "antd";
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined, FolderOpenOutlined, DownloadOutlined, ReloadOutlined, FileExcelOutlined, ExclamationCircleOutlined, QuestionCircleOutlined } from "@ant-design/icons";
@@ -11,7 +12,7 @@ import { hideTaskbar, showTaskbar } from "../components/taskbar";
 import { useSettingsIssues } from "../components/useSettingsIssues";
 import { useWechatStatus } from "../components/useWechatStatus";
 
-const API = "http://127.0.0.1:8000/api/accounts";
+const API = API_BASE + "/api/accounts";
 const ART_PREFIX = "https://mp.weixin.qq.com/s/";
 
 // 合并「起~止」为一体范围输入框
@@ -248,7 +249,7 @@ export default function ArticlePage() {
     setDlKey(a.art_biz);
     const hint = message.loading("正在下载...", 0);
     try {
-      const d = await (await fetch("http://127.0.0.1:8000/api/settings/save-article-html", {
+      const d = await (await fetch(API_BASE + "/api/settings/save-article-html", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ link, account_name: name || "" }),
       })).json();
@@ -280,7 +281,7 @@ export default function ArticlePage() {
       setDlItems((p) => p.map((x, j) => j === i ? { ...x, status: "下载中" } : x));
       try {
         const link = `https://mp.weixin.qq.com/s/${a.art_biz}`;
-        const resp = await fetch("http://127.0.0.1:8000/api/settings/save-article-html", {
+        const resp = await fetch(API_BASE + "/api/settings/save-article-html", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ link, account_name: name || "" }),
           signal: dlAbortRef.current?.signal,
@@ -335,7 +336,7 @@ export default function ArticlePage() {
   }
   // 停止更新: 通知后端中止 + 断开SSE, 按钮变关闭
   function stopUpdate() {
-    fetch("http://127.0.0.1:8000/api/collect/stop", { method: "POST" }).catch(() => {});
+    fetch(API_BASE + "/api/collect/stop", { method: "POST" }).catch(() => {});
     updAbortRef.current?.abort();
     setUpdStopped(true);
   }
@@ -376,7 +377,7 @@ export default function ArticlePage() {
     (async () => {
       let finished = false;
       try {
-        const resp = await fetch("http://127.0.0.1:8000/api/collect/update", {
+        const resp = await fetch(API_BASE + "/api/collect/update", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload), signal: controller.signal,
         });
@@ -452,8 +453,8 @@ export default function ArticlePage() {
     const isAll = biz === "all";
     try {
       const url = isAll
-        ? `http://127.0.0.1:8000/api/settings/open-downloads`
-        : `http://127.0.0.1:8000/api/settings/open-downloads?sub=${encodeURIComponent(name || "")}`;
+        ? `${API_BASE}/api/settings/open-downloads`
+        : `${API_BASE}/api/settings/open-downloads?sub=${encodeURIComponent(name || "")}`;
       const d = await (await fetch(url, { method: "POST" })).json();
       if (!d.ok) message.error(d.error || "打开失败");
     } catch { message.error("无法连接后端"); }

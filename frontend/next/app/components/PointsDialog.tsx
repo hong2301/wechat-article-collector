@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { API_BASE } from "../lib/api";
 import { createPortal } from "react-dom";
 import {
   Modal, Table, Button, Input, Space, message, Progress, Checkbox, Empty, Tooltip,
@@ -12,7 +13,7 @@ import {
 import { useWechatStatus } from "./useWechatStatus";
 import { hideTaskbar, showTaskbar } from "./taskbar";
 
-const API = "http://127.0.0.1:8000/api/points";
+const API = API_BASE + "/api/points";
 
 interface Point {
   id: number;
@@ -111,7 +112,7 @@ export default function PointsDialog({
   function pickByClick() {
     setCapturing(true);
     setCapInfo({ id: edit.id, name: edit.name || "" });
-    const BASE = "http://127.0.0.1:8000/api/points";
+    const BASE = API_BASE + "/api/points";
     // 轮询: 实时把后端最近的单击坐标预览到 x/y 输入框
     const pollTimer = window.setInterval(async () => {
       try {
@@ -179,13 +180,13 @@ export default function PointsDialog({
     // 开启输入锁; 失败(采集进行中)则不执行
     let locked = true;
     try {
-      const l = await (await fetch("http://127.0.0.1:8000/api/auto-setup/lock", { method: "POST" })).json();
+      const l = await (await fetch(API_BASE + "/api/auto-setup/lock", { method: "POST" })).json();
       if (!l.ok) { message.warning(l.error || "无法开始自动设置"); locked = false; }
     } catch { /* 后端不可达, 继续尝试 */ }
     if (!locked) { showTaskbar(); if (loadingId != null) setAutoLoading(null); return; }
     const q = names.length > 0 ? `?names=${encodeURIComponent(names.join(","))}` : "";
     try {
-      const resp = await fetch(`http://127.0.0.1:8000/api/auto-setup/run-all${q}`, { method: "POST" });
+      const resp = await fetch(`${API_BASE}/api/auto-setup/run-all${q}`, { method: "POST" });
       if (!resp.ok || !resp.body) throw new Error("接口失败");
       const reader = resp.body.getReader();
       const dec = new TextDecoder();
@@ -219,7 +220,7 @@ export default function PointsDialog({
     } catch {
       message.error("自动设置失败(后端不可达)");
     } finally {
-      fetch("http://127.0.0.1:8000/api/auto-setup/unlock", { method: "POST" }).catch(() => { });   // 结束输入锁
+      fetch(API_BASE + "/api/auto-setup/unlock", { method: "POST" }).catch(() => { });   // 结束输入锁
       showTaskbar();
       setTimeout(() => { setRunProg(null); setRunCur(""); }, 1500);
       load();

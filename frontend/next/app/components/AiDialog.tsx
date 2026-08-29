@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { API_BASE } from "../lib/api";
 import {
   Modal, Button, Input, Select, Space, message, Typography, Form,
 } from "antd";
 
-const API = "http://127.0.0.1:8000/api/settings/ai";
+const API = API_BASE + "/api/settings/ai";
 
 // AI 厂商(目前只支持豆包)
 const PROVIDERS = [{ value: "doubao", label: "豆包" }];

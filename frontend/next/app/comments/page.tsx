@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
+import { API_BASE } from "../lib/api";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Tooltip, Spin, DatePicker, InputNumber, Input, Checkbox, Progress, Switch, Select } from "antd";
 import { ArrowLeftOutlined, ReloadOutlined, PlusOutlined, ImportOutlined, DeleteOutlined, SearchOutlined, ClearOutlined, FileExcelOutlined, ExclamationCircleOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
@@ -11,7 +12,7 @@ import { useWechatStatus } from "../components/useWechatStatus";
 import { useNav } from "../lib/nav";
 import dayjs from "dayjs";
 
-const API = "http://127.0.0.1:8000/api/accounts";
+const API = API_BASE + "/api/accounts";
 
 interface CommentRow {
   id: number;
@@ -224,7 +225,7 @@ export default function CommentsPage() {
   }
   // 停止评论采集: 通知后端中止(同ESC) + 断开SSE, 按钮变关闭
   function stopCc() {
-    fetch("http://127.0.0.1:8000/api/collect/stop", { method: "POST" }).catch(() => {});
+    fetch(API_BASE + "/api/collect/stop", { method: "POST" }).catch(() => {});
     ccAbortRef.current?.abort();
     setCcStopped(true);
   }
@@ -271,7 +272,7 @@ export default function CommentsPage() {
     };
     (async () => {
       try {
-        const resp = await fetch("http://127.0.0.1:8000/api/collect/comments", {
+        const resp = await fetch(API_BASE + "/api/collect/comments", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload), signal: controller.signal,
         });

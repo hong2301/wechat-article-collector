@@ -1,6 +1,5 @@
+import { API_BASE } from "../lib/api";
 // 任务栏控制: 采集弹窗显示即隐藏任务栏(整屏采集), 弹窗关闭即恢复
-const API_BASE = "http://127.0.0.1:8000";
-
 export function hideTaskbar() {
   fetch(`${API_BASE}/api/settings/taskbar`, {
     method: "POST",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { API_BASE } from "./lib/api";
 import { Tooltip } from "antd";
 import { ExclamationCircleOutlined } from "@ant-design/icons";
 import { useWechatStatus } from "./components/useWechatStatus";
@@ -38,7 +39,7 @@ export default function Header() {
   useEffect(() => {
     (async () => {
       try {
-        const d = await (await fetch("http://127.0.0.1:8000/api/settings/wechat-check")).json();
+        const d = await (await fetch(API_BASE + "/api/settings/wechat-check")).json();
         setWxc({ db: d.db || "", local: d.local || "", online: d.online || "" });
       } catch { /* 后端不可达 */ }
     })();
@@ -108,7 +109,7 @@ export default function Header() {
         </Tooltip>
         <Tooltip title={wxLogged === null ? "检测中..." : (wxOn ? "微信: 已登录" : "微信未登录或者微信窗口未唤醒")}
           open={wxLogged === false}  >
-          <span onClick={() => { if (wxLogged === false) fetch("http://127.0.0.1:8000/api/settings/launch-wechat", { method: "POST" }).catch(() => {}); }}
+          <span onClick={() => { if (wxLogged === false) fetch(API_BASE + "/api/settings/launch-wechat", { method: "POST" }).catch(() => {}); }}
             style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", border: "1px solid #d0d7de", color: wxOn ? "#07c160" : "#a6adb4", display: "flex", alignItems: "center", justifyContent: "center", cursor: wxLogged === false ? "pointer" : "default", transition: ".2s" }}>
             <WechatIcon color={wxOn ? "#07c160" : "#a6adb4"} />
           </span>

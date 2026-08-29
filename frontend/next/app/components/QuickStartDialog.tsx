@@ -2,6 +2,7 @@
 // 快速开始流程弹窗: 检查点位(缺则一键设置) -> 滚动自动获取 -> 检查公众号(无则添加测试号)
 //   -> 采集今天文章(第二行4开关全关)直到结束; 全程彩色日志 + ESC可退出
 import { useEffect, useRef, useState } from "react";
+import { API_BASE } from "../lib/api";
 import { Modal, Button } from "antd";
 import { hideTaskbar, showTaskbar } from "./taskbar";
 
@@ -62,7 +63,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
     try {
       // ---- 1 点位检查: 有缺失 -> 一键设置(锁+流式) ----
       add("[step] 检查点位设置…", "#58a6ff");
-      const pd = await (await fetch("http://127.0.0.1:8000/api/points", { signal: sig })).json();
+      const pd = await (await fetch(API_BASE + "/api/points", { signal: sig })).json();
       const pl = Array.isArray(pd) ? pd : (pd.items || []);
       const missing = pl.filter((p: any) => {
         const x = String(p.x ?? "").trim(), y = String(p.y ?? "").trim();
@@ -70,10 +71,10 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
       });
       if (missing.length > 0) {
         add(`[warn] 点位不完整(${missing.length}个), 执行一键设置(输入锁定, 请勿操作)…`, "#d29922");
-        await fetch("http://127.0.0.1:8000/api/auto-setup/lock", { method: "POST" }).catch(() => {});
-        const resp = await fetch("http://127.0.0.1:8000/api/auto-setup/run-all", { method: "POST", signal: sig });
+        await fetch(API_BASE + "/api/auto-setup/lock", { method: "POST" }).catch(() => {});
+        const resp = await fetch(API_BASE + "/api/auto-setup/run-all", { method: "POST", signal: sig });
         await readSSE(resp, (d) => { if (d.msg) emit(d.msg); });
-        await fetch("http://127.0.0.1:8000/api/auto-setup/unlock", { method: "POST" }).catch(() => {});
+        await fetch(API_BASE + "/api/auto-setup/unlock", { method: "POST" }).catch(() => {});
         add("[ok] 一键设置完成", "#3fb950");
       } else {
         add(`[ok] 点位已全部设置(${pl.length}个)`, "#3fb950");
@@ -82,14 +83,14 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
       // ---- 2 滚动设置: 按点位自动获取 ----
       add("[step] 按点位自动获取滚动距离…", "#58a6ff");
       for (const sid of [3, 5]) {
-        const d = await (await fetch(`http://127.0.0.1:8000/api/auto-setup/scroll/${sid}`, { method: "POST", signal: sig })).json();
+        const d = await (await fetch(`${API_BASE}/api/auto-setup/scroll/${sid}`, { method: "POST", signal: sig })).json();
         if (d.ok) add(`[ok] ${d.name}: 距离=${d.distance} (由${d.from} y差计算)`, "#3fb950");
         else add(`[fail] ${(d.name || `#${sid}`)}: ${d.error}`, "#f85149");
       }
 
       // ---- 3 公众号检查: 无则添加测试公众号 ----
       add("[step] 检查公众号列表…", "#58a6ff");
-      const ad = await (await fetch("http://127.0.0.1:8000/api/accounts?page=1&page_size=1", { signal: sig })).json();
+      const ad = await (await fetch(API_BASE + "/api/accounts?page=1&page_size=1", { signal: sig })).json();
       // 兼容: page=0 返回纯数组, page>=1 返回 {total,items}
       const accList = Array.isArray(ad) ? ad : (ad.items || []);
       const hasAcc = Array.isArray(ad) ? ad.length > 0 : (ad.total || 0) > 0;
@@ -99,7 +100,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
         add(`[ok] 已有公众号, 本次采集「${nme}」`, "#3fb950");
       } else {
         add(`[warn] 公众号列表为空, 添加测试公众号 MzA4OTQ5NTk2Mw==`, "#d29922");
-        const cr = await fetch("http://127.0.0.1:8000/api/accounts", {
+        const cr = await fetch(API_BASE + "/api/accounts", {
           method: "POST", signal: sig,
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: "测试公众号", biz: "MzA4OTQ5NTk2Mw==", status: "pending" }),
@@ -119,7 +120,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
         capture_4metrics: false, capture_read: false, save_html: false, save_dir: "",
         max_comments: 0, max_level1: 0, max_level2: 0,
       };
-      const cResp = await fetch("http://127.0.0.1:8000/api/collect/start", {
+      const cResp = await fetch(API_BASE + "/api/collect/start", {
         method: "POST", signal: sig,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -148,7 +149,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
         setFailed(true);
       }
     } finally {
-      fetch("http://127.0.0.1:8000/api/auto-setup/unlock", { method: "POST" }).catch(() => {});
+      fetch(API_BASE + "/api/auto-setup/unlock", { method: "POST" }).catch(() => {});
       showTaskbar();
       setRunning(false);
       window.dispatchEvent(new Event("fast-refresh-settings"));   // 结束/退出也刷新(可能部分写入)
@@ -161,8 +162,8 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
       if (ev.key === "Escape" && open && runningRef.current) {
         add("[warn] 已请求退出: 停止当前步骤…", "#d29922");
         abortRef.current?.abort();
-        fetch("http://127.0.0.1:8000/api/collect/stop", { method: "POST" }).catch(() => {});
-        fetch("http://127.0.0.1:8000/api/auto-setup/unlock", { method: "POST" }).catch(() => {});
+        fetch(API_BASE + "/api/collect/stop", { method: "POST" }).catch(() => {});
+        fetch(API_BASE + "/api/auto-setup/unlock", { method: "POST" }).catch(() => {});
         showTaskbar();
         setRunning(false);
       }
