@@ -3,6 +3,7 @@
 import json as _json
 import calendar as _cal
 import threading
+import re
 import time
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -67,6 +68,14 @@ def list_accounts(page: int = 0, page_size: int = 20, q: str = ""):
 
     return _cached(_key, _b)
 
+def _extract_biz_from_link(link):
+    """从公众号链接本地提取 biz(profile_ext?__biz=... 或直链); 无则返回空
+    避免明明能从链接提取却跑去网络请求; %3D 等 URL 编码会解码(还原 == / +)"""
+    from urllib.parse import unquote
+    m = re.search(r"__biz=([A-Za-z0-9+\/\-_%=]+)", link or "")
+    return unquote(m.group(1)) if m else ""
+
+
 def _import_stream(rows):
     """解析后的行 -> 逐条入库, 生成器逐条 yield 进度用于 SSE
     each: {"done": 处理数, "total": 总数, "name": 名称, "ok": 是否成功}"""
@@ -76,7 +85,10 @@ def _import_stream(rows):
         name = (item.get("name") or "").strip()
         biz = (item.get("biz") or "").strip()
         link = (item.get("link") or "").strip()
-        need_full = (not name or not biz) and link   # 需要补全
+        # 链接本身能提取 biz(公众号主页 __biz)就不必网络请求
+        if not biz:
+            biz = _extract_biz_from_link(link)
+        need_full = (not name or not biz) and link   # 仍有缺项才需要网络补全
         full_ok = True
         if need_full:
             r = resolve_account(link)
