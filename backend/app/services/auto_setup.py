@@ -1239,6 +1239,9 @@ def run_all_points_stream(names: str = ""):
         order = db_order
     yield f"[step] 一键设置开始: 共 {len(order)} 个点位({'全部' if not names else '指定'})"
 
+    global _flow_tid
+    import threading
+    _flow_tid = threading.get_ident()   # 记录执行线程, ESC 注入 StopFlow 整流程放弃
     ok_n = fail_n = done = 0
     total = len(order)
     stopped = False
@@ -1276,7 +1279,15 @@ def run_all_points_stream(names: str = ""):
             else:
                 fail_n += 1
                 yield f"[fail] ✗ {name}: {errtxt}"
+    except StopFlow:
+        # ESC 注入: 当前点位整流程直接放弃, 正常收尾
+        stopped = True
+        try:
+            yield "[warn] 已停止: 点位已放弃"
+        except Exception:
+            pass
     finally:
+        _flow_tid = None
         unlock()   # 兜底: 无论前端是否正常 unlock, run-all 结束即释放(幂等)
     for nmsg in drain_lock_notices():
         yield nmsg
@@ -1297,6 +1308,15 @@ _stop_requested = [False]
 _last_block_notice = [0.0]
 
 
+class StopFlow(BaseException):
+    """停止信号异常(BaseException): ESC 时注入执行线程, 点位流程任意深处直接中断,
+    无需在各探测循环埋退出点; run_all 流捕获后正常收尾"""
+    pass
+
+
+_flow_tid = None    # 当前 run-all 执行线程 id(供 ESC 注入 StopFlow)
+
+
 def _notice_block():
     """拦截人工输入提示(限流3s)"""
     import time as _t
@@ -1313,9 +1333,18 @@ def _notice_block():
 
 def _on_esc():
     _stop_requested[0] = True
+    # 向 run-all 执行线程注入 StopFlow: 无论点位流程在哪一步, 整流程直接放弃
+    tid = _flow_tid
+    if tid:
+        try:
+            import ctypes
+            ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                ctypes.c_long(tid), ctypes.py_object(StopFlow))
+        except Exception:
+            pass
     try:
         from ..services import tasks as tasks_svc
-        tasks_svc.tasks_echo("[warn] 已请求停止: 完成当前点位后停止")
+        tasks_svc.tasks_echo("[warn] 已请求停止: 当前点位将立即放弃")
     except Exception:
         pass
 
