@@ -102,18 +102,59 @@ function preflightCheck() {
       }
     } catch (e) { /* tasklist 失败则跳过进程检查 */ }
   }
-  // 2) release 读写探针: 能写能删才认为可用(防资源管理器/杀软占用)
+  // 2) release 完整试清空: 真正删除现有内容, 精确暴露被锁文件(EPERM 根因)
   fs.mkdirSync(RELEASE, { recursive: true })
-  const probe = path.join(RELEASE, '.writable-probe')
-  try {
-    fs.writeFileSync(probe, '')
-    fs.rmSync(probe, { force: true })
-    console.log('   预检通过: release 未占用')
-  } catch (e) {
-    console.error('❌ release 目录不可写, 可能被资源管理器/杀毒软件占用!')
-    console.error('   请关闭占用 release 的程序后重试')
+  const blocked = []
+  for (const entry of fs.readdirSync(RELEASE)) {
+    const p = path.join(RELEASE, entry)
+    try {
+      fs.rmSync(p, { recursive: true, force: true })
+    } catch (e) {
+      blocked.push(path.relative(ROOT, p))
+    }
+  }
+  if (blocked.length) {
+    console.error('❌ release 里以下文件/目录无法删除(被占用, 会导致打包中途失败):')
+    for (const b of blocked) console.error('    - ' + b)
+    console.error('   请关闭占用 release 的程序(测试中的采集器/资源管理器/杀软)后重试')
     process.exit(1)
   }
+  // 3) 磁盘空间: release 所在盘至少留 1GB(前端包 ~260MB + 后端 ~150MB + 余量)
+  try {
+    const drive = path.parse(RELEASE).root.replace(/\\+$/, '')
+    const out = execSync(
+      `powershell -NoProfile -Command "(Get-PSDrive -Name '${drive[0]}' ).Free"`,
+      { encoding: 'utf8', windowsHide: true })
+    const free = Number((out.match(/\d+/) || ['0'])[0])
+    if (free && free < 1024 * 1024 * 1024) {
+      console.error(`❌ ${drive} 盘剩余空间不足 1GB(当前 ${(free / 1048576).toFixed(0)}MB), 打包产物无法放下!`)
+      process.exit(1)
+    }
+    console.log(`   磁盘空间: ${(free / 1073741824).toFixed(2)}GB 可用`)
+  } catch (e) { /* 空间检查失败则跳过 */ }
+  // 4) 工具链与关键目录存在性(python/npm/node/源码/模板库)
+  const needFiles = [
+    ['backend/build_backend.py', '后端打包脚本'],
+    ['frontend/next/package.json', '前端源码'],
+    ['scripts/template_collector.db', '模板数据库'],
+    ['scripts/fix-exe-meta.js', 'exe元数据脚本'],
+  ]
+  for (const [f, desc] of needFiles) {
+    if (!fs.existsSync(path.join(ROOT, f))) {
+      console.error(`❌ 缺少 ${desc}: ${f}`)
+      process.exit(1)
+    }
+  }
+  for (const [cmd, arg] of [['python', '-c pass'], ['node', '--version']]) {
+    try { execSync(`${cmd} ${arg}`, { stdio: 'ignore', windowsHide: true }) }
+    catch (e) {
+      console.error(`❌ 命令不可用: ${cmd}, 无法打包!`)
+      process.exit(1)
+    }
+  }
+  const npmOk = (() => { try { execSync('npm --version', { stdio: 'ignore', windowsHide: true }); return true } catch { return false } })()
+  if (!npmOk) { console.error('❌ npm 不可用, 无法打包!'); process.exit(1) }
+  console.log('   预检通过: release 可清空 / 磁盘空间足 / 工具链齐全')
 }
 
 async function main() {
