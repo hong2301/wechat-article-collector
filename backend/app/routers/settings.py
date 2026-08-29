@@ -1,45 +1,20 @@
 # -*- coding: utf-8 -*-
-"""AI 模型设置路由: 读写数据库 ai_model 表(厂商+一个key+多个模型id)
-+ 系统控制: 任务栏隐藏/恢复(采集时隐藏, 全部结束恢复)"""
-from fastapi import APIRouter, Request
+"""设置/系统控制路由: AI 模型、微信版本确认、任务栏、微信启动/登录检测"""
+from fastapi import APIRouter
 from pydantic import BaseModel
 
-from ..database import get_conn, default_html_dir
+from ..database import default_html_dir
 from ..services import computer as pc
 from ..services import wechat_check as wx_check
+from ..repositories import settings_repo
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
-
-# 默认可用配置(用户未设置时前端使用)
-DEFAULT_API_KEY = "802ffe3f-4bc9-4030-a3f4-cc00409a4d4e"
-DEFAULT_MODEL = "doubao-seed-2-0-mini-260428"
 
 
 class AiSettings(BaseModel):
     provider: str = "doubao"          # 厂商
     api_key: str = ""                 # key(一个)
     models: list[str] = []            # 多个模型id
-
-
-# ---- 程序特殊变量(单值 key-value, 存 settings 表) ----
-# 微信基准版本: 程序点位/流程基于该微信版本设计; 存库, 可更新
-def _get_setting(key: str) -> str:
-    conn = get_conn()
-    try:
-        r = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
-        return r["value"] if r else ""
-    finally:
-        conn.close()
-
-
-def _set_setting(key: str, value: str) -> None:
-    conn = get_conn()
-    try:
-        conn.execute("INSERT INTO settings(key,value) VALUES(?,?)"
-                     " ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
-        conn.commit()
-    finally:
-        conn.close()
 
 
 class WechatVersion(BaseModel):
@@ -49,15 +24,15 @@ class WechatVersion(BaseModel):
 @router.get("/wechat-version")
 def get_wechat_version():
     """读微信基准版本(数据库存储值); 未设置返回空"""
-    return {"version": _get_setting("wechat_version")}
+    return {"version": settings_repo.get_setting("wechat_version")}
 
 
 @router.get("/wechat-check")
 def wechat_check_api():
     """微信版本确认: 读本地版本 + 网络试探更高版本(数据库版本为准)
     返回 {db, local, online}"""
-    db = _get_setting("wechat_version")
-    return wx_check.check(db)
+    return wx_check.check(settings_repo.get_setting("wechat_version"))
+
 
 @router.post("/wechat-version")
 def save_wechat_version(p: WechatVersion):
@@ -65,45 +40,20 @@ def save_wechat_version(p: WechatVersion):
     v = (p.version or "").strip()
     if not v:
         return {"ok": False, "error": "版本号不能为空"}
-    _set_setting("wechat_version", v)
+    settings_repo.set_setting("wechat_version", v)
     return {"ok": True, "version": v}
-
 
 
 @router.get("/ai")
 def get_ai_settings():
-    """返回 {provider, api_key, models:[...]}; 无数据则空"""
-    conn = get_conn()
-    try:
-        rows = conn.execute(
-            "SELECT provider, api_key, model_id FROM ai_model ORDER BY id").fetchall()
-    finally:
-        conn.close()
-    if not rows:
-        return {"provider": "doubao", "api_key": "", "models": []}
-    first = dict(rows[0])
-    models = [dict(r)["model_id"] for r in rows]
-    return {"provider": first["provider"], "api_key": first["api_key"],
-            "models": models}
+    return settings_repo.get_ai()
 
 
 @router.post("/ai")
 def save_ai_settings(payload: AiSettings):
     """保存: 清空旧记录, 写入 (provider, api_key, 每个model_id) 一行一条"""
-    conn = get_conn()
-    try:
-        conn.execute("DELETE FROM ai_model")
-        api_key = payload.api_key or ""
-        provider = payload.provider or "doubao"
-        models = payload.models or []
-        for m in models:
-            conn.execute(
-                "INSERT INTO ai_model(provider, api_key, model_id) VALUES(?,?,?)",
-                (provider, api_key, m))
-        conn.commit()
-        return {"ok": True, "count": len(models)}
-    finally:
-        conn.close()
+    n = settings_repo.save_ai(payload.provider, payload.api_key, payload.models)
+    return {"ok": True, "count": n}
 
 
 @router.post("/open-downloads")
@@ -193,10 +143,6 @@ def launch_wechat():
     return {"ok": False, "error": "未找到微信安装路径"}
 
 
-# 微信登录确认态: 确认过登录后只做进程监控(不再操作窗口)
-_wx_confirm = [False]          # 是否已通过窗口宽度验证登录
-_wx_last_win_check = [0.0]     # 上次窗口验证时间(未确认时降频到30s一次, 避免频繁移动窗口)
-_WX_WIN_CHECK_INTERVAL = 30.0
 
 
 def _wx_win_width_check():
@@ -224,10 +170,6 @@ def _wx_win_width_check():
     return logged
 
 
-# ---- 微信登录状态: GET 实时计算(无长连接, Ctrl+C 秒退) ----
-_wx_confirm = [False]
-_wx_last_win_check = [0.0]
-_WX_WIN_CHECK_INTERVAL = 1.0      # 未确认登录时每1秒窗口移动+量宽; 确认后纯进程检测零打扰
 
 
 def _detect_wx_status():

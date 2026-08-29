@@ -7,9 +7,9 @@ POST /api/auto-setup/scroll/{sid}   自动设置单条滚动(识别后写回 dis
 import json
 from fastapi import APIRouter, HTTPException
 
-from ..database import get_conn
 from ..services import auto_setup as as_svc
 from ..services.computer import enable_dpi_awareness
+from ..repositories import points_repo, scrolls_repo
 
 router = APIRouter(prefix="/api/auto-setup", tags=["auto-setup"])
 
@@ -26,26 +26,15 @@ def _dpi():
 def auto_setup_point(pid: int):
     _dpi()
     """执行该点位的自动识别流程, 成功则写回 x/y"""
-    conn = get_conn()
-    try:
-        row = conn.execute("SELECT id, name FROM points WHERE id=?", (pid,)).fetchone()
-    finally:
-        conn.close()
+    row = points_repo.get(pid)
     if not row:
         raise HTTPException(404, f"点位不存在 id={pid}")
     name = row["name"]
     x, y, remark, err = as_svc.run_point_flow(name)
     if x is None:
         return {"ok": False, "name": name, "error": err or "识别失败"}
-    # 点位9: 非99999(真实识别到坐标)时清除备注(待定场景99999才保留备注)
-    if x != 99999:
-        remark = ""
-    conn = get_conn()
-    try:
-        conn.execute("UPDATE points SET x=?, y=?, remark=? WHERE id=?", (x, y, remark, pid))
-        conn.commit()
-    finally:
-        conn.close()
+    # 点位9: 非99999(真实识别到坐标)时清除备注; 99999 待定保留备注(set_coords 内部处理)
+    points_repo.set_coords(pid, x, y, remark if x == 99999 else "")
     return {"ok": True, "name": name, "x": x, "y": y, "remark": remark}
 
 
@@ -54,11 +43,7 @@ def auto_setup_scroll(sid: int):
     _dpi()
     """获取滚动距离: 按滚动配置对应点位对(文章列表->15/16, 评论区->35/36)计算
     distance = |左下角.y - 左上角.y|(区域高度), 写回 scrolls"""
-    conn = get_conn()
-    try:
-        row = conn.execute("SELECT id, name FROM scrolls WHERE id=?", (sid,)).fetchone()
-    finally:
-        conn.close()
+    row = scrolls_repo.get(sid)
     if not row:
         raise HTTPException(404, f"滚动配置不存在 id={sid}")
     # 滚动配置 -> 对应范围点位对
@@ -69,24 +54,15 @@ def auto_setup_scroll(sid: int):
     if not pair:
         return {"ok": False, "name": row["name"], "error": f"未配置点位对应: {row['name']}"}
     p1, p2 = pair
-    conn = get_conn()
-    try:
-        pt1 = conn.execute("SELECT x, y FROM points WHERE id=?", (p1,)).fetchone()
-        pt2 = conn.execute("SELECT x, y FROM points WHERE id=?", (p2,)).fetchone()
-    finally:
-        conn.close()
+    pt1 = points_repo.get_xy(p1)
+    pt2 = points_repo.get_xy(p2)
     if not (pt1 and pt2):
         return {"ok": False, "name": row["name"], "error": f"缺少点位{p1}/{p2}, 无法计算"}
     y1s, y2s = str(pt1["y"] or "").strip(), str(pt2["y"] or "").strip()
     if not (y1s.isdigit() and y2s.isdigit()):
         return {"ok": False, "name": row["name"], "error": f"点位{p1}/{p2} 坐标未设置(需先一键设置校准), 无法计算滚动距离"}
     dist = int(abs(int(y2s) - int(y1s)) * 0.95)   # 区域高度(y绝对值差)再小5%
-    conn = get_conn()
-    try:
-        conn.execute("UPDATE scrolls SET distance=? WHERE id=?", (dist, sid))
-        conn.commit()
-    finally:
-        conn.close()
+    scrolls_repo.set_distance(sid, dist)
     return {"ok": True, "name": row["name"], "distance": dist, "from": f"点位{p1}/{(p2)}"}
 
 @router.post("/run-all")

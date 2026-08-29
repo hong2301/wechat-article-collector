@@ -2,78 +2,37 @@
 """点位(points) CRUD 路由"""
 import io
 import csv
-import sqlite3
 from typing import List
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
-from ..database import get_conn
 from ..models import Point, PointCreate, PointUpdate
+from ..repositories import points_repo
 
 router = APIRouter(prefix="/api/points", tags=["points"])
 
 
-def _row_to_dict(row):
-    return dict(row)
-
-
 @router.get("", response_model=list[Point])
 def list_points():
-    conn = get_conn()
-    try:
-        # 排序: 走 sort_config(type='point' 的 sort_order), 未配置的点按 id 补位末尾
-        rows = conn.execute("""
-            SELECT p.*, COALESCE(s.sort_order, 999999999) so
-            FROM points p LEFT JOIN sort_config s ON p.id = s.record_id AND s.type='point'
-            ORDER BY so ASC, p.id ASC""").fetchall()
-        return [_row_to_dict(r) for r in rows]
-    finally:
-        conn.close()
+    return points_repo.list_with_sort()
 
 
 @router.post("", response_model=Point, status_code=201)
 def create_point(payload: PointCreate):
-    conn = get_conn()
-    try:
-        cur = conn.execute(
-            "INSERT INTO points(name, x, y, remark) VALUES(?,?,?,?)",
-            (payload.name, payload.x, payload.y, payload.remark))
-        new_id = cur.lastrowid
-        conn.commit()
-        row = conn.execute("SELECT * FROM points WHERE id=?", (new_id,)).fetchone()
-        return dict(row)
-    finally:
-        conn.close()
+    return points_repo.create(payload.name, payload.x, payload.y, payload.remark)
 
 
 @router.put("/{pid}", response_model=Point)
 def update_point(pid: int, payload: PointUpdate):
-    conn = get_conn()
-    try:
-        row = conn.execute("SELECT * FROM points WHERE id=?", (pid,)).fetchone()
-        if not row:
-            raise HTTPException(404, "点位不存在")
-        fields = payload.model_dump(exclude_unset=True)
-        if fields:
-            sets = ", ".join(f"{k}=?" for k in fields)
-            conn.execute(f"UPDATE points SET {sets} WHERE id=?", (*fields.values(), pid))
-            conn.commit()
-        row = conn.execute("SELECT * FROM points WHERE id=?", (pid,)).fetchone()
-        return dict(row)
-    finally:
-        conn.close()
+    if not points_repo.get(pid):
+        raise HTTPException(404, "点位不存在")
+    return points_repo.update(pid, payload.model_dump(exclude_unset=True))
 
 
 @router.delete("/{pid}", status_code=204)
 def delete_point(pid: int):
-    conn = get_conn()
-    try:
-        cur = conn.execute("DELETE FROM points WHERE id=?", (pid,))
-        conn.commit()
-        if cur.rowcount == 0:
-            raise HTTPException(404, "点位不存在")
-    finally:
-        conn.close()
+    if not points_repo.delete(pid):
+        raise HTTPException(404, "点位不存在")
 
 
 class BatchDelete(BaseModel):
@@ -127,14 +86,7 @@ def batch_delete_points(payload: BatchDelete):
     ids = payload.ids
     if not ids:
         raise HTTPException(400, "未选择点位")
-    conn = get_conn()
-    try:
-        marks = ",".join("?" * len(ids))
-        cur = conn.execute(f"DELETE FROM points WHERE id IN ({marks})", ids)
-        conn.commit()
-        return {"ok": True, "deleted": cur.rowcount}
-    finally:
-        conn.close()
+    return {"ok": True, "deleted": points_repo.delete_many(ids)}
 
 
 # ---------- 导入（CSV/XLSX） ----------
@@ -206,37 +158,5 @@ def import_points(file: UploadFile = File(...)):
     rows = _parse_points_file(file.filename or "", raw)
     if not rows:
         raise HTTPException(400, "文件为空或无法解析")
-    added = 0
-    updated = 0
-    conn = get_conn()
-    try:
-        for d in rows:
-            name = str(d.get("name") or "").strip()
-            x = str(d.get("x") or "").strip()
-            y = str(d.get("y") or "").strip()
-            remark = str(d.get("remark") or "").strip()
-            pid = d.get("id")
-            # 优先按 id 更新/新增; id 缺失则按名称匹配
-            if pid is not None and str(pid).strip().isdigit():
-                exists = conn.execute("SELECT id FROM points WHERE id=?", (int(pid),)).fetchone()
-                if exists:
-                    conn.execute("UPDATE points SET name=?, x=?, y=?, remark=? WHERE id=?",
-                                 (name, x, y, remark, int(pid)))
-                    updated += 1
-                else:
-                    conn.execute("INSERT INTO points(name, x, y, remark) VALUES(?,?,?,?)",
-                                 (name, x, y, remark))
-                    added += 1
-            elif name:
-                exists = conn.execute("SELECT id FROM points WHERE name=?", (name,)).fetchone()
-                if exists:
-                    conn.execute("UPDATE points SET x=?, y=?, remark=? WHERE id=?", (x, y, remark, exists["id"]))
-                    updated += 1
-                else:
-                    conn.execute("INSERT INTO points(name, x, y, remark) VALUES(?,?,?,?)",
-                                 (name, x, y, remark))
-                    added += 1
-        conn.commit()
-        return {"ok": True, "added": added, "updated": updated, "total": len(rows)}
-    finally:
-        conn.close()
+    added, updated = points_repo.import_upsert(rows)
+    return {"ok": True, "added": added, "updated": updated, "total": len(rows)}
