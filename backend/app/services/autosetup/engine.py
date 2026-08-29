@@ -20,7 +20,8 @@ import threading
 示例流程函数见 _flow_demo(未接入真实点位), 各点位按此模板逐个实现。
 """
 import logging
-import time
+import time as _t
+import time as _time
 
 from ...core import computer as pc
 from ...core import ocr as ocr_service

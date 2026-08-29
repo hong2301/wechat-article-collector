@@ -2,6 +2,7 @@
 """设置/系统控制路由: AI 模型、微信版本确认、任务栏、微信启动/登录检测"""
 import os
 import subprocess
+import ctypes.wintypes as wt
 import time as _time
 import ctypes
 from fastapi import APIRouter
