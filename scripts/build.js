@@ -55,7 +55,25 @@ function rmdir(p) {
 function move(src, dst) {
   console.log(`\n>>> 移动: ${path.relative(ROOT, src)} -> ${path.relative(ROOT, dst)}`)
   rmdir(dst)
-  fs.renameSync(src, dst)
+  // Windows rename 偶发 EPERM(目录句柄未释放/杀软扫描): 自动重试 + 复制兜底
+  for (let i = 0; i < 3; i++) {
+    try {
+      fs.renameSync(src, dst)
+      return
+    } catch (e) {
+      if (i === 2) {
+        console.log(`   rename 三次失败(${e.code}), 改为复制后删源`)
+        fs.cpSync(src, dst, { recursive: true })
+        try { fs.rmSync(src, { recursive: true, force: true }) } catch (e2) {
+          console.warn('   复制完成, 但源目录删除失败(可手动清理):', path.relative(ROOT, src))
+        }
+        return
+      }
+      console.log(`   rename 第${i + 1}次失败(${e.code}), 0.5s 后重试`)
+      const sab = new SharedArrayBuffer(4)
+      Atomics.wait(new Int32Array(sab), 0, 0, 500)
+    }
+  }
 }
 // 清空 release 目录内所有条目
 function clearRelease() {
