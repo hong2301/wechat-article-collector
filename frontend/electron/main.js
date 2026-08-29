@@ -52,7 +52,8 @@ if (!gotLock) {
 }
 
 // 日志落盘: %APPDATA%/WeChatCollector/main.log (便于排查双击启动问题)
-const LOG_MAX = 5 * 1024 * 1024   // 日志超 5MB 重命名轮转
+const LOG_MAX = 10 * 1024 * 1024   // 日志单文件上限 10MB
+const LOG_TRIM_RATIO = 0.7         // 超限保留末尾 70%(删除最旧 30%)
 function logFile() {
   // 前端主进程日志 -> <数据目录>/logs/main.log(与后端 backend.log 同在 data/logs 下)
   const dir = path.join(dataDir(), 'logs')
@@ -62,8 +63,21 @@ function logFile() {
 function log(msg) {
   try {
     const f = logFile()
-    if (fs.existsSync(f) && fs.statSync(f).size > LOG_MAX) {
-      fs.renameSync(f, f + '.old')   // 轮转: main.log -> main.log.old
+    // 超上限: 删最旧 30%(保留最新 70%)再追加
+    if (fs.existsSync(f)) {
+      const st = fs.statSync(f)
+      if (st.size > LOG_MAX) {
+        const keep = Math.floor(st.size * LOG_TRIM_RATIO)
+        const fd = fs.openSync(f, 'r+')
+        try {
+          const buf = Buffer.alloc(keep)
+          fs.readSync(fd, buf, 0, keep, st.size - keep)
+          fs.truncateSync(f, 0)
+          fs.writeSync(fd, buf, 0, keep, 0)
+        } finally {
+          fs.closeSync(fd)
+        }
+      }
     }
     fs.appendFileSync(f, `[${new Date().toISOString()}] ${msg}\n`)
   } catch (e) {}

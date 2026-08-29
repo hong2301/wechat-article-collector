@@ -14,21 +14,36 @@ from .core import ocr as ocr_service
 
 
 # ===== 后端日志: 统一写入 <数据目录>/logs/backend.log (dev/packaged 均在此) =====
+LOG_MAX = 10 * 1024 * 1024        # 单文件上限 10MB
+LOG_TRIM_RATIO = 0.7              # 超限后保留末尾 70%(删除最旧 30%)
+
+
 def _setup_logging():
     logdir = os.path.join(data_dir(), "logs")
     os.makedirs(logdir, exist_ok=True)
     logfile = os.path.join(logdir, "backend.log")
 
-    # 1) logging 框架(uvicorn access/error、业务 logger 落盘)
     class _Tee:
-        """同时写终端与日志文件"""
+        """同时写终端与日志文件; 文件超上限时截断(删最旧 30%)"""
         def __init__(self, stream, fh):
             self._s = stream
             self._f = fh
+        def _trim(self):
+            self._f.flush()
+            size = os.fstat(self._f.fileno()).st_size
+            if size <= LOG_MAX:
+                return
+            keep = int(size * LOG_TRIM_RATIO)
+            self._f.seek(size - keep)
+            tail = self._f.read()
+            self._f.seek(0)
+            self._f.truncate()
+            self._f.write(tail)
+            self._f.flush()
         def write(self, data):
             self._s.write(data)
             self._f.write(data)
-            self._f.flush()
+            self._trim()
         def flush(self):
             self._s.flush()
             self._f.flush()
