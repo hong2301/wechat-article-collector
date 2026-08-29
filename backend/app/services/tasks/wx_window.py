@@ -20,9 +20,10 @@ APP_EXE = "electron.exe"           # 前端壳进程
 
 
 def init_wechat_window():
-    """微信窗口初始化: 确保 WeChatAppEx 被关闭、Weixin 存在且在左半屏。
+    """微信窗口初始化: 确保只保留微信主窗口(内存最大)、WeChatAppEx 被关闭、Weixin 在左半屏。
     自动判断窗口分离: 微信宽度/位置不合法(≠左半屏)时点击点位9(窗口分离按钮)后重跑
     步骤:
+      0) 关闭多余 Weixin 可见窗口, 只保留内存占用最大的主窗口
       1) 找 WeChatAppEx.exe 窗口, 有则直接关闭, 无则跳过
       2) 找 Weixin.exe 窗口, 无则唤出
       3) 保证已有 Weixin.exe 窗口
@@ -35,6 +36,23 @@ def init_wechat_window():
     def once():
         # 单次初始化; 返回 (成功?, 本回文本)
         _logs = []
+
+        # 0) 关闭多余可见微信窗口: 保留 标题含'微信'且内存最大 的主窗口, 其余关闭
+        wins = pc.find_windows(exe=WECHAT_MAIN, visible_only=True)
+        if len(wins) > 1:
+            def _is_main(w):
+                t = (w[1] or "").strip()
+                return t == "微信" or "微信" in t
+            mains = [w for w in wins if _is_main(w)]
+            pool = mains if mains else wins   # 无"微信"标题时退化按内存最大保留
+            scored = [(hwnd, pc.process_working_set(pid)) for hwnd, _t, pid, _v in pool]
+            keep = max(scored, key=lambda s: s[1])[0]
+            for hwnd, _t, _pid, _v in wins:
+                if hwnd != keep:
+                    pc.close_window(hwnd)
+                    _logs.append(f"已关闭多余微信窗口 #{hwnd}")
+            _logs.append(f"保留微信主窗口 #{keep}")
+
         # 1) 关闭 WeChatAppEx(仅可见窗口)
         appex = pc.find_windows(exe=WECHAT_APPEX, visible_only=True)
         for hwnd, _t, _p, _v in appex:

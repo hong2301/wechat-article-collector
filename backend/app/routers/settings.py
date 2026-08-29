@@ -147,14 +147,17 @@ def launch_wechat():
 
 
 def _wx_win_width_check():
-    """窗口宽度判定: 将可见微信窗口移到左半屏, 量宽(≥半屏90%=已登录主窗, 登录窗被微信限小)"""
+    """窗口宽度判定: 找可见的微信主窗口(进程 weixin.exe 且标题含'微信')移到左半屏,
+    量宽(≥半屏90%=已登录主窗, 登录窗被微信限小)"""
     from ..services import tasks as tasks_svc
     u32 = pc._u32()
     sw = u32.GetSystemMetrics(pc.SM_CXSCREEN)
     sh = u32.GetSystemMetrics(pc.SM_CYSCREEN)
     half = sw // 2
     logged = False
+    # 只认微信主窗口: weixin.exe 且标题含"微信"(排除设置/聊天窗等)
     wins = pc.find_windows(exe=tasks_svc.WECHAT_MAIN, visible_only=True)
+    wins = [w for w in wins if (w[1] or "").strip() == "微信" or "微信" in (w[1] or "")]
     print(f"[wxcheck] 可见微信窗口数={len(wins)} 半屏宽={half}", flush=True)
     for hwnd, _t, _p, _vis in wins:
         pc.move_window(hwnd, 0, 0, half, sh)

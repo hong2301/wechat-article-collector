@@ -836,3 +836,31 @@ __all__ = [
     # 截图
     "screenshot",
 ]
+
+def process_working_set(pid):
+    """进程工作集内存(字节), 用于找微信主窗口(内存最大者); 失败返回 0"""
+    import ctypes
+    from ctypes import wintypes as _wt
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    h = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not h:
+        return 0
+
+    class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+        _fields_ = [("cb", _wt.DWORD),
+                    ("PageFaultCount", _wt.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t)]
+    try:
+        pmc = PROCESS_MEMORY_COUNTERS()
+        pmc.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+        ok = ctypes.windll.psapi.GetProcessMemoryInfo(h, ctypes.byref(pmc), pmc.cb)
+        return pmc.WorkingSetSize if ok else 0
+    finally:
+        ctypes.windll.kernel32.CloseHandle(h)
