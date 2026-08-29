@@ -6,6 +6,7 @@ import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, To
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined, FolderOpenOutlined, DownloadOutlined, ReloadOutlined, FileExcelOutlined, ExclamationCircleOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import PaginationBar, { calcPageSize } from "../components/PaginationBar";
+import { useNav } from "../lib/nav";
 import { hideTaskbar, showTaskbar } from "../components/taskbar";
 import { useSettingsIssues } from "../components/useSettingsIssues";
 import { useWechatStatus } from "../components/useWechatStatus";
@@ -49,13 +50,14 @@ interface Article {
 }
 
 export default function ArticlePage() {
+  const Nav = useNav();
   const [biz, setBiz] = useState("");
   const [name, setName] = useState("");
   const [articles, setArticles] = useState<Article[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
-  const [sortInfo, setSortInfo] = useState<{ key: string; order: "ascend" | "descend" }>({ key: "acc_name", order: "ascend" });
+  const [sortInfo, setSortInfo] = useState<{ key: string; order: "ascend" | "descend" }>({ key: "date", order: "descend" });
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
   const [quickActive, setQuickActive] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(true);
@@ -607,7 +609,7 @@ export default function ArticlePage() {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden", gap: 10, background: "#f5f6f8" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 0 8px" }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => { window.location.href = "index.html" }}>返回</Button>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => Nav("/")}>返回</Button>
         <Typography.Title level={5} style={{ margin: 0 }}>「{name || "..."}」的文章列表</Typography.Title>
       </div>
       {/* 更新设置卡片(开关行 + 评论采集设置行) */}
@@ -783,7 +785,7 @@ export default function ArticlePage() {
                     {r.comment_count ?? 0}/{v || 0}
                   </span>
                   <Button size="small" type="link" icon={<MessageOutlined />}
-                    onClick={() => { window.location.href = `comments.html?art_biz=${encodeURIComponent(r.art_biz || "")}&biz=${encodeURIComponent(biz)}&name=${encodeURIComponent(name || "")}&title=${encodeURIComponent(r.title || "")}` }}>查看</Button>
+                    onClick={() => Nav(`/comments?art_biz=${encodeURIComponent(r.art_biz || "")}&biz=${encodeURIComponent(biz)}&name=${encodeURIComponent(name || "")}&title=${encodeURIComponent(r.title || "")}`)}>查看</Button>
                 </Space>
               ),
             },

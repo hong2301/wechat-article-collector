@@ -8,6 +8,7 @@ import PaginationBar, { calcPageSize } from "../components/PaginationBar";
 import { hideTaskbar, showTaskbar } from "../components/taskbar";
 import { useSettingsIssues } from "../components/useSettingsIssues";
 import { useWechatStatus } from "../components/useWechatStatus";
+import { useNav } from "../lib/nav";
 import dayjs from "dayjs";
 
 const API = "http://127.0.0.1:8000/api/accounts";
@@ -48,6 +49,7 @@ function NumRange({ value, onChange }: {
 }
 
 export default function CommentsPage() {
+  const Nav = useNav();
   const [artBiz, setArtBiz] = useState("");
   const [biz, setBiz] = useState("");
   const [title, setTitle] = useState("");
@@ -368,7 +370,7 @@ export default function CommentsPage() {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 0 8px" }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => { window.location.href = `articles.html?biz=${encodeURIComponent(biz)}&name=${encodeURIComponent(name)}` }}>返回</Button>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => Nav(`/articles?biz=${encodeURIComponent(biz)}&name=${encodeURIComponent(name)}`)}>返回</Button>
         <Typography.Title level={5} style={{ margin: 0 }}>「{title || "..."}」的评论列表</Typography.Title>
       </div>
       {/* 评论采集设置卡片 */}

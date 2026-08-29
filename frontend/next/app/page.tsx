@@ -6,6 +6,7 @@ import { HTML5Backend } from "react-dnd-html5-backend";
 import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, message, Modal, Spin, Progress, Empty, Switch, InputNumber } from "antd";
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
+import { useNav } from "./lib/nav";
 import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined, SwapOutlined, RobotOutlined, FolderOpenOutlined, FileExcelOutlined, UnorderedListOutlined, ExclamationCircleOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import PointsDialog from "./components/PointsDialog";
@@ -112,6 +113,7 @@ function CollectCalendar({ daily, monthKey, onMonthChange }: {
 }
 
 export default function Home() {
+  const Nav = useNav();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -807,7 +809,7 @@ export default function Home() {
                   render: (_: unknown, row: Task) => (
                     <Space>
                       <span>{row.collected_count ?? 0}</span>
-                      <Button size="small" type="link" icon={<ProfileOutlined />} onClick={() => { window.location.href = `articles.html?biz=${encodeURIComponent(row.biz || "")}&name=${encodeURIComponent(row.name || "")}` }}>查看</Button>
+                      <Button size="small" type="link" icon={<ProfileOutlined />} onClick={() => Nav(`/articles?biz=${encodeURIComponent(row.biz || "")}&name=${encodeURIComponent(row.name || "")}`)}>查看</Button>
                     </Space>
                   ),
                 },
@@ -837,7 +839,7 @@ export default function Home() {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 10, flexShrink: 0 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <Button size="small" color="primary" variant="outlined" icon={<UnorderedListOutlined />} onClick={() => { window.location.href = `articles.html?biz=all&name=${encodeURIComponent("全部文章")}` }}>查看全部文章</Button>
+            <Button size="small" color="primary" variant="outlined" icon={<UnorderedListOutlined />} onClick={() => Nav(`/articles?biz=all&name=${encodeURIComponent("全部文章")}`)}>查看全部文章</Button>
             <Button size="small" icon={<FolderOpenOutlined />} onClick={openDownloads}>打开下载数据</Button>
             <Button size="small" icon={<FileExcelOutlined />} onClick={exportExcel}>导出表格</Button>
           </div>
