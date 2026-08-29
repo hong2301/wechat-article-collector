@@ -91,7 +91,11 @@ def _import_stream(rows):
         need_full = (not name or not biz) and link   # 仍有缺项才需要网络补全
         full_ok = True
         if need_full:
+            import time as _t
+            _t0 = _t.time()
+            print(f"[import] 缺项(name={name!r} biz={biz!r}) 请求网络补全: {link[:60]}", flush=True)
             r = resolve_account(link)
+            print(f"[import] 补全耗时 {_t.time() - _t0:.1f}s -> {r}", flush=True)
             if r:
                 if not name and r.get("name"):
                     name = r["name"]

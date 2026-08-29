@@ -54,7 +54,8 @@ if (!gotLock) {
 // 日志落盘: %APPDATA%/WeChatCollector/main.log (便于排查双击启动问题)
 const LOG_MAX = 5 * 1024 * 1024   // 日志超 5MB 重命名轮转
 function logFile() {
-  const dir = app.getPath('userData')
+  // 前端主进程日志 -> <数据目录>/logs/main.log(与后端 backend.log 同在 data/logs 下)
+  const dir = path.join(dataDir(), 'logs')
   try { fs.mkdirSync(dir, { recursive: true }) } catch (e) {}
   return path.join(dir, 'main.log')
 }
@@ -70,6 +71,8 @@ function log(msg) {
 
 // 生产模式: 数据目录 = exe 同级 data/ (与 release 目录布局一致)
 function dataDir() {
+  // 生产: exe 同级 data/; dev: 项目根 data/(与后端开发库一致)
+  if (isDev) return path.join(__dirname, '..', '..', 'data')
   return path.join(path.dirname(app.getPath('exe')), 'data')
 }
 

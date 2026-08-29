@@ -8,9 +8,9 @@ import re
 _BASE_DIR = None
 
 # 列别名(有表头时)
-NAME_KEYS = {"公众号名称", "公众号", "名称", "name", "账号", "公众号名", "公众号昵称"}
+NAME_KEYS = {"公众号名称", "公众号", "名称", "name", "账号", "公众号名", "公众号昵称", "title"}
 BIZ_KEYS = {"biz", "biz代码", "biz_code", "biz code", "代码", "公众号id", "bizid", "公众号biz", "公众号ID"}
-LINK_KEYS = {"链接", "文章链接", "url", "link", "文章url", "地址", "文章地址", "文章链接url"}
+LINK_KEYS = {"链接", "公众号链接", "文章链接", "url", "link", "文章url", "地址", "文章地址", "文章链接url"}
 
 BIZ_RE = re.compile(r"^m[A-Za-z0-9+/=_-]{5,}={1,2}$", re.I)   # m开头, 1/2个=结尾
 LINK_RE = re.compile(r"mp\.weixin\.qq\.com|^https?://")
@@ -101,20 +101,21 @@ def _extract(rows):
 
 
 def _match_header(head):
-    """有表头: 按别名匹配三列; 全部匹配到才返回"""
+    """有表头: 按别名匹配三列; 识别到至少一列即按表头走(缺 name 也允许, 交给后续补全)"""
     mapping = {}
-    found = set()
     norm = [str(h).strip().lower() for h in head]
+    name_set = {k.lower() for k in NAME_KEYS}
+    biz_set = {k.lower() for k in BIZ_KEYS}
+    link_set = {k.lower() for k in LINK_KEYS}
     for i, h in enumerate(norm):
-        if h in {k.lower() for k in NAME_KEYS}:
+        if h in name_set:
             mapping[i] = "name"
-        elif h in {k.lower() for k in BIZ_KEYS}:
+        elif h in biz_set:
             mapping[i] = "biz"
-        elif h in {k.lower() for k in LINK_KEYS}:
+        elif h in link_set:
             mapping[i] = "link"
-    if "name" in mapping.values() and ("biz" in mapping.values() or "link" in mapping.values()):
-        return mapping
-    return None
+    # 至少要识别到一列; 同角色多列(如 url+公众号链接)后出现者覆盖, 优先取 __biz 链接列
+    return mapping if mapping else None
 
 
 def _match_by_feature(rows):
