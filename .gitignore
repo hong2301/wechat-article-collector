@@ -64,3 +64,8 @@ backend/_wx_state_*.json
 test_empty_points.db
 auto_setup_dbg.log
 backend_dev.log
+
+# E2E 测试产物
+test-results/
+playwright-report/
+e2e/.baseline
