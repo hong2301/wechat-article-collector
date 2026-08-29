@@ -33,7 +33,7 @@ function setupAutoUpdater(win) {
 }
 
 const isDev = !app.isPackaged
-const BACKEND_PORT = 8000
+const BACKEND_PORT = 8001   // 生产后端端口(与开发 8000 区分); 环境变量 BACKEND_PORT 可覆盖
 let backendProc = null
 let mainWindow = null
 

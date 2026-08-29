@@ -54,5 +54,5 @@ if __name__ == "__main__":
     parent = os.environ.get("WECHAT_PARENT_PID")
     if parent and parent.isdigit():
         start_watchdog(int(parent))
-    port = int(os.environ.get("BACKEND_PORT", "8000"))
+    port = int(os.environ.get("BACKEND_PORT", "8001"))   # 生产端口与开发(8000)区分
     uvicorn.run(app, host="127.0.0.1", port=port, reload=False)
