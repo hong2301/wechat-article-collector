@@ -365,10 +365,10 @@ export default function PointsDialog({
   ];
 
   return (
-    <Modal
+    <Modal mask={{ closable: false }}
       title="点位设置" open={open}
       onCancel={onClose}
-      footer={<Button onClick={onClose} mask={{ closable: false }}>关闭</Button>}
+      footer={<Button onClick={onClose}>关闭</Button>}
       width={860}
       style={{ maxHeight: "80vh" }}
     >
@@ -426,10 +426,10 @@ export default function PointsDialog({
       </div>
 
       {/* 新增/修改弹窗 */}
-      <Modal
+      <Modal mask={{ closable: false }}
         title={edit.isNew ? "新增点位" : "修改点位"} open={edit.open}
         onOk={saveEdit} okText="保存" confirmLoading={saving}
-        onCancel={() = mask={{ closable: false }}> setEdit({ open: false, isNew: false, id: null, name: "", x: "", y: "", remark: "" })}
+        onCancel={() => setEdit({ open: false, isNew: false, id: null, name: "", x: "", y: "", remark: "" })}
         cancelText="取消"
       >
         <Space vertical style={{ width: "100%" }}>

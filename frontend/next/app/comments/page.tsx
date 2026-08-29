@@ -517,7 +517,7 @@ export default function CommentsPage() {
         </div>
       </div>
       {/* 导入进度弹窗 */}
-      <Modal title="正在导入" open={importing} footer={null} closable={false} width={400} mask={{ closable: false }}>
+      <Modal mask={{ closable: false }} title="正在导入" open={importing} footer={null} closable={false} width={400}>
         <div style={{ textAlign: "center", padding: "8px 0" }}>
           <Typography.Title level={5} style={{ marginTop: 0 }}>导入进度</Typography.Title>
           <Spin size="large" />
@@ -527,10 +527,10 @@ export default function CommentsPage() {
       </Modal>
 
       {/* 评论采集弹窗: 确认阶段 -> 采集进行中 */}
-      <Modal
+      <Modal mask={{ closable: false }}
         open={ccOpen}
         title={ccStarted ? `正在采集「${title || artBiz}」评论` : "确认评论采集设置"}
-        onCancel={() = mask={{ closable: false }}> { if (ccStarted) { stopCc(); return; } closeCc(); }}
+        onCancel={() => { if (ccStarted) { stopCc(); return; } closeCc(); }}
         footer={ccStarted ? (
           ccStopped ? (
             <Button type="primary" onClick={closeCc}>关闭</Button>

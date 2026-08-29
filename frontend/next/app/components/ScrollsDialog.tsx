@@ -301,8 +301,8 @@ export default function ScrollsDialog({
   ];
 
   return (
-    <Modal title="滚动设置" open={open} onCancel={onClose}
-      footer={<Button onClick={onClose} mask={{ closable: false }}>关闭</Button>} width={900}
+    <Modal mask={{ closable: false }} title="滚动设置" open={open} onCancel={onClose}
+      footer={<Button onClick={onClose}>关闭</Button>} width={900}
       style={{ maxHeight: "80vh" }}>
       <div
         onDragOver={(e) => { e.preventDefault(); if (Array.from(e.dataTransfer.types || []).includes("Files")) setDragOver(true); }}
@@ -337,9 +337,9 @@ export default function ScrollsDialog({
       </div>
 
       {/* 新增/修改弹窗 */}
-      <Modal title={edit.isNew ? "新增滚动" : "修改滚动"} open={edit.open}
+      <Modal mask={{ closable: false }} title={edit.isNew ? "新增滚动" : "修改滚动"} open={edit.open}
         onOk={saveEdit} okText="保存" confirmLoading={saving}
-        onCancel={() = mask={{ closable: false }}> setEdit({ open: false, isNew: false, id: null, name: "",
+        onCancel={() => setEdit({ open: false, isNew: false, id: null, name: "",
           distance: null, point_id: null, direction: "down", remark: "" })}
         cancelText="取消">
         <Space vertical style={{ width: "100%" }}>
