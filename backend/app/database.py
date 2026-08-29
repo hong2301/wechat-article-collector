@@ -85,7 +85,8 @@ def init_db():
             name          TEXT DEFAULT '',
             x             TEXT DEFAULT '',
             y             TEXT DEFAULT '',
-            remark        TEXT DEFAULT ''
+            remark        TEXT DEFAULT '',
+            depend_points TEXT DEFAULT '[]'
         );
         CREATE TABLE IF NOT EXISTS scrolls (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,6 +141,12 @@ def init_db():
         if _ccols and "is_first" not in _ccols:
             conn.execute("ALTER TABLE comments ADD COLUMN is_first INTEGER DEFAULT 0")
             conn.commit()
+        # 迁移: points 补 depend_points 列(依赖点位数组, 前端不展示)
+        _pcols = [r[1] for r in conn.execute("PRAGMA table_info(points)").fetchall()]
+        if _pcols and "depend_points" not in _pcols:
+            conn.execute("ALTER TABLE points ADD COLUMN depend_points TEXT DEFAULT '[]'")
+            conn.commit()
+            print("migrate: points.depend_points")
         # 迁移: sort_config 加 type 列(account/point 共用排序表, 唯一(type, sort_order))
         _scols = [r[1] for r in conn.execute("PRAGMA table_info(sort_config)").fetchall()]
         if _scols and "type" not in _scols:

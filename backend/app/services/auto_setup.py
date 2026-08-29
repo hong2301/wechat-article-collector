@@ -101,6 +101,7 @@ def flow_point(name):
 # ---------------------------------------------------------------------------
 @flow_point("微信左上角搜索网络")
 def _flow_point12_search_network(ctx):
+    # 依赖点位(与库 depend_points 同步): [11]
     import ctypes
     import time as _time
     from PIL import Image, ImageGrab
@@ -349,6 +350,7 @@ def _p9_probe(ctx, weixin_hwnd):
 
 @flow_point("微信窗口初始化不合法时窗口分离按钮")
 def _flow_point9_split_button(ctx):
+    # 依赖点位(与库 depend_points 同步): [11, 12]
     import time as _time
     from ..services import tasks as tasks_svc
     from ..services import computer as _pc
@@ -383,6 +385,7 @@ def _flow_point9_split_button(ctx):
 # ---------------------------------------------------------------------------
 @flow_point("点击微信左上角搜索输入框")
 def _flow_point11_search_box(ctx):
+    # 依赖点位(与库 depend_points 同步): []
     import ctypes
     from PIL import Image, ImageGrab
     from ..services import tasks as tasks_svc
@@ -429,6 +432,7 @@ def _flow_point11_search_box(ctx):
 # ---------------------------------------------------------------------------
 @flow_point("搜一搜窗口查询按钮")
 def _flow_point14_query_button(ctx):
+    # 依赖点位(与库 depend_points 同步): [11, 12, 9]
     import ctypes
     import time as _time
     from PIL import Image, ImageGrab
@@ -509,7 +513,8 @@ def _flow_articles_list_full(ctx, self_name, rx1, ry1, rx2, ry2):
 
 
 def _flow_articles_list_find(ctx):
-    """15/16 共同识别: 找到文章列表矩形并写入两个点位; 返回 (rx1,ry1,rx2,ry2) 或 None"""
+    """15/16 共同识别: 找到文章列表矩形并写入两个点位; 返回 (rx1,ry1,rx2,ry2) 或 None
+    依赖点位(与库 depend_points 同步): [11, 12, 9, 14]"""
     import ctypes
     import time as _time
     from PIL import ImageGrab
@@ -591,7 +596,8 @@ POINT_FLOWS["文章列表右下角"] = _articles_list_entry("文章列表右下�
 
 
 # ---------------------------------------------------------------------------
-# 点位 18: 文章右上角3点 (依赖前面全部 11/12/9/14/15/16)
+# 点位 18: 文章右上角3点
+# 依赖点位(与库 depend_points 同步): [11, 12, 9, 14]
 # 流程: 初始化(微信/采集器/搜一搜) -> 从搜一搜窗口最右边向左探测:
 #   原点 x=搜一搜窗口最右边, y=搜一搜按钮(点位14)的y
 #   步长 = (搜一搜按钮.x - 搜一搜窗口左边) / 30, 每轮减半
@@ -766,7 +772,8 @@ ARTICLE_LINK_DEMO = "https://mp.weixin.qq.com/s/X7fAdvvZ-Gq_2SW19OKfVw"
 
 
 def _flow_article_bar_find(ctx):
-    import ctypes
+    """30/31 共同识别: 找文章底栏(4指标区域)写入两个点位
+    依赖点位(与库 depend_points 同步): [11, 12, 9, 14]"""
     import time as _time
     from PIL import ImageGrab
     from ..services import tasks as tasks_svc
@@ -845,6 +852,8 @@ POINT_FLOWS["4指标区域右下"] = _article_bar_entry("4指标区域右下")
 # 点位 21/22: 阅读数左/右下 (同一自动设置, 依赖点位19已设值, 纯计算不操作窗口)
 # ---------------------------------------------------------------------------
 def _calc_reads_box(self_name):
+    """32/33 纯计算: 阅读数区域(依赖4指标区域左上)
+    依赖点位(与库 depend_points 同步): [30]"""
     def fn(ctx):
         import ctypes
         from ..services import computer as _pc2
@@ -887,7 +896,8 @@ POINT_FLOWS["阅读数右下"] = _calc_reads_box("阅读数右下")
 #   -> 对比变化区域外接矩形 = 复制链接菜单区: 28=左上, 29=右下 双写
 # ---------------------------------------------------------------------------
 def _flow_copy_link_find(ctx):
-    """纯计算: 28/29 = 左半屏右上部分, 无需任何窗口操作"""
+    """纯计算: 28/29 = 左半屏右上部分, 无需任何窗口操作
+    依赖点位(与库 depend_points 同步): []"""
     from ..services import computer as _pcc
     u32_ = _pcc._u32()
     sw_ = u32_.GetSystemMetrics(_pcc.SM_CXSCREEN)
@@ -932,6 +942,7 @@ ARTICLE_LINK_DEMO_27 = ARTICLE_LINK_DEMO
 
 @flow_point("点击复制链接")
 def _flow_point27_copy(ctx):
+    # 依赖点位(与库 depend_points 同步): [11, 12, 9, 14, 18, 28, 29]
     import time as _time
     from PIL import Image, ImageGrab
     from ..services import tasks as tasks_svc
@@ -1004,6 +1015,7 @@ def _diff_red(img1, img2):
 
 @flow_point("评论按钮")
 def _flow_point34_comment(ctx):
+    # 依赖点位(与库 depend_points 同步): [11, 12, 9, 14, 30, 31]
     import time as _time
     from PIL import Image, ImageGrab
     import numpy as np
@@ -1096,7 +1108,8 @@ def _flow_point34_comment(ctx):
 #   -> 对比变化区域外接矩形 = 评论区: 35=左上, 36=右下 双写
 # ---------------------------------------------------------------------------
 def _flow_comment_area_find(ctx):
-    import ctypes
+    """35/36 共同识别: 点34打开评论区后识别评论区矩形
+    依赖点位(与库 depend_points 同步): [11, 12, 9, 14, 30, 31, 34]"""
     import time as _time
     from PIL import Image, ImageGrab
     import numpy as np
