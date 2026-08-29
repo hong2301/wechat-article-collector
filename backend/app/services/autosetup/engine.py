@@ -17,9 +17,9 @@
 import logging
 import time
 
-from ..core import computer as pc
-from ..core import ocr as ocr_service
-from ..database import get_conn as _get_conn
+from ...core import computer as pc
+from ...core import ocr as ocr_service
+from ...database import get_conn as _get_conn
 
 log = logging.getLogger("auto_setup")
 
@@ -52,7 +52,7 @@ class FlowContext:
 
     def ocr(self, b64):
         """本地 OCR 初筛: 返回 [(text, x, y, w, h), ...]"""
-        from ..core import ocr as _ocr
+        from ...core import ocr as _ocr
         return _ocr.ocr(b64) if _ocr.get_ocr_engine() else []
 
     def ocr_box(self, pil_img):
@@ -62,8 +62,8 @@ class FlowContext:
     def locate(self, shot_b64, desc, box=None):
         """豆包视觉: 在截图中定位目标 -> (x, y) 相对截图 或 (None, None)
         需要 ai_model 表已配置 key(未配置返回 None, 流程回退人工)"""
-        from ..services.doubao_api import doubao_locate
-        from ..database import get_conn
+        from ...services.doubao_api import doubao_locate
+        from ...database import get_conn
         conn = get_conn()
         try:
             row = conn.execute("SELECT api_key, model_id FROM ai_model LIMIT 1").fetchone()
@@ -105,7 +105,7 @@ def _flow_point12_search_network(ctx):
     import ctypes
     import time as _time
     from PIL import Image, ImageGrab
-    from ..services import tasks as tasks_svc
+    from ...services import tasks as tasks_svc
 
     # 1) 微信窗口就位(左半屏): 优先采集初始化, 失败则手动摆正
     if not _ensure_wechat():
@@ -177,8 +177,8 @@ def _init_wechat_no_p9():
     import time as _time
     from ctypes import wintypes as _wt
 
-    from ..services import tasks as tasks_svc
-    from ..core import computer as pc
+    from ...services import tasks as tasks_svc
+    from ...core import computer as pc
 
     logs = []
     # 1) 关闭 WeChatAppEx(仅可见窗口)
@@ -219,8 +219,8 @@ def _search_window_init_no_p9():
     import time as _time
     from ctypes import wintypes as _wt
 
-    from ..services import tasks as tasks_svc
-    from ..core import computer as pc
+    from ...services import tasks as tasks_svc
+    from ...core import computer as pc
 
     logs = []
     # 0) 前置判定: 微信左半屏 + 采集器右半屏
@@ -312,8 +312,8 @@ def _search_window_init_no_p9():
 def _p9_probe(ctx, weixin_hwnd):
     """横向探测: 从微信主窗口最右边、y=点位11的y 向左点击; 点击后主窗口变窄即命中"""
     import ctypes
-    from ..services import tasks as tasks_svc
-    from ..core import computer as _pc
+    from ...services import tasks as tasks_svc
+    from ...core import computer as _pc
 
     p11 = tasks_svc._read_point(11)
     if not p11:
@@ -352,8 +352,8 @@ def _p9_probe(ctx, weixin_hwnd):
 def _flow_point9_split_button(ctx):
     # 依赖点位(与库 depend_points 同步): [11, 12]
     import time as _time
-    from ..services import tasks as tasks_svc
-    from ..core import computer as _pc
+    from ...services import tasks as tasks_svc
+    from ...core import computer as _pc
 
     # 1) 微信窗口初始化(无点位9点击, 防止点到库中脏坐标)
     ok_wx, _t = _init_wechat_no_p9()
@@ -388,7 +388,7 @@ def _flow_point11_search_box(ctx):
     # 依赖点位(与库 depend_points 同步): []
     import ctypes
     from PIL import Image, ImageGrab
-    from ..services import tasks as tasks_svc
+    from ...services import tasks as tasks_svc
 
     # 微信窗口就位(左半屏): 优先采集初始化, 失败则手动摆正
     if not _ensure_wechat():
@@ -437,8 +437,8 @@ def _flow_point14_query_button(ctx):
     import time as _time
     from PIL import Image, ImageGrab
     import numpy as np
-    from ..services import tasks as tasks_svc
-    from ..core import computer as _pc
+    from ...services import tasks as tasks_svc
+    from ...core import computer as _pc
 
     for round_idx in range(3):
         if not _ensure_wechat():
@@ -519,8 +519,8 @@ def _flow_articles_list_find(ctx):
     import time as _time
     from PIL import ImageGrab
     import numpy as np
-    from ..services import tasks as tasks_svc
-    from ..core import computer as _pc
+    from ...services import tasks as tasks_svc
+    from ...core import computer as _pc
 
     # 完整调用: 微信窗口初始化 + 搜一搜窗口初始化
     ok_wx, txt_wx = tasks_svc.init_wechat_window()
@@ -611,8 +611,8 @@ def _flow_point18_three_dots(ctx):
     import time as _time
     import numpy as np
     from PIL import ImageGrab
-    from ..services import tasks as tasks_svc
-    from ..core import computer as _pc
+    from ...services import tasks as tasks_svc
+    from ...core import computer as _pc
 
     # 完整调用: 微信窗口初始化 + 采集器 + 搜一搜窗口初始化
     ok_wx, txt_wx = tasks_svc.init_wechat_window()
@@ -727,8 +727,8 @@ def run_point_flow(name: str, attach: bool = True):
 
 def _attach_wechat():
     """前置微信窗口到前台(自动设置需要操作屏幕)"""
-    from ..core import computer as _pc
-    from ..services import tasks as _tasks
+    from ...core import computer as _pc
+    from ...services import tasks as _tasks
     hwnd = _pc.find_windows(exe=_tasks.WECHAT_MAIN, visible_only=True)
     if not hwnd:
         log.warning("未找到微信窗口, 请先打开微信")
@@ -743,8 +743,8 @@ def _attach_wechat():
 def _ensure_wechat():
     """微信窗口就位(左半屏标准布局): 优先走采集的 init_wechat_window,
     失败(窗口位置/宽度不合法)则手动移动摆正, 保证后续截图/点击坐标可靠"""
-    from ..services import tasks as _tasks
-    from ..core import computer as _pc
+    from ...services import tasks as _tasks
+    from ...core import computer as _pc
     ok, _txt = _tasks.init_wechat_window()
     if ok:
         return True
@@ -776,8 +776,8 @@ def _flow_article_bar_find(ctx):
     依赖点位(与库 depend_points 同步): [11, 12, 9, 14]"""
     import time as _time
     from PIL import ImageGrab
-    from ..services import tasks as tasks_svc
-    from ..core import computer as _pc
+    from ...services import tasks as tasks_svc
+    from ...core import computer as _pc
 
     # 完整调用: 微信窗口初始化 + 搜一搜窗口初始化
     ok_wx, txt_wx = tasks_svc.init_wechat_window()
@@ -856,7 +856,7 @@ def _calc_reads_box(self_name):
     依赖点位(与库 depend_points 同步): [30]"""
     def fn(ctx):
         import ctypes
-        from ..core import computer as _pc2
+        from ...core import computer as _pc2
         conn = _get_conn()
         try:
             p19 = conn.execute(
@@ -898,7 +898,7 @@ POINT_FLOWS["阅读数右下"] = _calc_reads_box("阅读数右下")
 def _flow_copy_link_find(ctx):
     """纯计算: 28/29 = 左半屏右上部分, 无需任何窗口操作
     依赖点位(与库 depend_points 同步): []"""
-    from ..core import computer as _pcc
+    from ...core import computer as _pcc
     u32_ = _pcc._u32()
     sw_ = u32_.GetSystemMetrics(_pcc.SM_CXSCREEN)
     sh_ = u32_.GetSystemMetrics(_pcc.SM_CYSCREEN)
@@ -945,8 +945,8 @@ def _flow_point27_copy(ctx):
     # 依赖点位(与库 depend_points 同步): [11, 12, 9, 14, 18, 28, 29]
     import time as _time
     from PIL import Image, ImageGrab
-    from ..services import tasks as tasks_svc
-    from ..core import computer as _pc
+    from ...services import tasks as tasks_svc
+    from ...core import computer as _pc
 
     ok_wx, txt_wx = tasks_svc.init_wechat_window()
     if not ok_wx:
@@ -1019,8 +1019,8 @@ def _flow_point34_comment(ctx):
     import time as _time
     from PIL import Image, ImageGrab
     import numpy as np
-    from ..services import tasks as tasks_svc
-    from ..core import computer as _pc
+    from ...services import tasks as tasks_svc
+    from ...core import computer as _pc
 
     ok_wx, txt_wx = tasks_svc.init_wechat_window()
     if not ok_wx:
@@ -1113,8 +1113,8 @@ def _flow_comment_area_find(ctx):
     import time as _time
     from PIL import Image, ImageGrab
     import numpy as np
-    from ..services import tasks as tasks_svc
-    from ..core import computer as _pc
+    from ...services import tasks as tasks_svc
+    from ...core import computer as _pc
 
     ok_ap, txt_ap = tasks_svc.init_app_window()
     if not ok_ap:
@@ -1214,7 +1214,7 @@ POINT_FLOWS["评论区右下"] = _comment_area_entry("评论区右下")
 def _point_order_from_db():
     """点位执行顺序: 基于 sort_config(type='point') 数据库排序, 未配置的点按 id 补位末尾
     (与 /api/points 列表排序一致, 前端拖拽调整后一键设置同步生效)"""
-    from ..database import get_conn as _gc
+    from ...database import get_conn as _gc
     conn = _gc()
     try:
         rows = conn.execute("""
@@ -1325,7 +1325,7 @@ def _notice_block():
         return
     _last_block_notice[0] = now
     try:
-        from ..services import tasks as tasks_svc
+        from ...services import tasks as tasks_svc
         tasks_svc.tasks_echo("[warn] 自动设置期间禁用鼠标和键盘，请勿操作! 按 ESC 可停止")
     except Exception:
         pass
@@ -1343,7 +1343,7 @@ def _on_esc():
         except Exception:
             pass
     try:
-        from ..services import tasks as tasks_svc
+        from ...services import tasks as tasks_svc
         tasks_svc.tasks_echo("[warn] 已请求停止: 当前点位将立即放弃")
     except Exception:
         pass
@@ -1372,12 +1372,12 @@ def lock():
     互斥: 采集进行中则拒绝开启"""
     global _input_lock
     try:
-        from ..routers import collect as collect_mod
+        from ...routers import collect as collect_mod
         if collect_mod._task_running_count() > 0:
             return False
     except Exception:
         pass
-    from ..core.inputlock import InputLock
+    from ...core.inputlock import InputLock
     if _input_lock is None:
         _input_lock = InputLock()
         _input_lock.on_esc = _on_esc
