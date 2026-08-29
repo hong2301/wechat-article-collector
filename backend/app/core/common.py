@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """backend.app.services.common: tasks 主函数共用的辅助工具
+import io, base64
+import io, base64
 
 包含: 点位读取 / 页面稳定检测 / 阅读数识别 / 阅读数写库 / 采集统一退出
 只依赖 computer / ocr / database, 不依赖 tasks 主函数。
@@ -135,7 +137,6 @@ def merge_comment_shots(top_b64, bot_b64):
     top=上方图, bot=下方图(滚动后); 找重叠行k后拼 top + bot[k:]
     返回 PIL Image 或 None"""
     try:
-        import io, base64
         from PIL import Image
         def _img(b):
             sb = b.split(",", 1)[1] if "," in b else b
@@ -179,7 +180,6 @@ def clean_comment_text(text):
 
 def calc_comment_id(name, loc, t, likes, text, level):
     """计算评论ID: 清洗后 作者|正文|时间 -> md5 前16位(点赞变化不影响, 防重复)"""
-    import hashlib
     raw = f"{clean_comment_text(name)}|{clean_comment_text(text)}|{t}"
     return hashlib.md5(raw.encode("utf-8")).hexdigest()[:16]
 

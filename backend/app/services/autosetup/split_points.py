@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """点位自动设置: 分离/查询类点位 9(窗口分离按钮) 14(搜一搜查询按钮)
+import ctypes
+import time as _time
 横向探测类: 初始化(不点点位9) + 横向点击找目标"""
 from ...database import get_conn as _get_conn
 from .engine import POINT_FLOWS, flow_point, log   # noqa: F401
@@ -16,9 +18,6 @@ from .engine import POINT_FLOWS, flow_point, log   # noqa: F401
 def _init_wechat_no_p9():
     """点位9专用: 微信窗口初始化(不点击点位9)
     复制自 tasks.init_wechat_window, 删除了'宽度/位置不合法时点击点位9后重跑'分支"""
-    import ctypes
-    import time as _time
-    from ctypes import wintypes as _wt
 
     from ...services import tasks as tasks_svc
     from ...core import computer as pc
@@ -58,9 +57,6 @@ def _init_wechat_no_p9():
 def _search_window_init_no_p9():
     """点位9专用: 搜一搜窗口初始化(不点击点位9)
     复制自 tasks.search_window_init, 删除了 2b 步'点击点位9(分离按钮)' 代码块"""
-    import ctypes
-    import time as _time
-    from ctypes import wintypes as _wt
 
     from ...services import tasks as tasks_svc
     from ...core import computer as pc
@@ -154,7 +150,6 @@ def _search_window_init_no_p9():
 
 def _p9_probe(ctx, weixin_hwnd):
     """横向探测: 从微信主窗口最右边、y=点位11的y 向左点击; 点击后主窗口变窄即命中"""
-    import ctypes
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
 
@@ -194,7 +189,6 @@ def _p9_probe(ctx, weixin_hwnd):
 @flow_point("微信窗口初始化不合法时窗口分离按钮")
 def _flow_point9_split_button(ctx):
     # 依赖点位(与库 depend_points 同步): [11, 12]
-    import time as _time
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
 

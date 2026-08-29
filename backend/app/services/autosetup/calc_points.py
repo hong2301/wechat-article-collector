@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """点位自动设置: 纯计算类点位 28/29(复制链接区域) 32/33(阅读数区域)
+import ctypes
 不操作窗口, 依赖对应点位坐标直接计算"""
 from ...database import get_conn as _get_conn
 from .engine import POINT_FLOWS, log   # noqa: F401  (POINT_FLOWS 用于注册)
@@ -12,7 +13,6 @@ def _calc_reads_box(self_name):
     """32/33 纯计算: 阅读数区域(依赖4指标区域左上)
     依赖点位(与库 depend_points 同步): [30]"""
     def fn(ctx):
-        import ctypes
         from ...core import computer as _pc2
         conn = _get_conn()
         try:

@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
 """backend.app.services.computer: 电脑交互原语模块
+import base64
+import io
+import os
+import tempfile
+from PIL import Image, ImageGrab
 
 把 main.py / core.win32util / core.image_ocr 中分散的"电脑交互"方法统一整理，
 封装为可复用的模块，供采集流程（以及未来新增流程）多次调用。
@@ -446,7 +451,6 @@ def capture_point():
     返回: (x, y) 确认坐标, 或 None(右键退出/失败)。
     注意: 阻塞当前线程直到用户双击或右键。
     """
-    import queue as _queue
     u32 = _u32()
     q = _queue.Queue()
     hook_ready = threading.Event()
@@ -776,10 +780,6 @@ def screenshot(x1, y1, x2, y2, img_format="png", as_base64=False):
       base64 形如 'data:image/png;base64,xxxx'；
       截图或转码失败时路径为 None
     """
-    import io
-    import os
-    import tempfile
-    from PIL import Image, ImageGrab
     try:
         # 截图前隐藏鼠标(可靠: 光标从屏幕消失, 避免入镜), 完成后恢复
         try:
@@ -811,7 +811,6 @@ def screenshot(x1, y1, x2, y2, img_format="png", as_base64=False):
         # 读取图片并转带前缀的 base64
         with open(path, "rb") as f:
             raw = f.read()
-        import base64
         b64 = "data:image/%s;base64,%s" % (fmt, base64.b64encode(raw).decode("ascii"))
         return path, b64
     except Exception:

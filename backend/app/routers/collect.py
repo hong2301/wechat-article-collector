@@ -44,7 +44,6 @@ _last_block_notice = [0.0]
 
 def _do_stop():
     """停止采集: 信号兜底 + 向 worker 线程注入异常立即中断"""
-    import ctypes
     tasks_service.request_stop()
     tid = _worker_tid.get("tid")
     if tid:
@@ -54,7 +53,6 @@ def _do_stop():
 
 def _notice_input_block():
     """拦截到人工输入: 提示(限流3秒一次)"""
-    import time as _t
     now = _t.monotonic()
     if now - _last_block_notice[0] < 3.0:
         return
@@ -457,7 +455,6 @@ def _comment_generate(payload: CommentStart):
 @router.post("/stop")
 def collect_stop():
     """前端关闭采集窗口时调用: 强制中断采集线程(立即停止, 集中在此实现)"""
-    import ctypes
     _do_stop()          # 复用统一停止(信号+注入异常)
     return {"ok": True}
 

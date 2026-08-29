@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 """点位自动设置: 基础 OCR 点位 11(搜索框) 12(搜索网络)"""
+import ctypes
+import time as _time
+from PIL import Image, ImageGrab
+import numpy as np
 from .engine import POINT_FLOWS, flow_point, log, _ensure_wechat   # noqa: F401
 
 
@@ -11,9 +15,6 @@ from .engine import _ensure_wechat  # noqa: F401
 @flow_point("微信左上角搜索网络")
 def _flow_point12_search_network(ctx):
     # 依赖点位(与库 depend_points 同步): [11]
-    import ctypes
-    import time as _time
-    from PIL import Image, ImageGrab
     from ...services import tasks as tasks_svc
 
     # 1) 微信窗口就位(左半屏): 优先采集初始化, 失败则手动摆正
@@ -77,8 +78,6 @@ def _flow_point12_search_network(ctx):
 @flow_point("点击微信左上角搜索输入框")
 def _flow_point11_search_box(ctx):
     # 依赖点位(与库 depend_points 同步): []
-    import ctypes
-    from PIL import Image, ImageGrab
     from ...services import tasks as tasks_svc
 
     # 微信窗口就位(左半屏): 优先采集初始化, 失败则手动摆正
@@ -124,10 +123,6 @@ def _flow_point11_search_box(ctx):
 @flow_point("搜一搜窗口查询按钮")
 def _flow_point14_query_button(ctx):
     # 依赖点位(与库 depend_points 同步): [11, 12, 9]
-    import ctypes
-    import time as _time
-    from PIL import Image, ImageGrab
-    import numpy as np
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
 

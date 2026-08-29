@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """表格导入解析: 识别 名称/biz/链接 三列, 支持别名和无表头特征识别"""
+from collections import Counter
 import csv
 import io
 import re
@@ -134,7 +135,6 @@ def _match_by_feature(rows):
         cnt = col_scores[i]
         if cnt:
             # 该列多数情况是什么
-            from collections import Counter
             role = Counter(cnt).most_common(1)[0][0]
             # 名称列: name 出现最多且不是biz/link
             mapping[i] = role

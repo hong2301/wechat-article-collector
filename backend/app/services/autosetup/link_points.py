@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 """点位自动设置: 列表/链接类点位 15/16(文章列表) 18(右上角3点) 27(点击复制链接)"""
+import ctypes
+import time as _time
+from PIL import ImageGrab
+import numpy as np
 from ...database import get_conn as _get_conn
 from .engine import POINT_FLOWS, flow_point, log   # noqa: F401
 
@@ -25,10 +29,6 @@ def _flow_articles_list_full(ctx, self_name, rx1, ry1, rx2, ry2):
 def _flow_articles_list_find(ctx):
     """15/16 共同识别: 找到文章列表矩形并写入两个点位; 返回 (rx1,ry1,rx2,ry2) 或 None
     依赖点位(与库 depend_points 同步): [11, 12, 9, 14]"""
-    import ctypes
-    import time as _time
-    from PIL import ImageGrab
-    import numpy as np
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
 

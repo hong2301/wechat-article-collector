@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """公众号(accounts) CRUD 路由"""
+import json as _json
+import calendar as _cal
 import threading
 import time
 from fastapi import APIRouter, HTTPException
@@ -102,7 +104,6 @@ def _import_stream(rows):
 
 def _import_sse(rows):
     """SSE 生成器: 逐条 yield 导入进度"""
-    import json as _json
     total = len(rows)
     yield 'event: start' + chr(10) + 'data: ' + _json.dumps({'total': total}) + chr(10) + chr(10)
     for evt in _import_stream(rows):
@@ -344,7 +345,6 @@ def create_article(payload: ArticleCreate):
 
 def _article_import_sse(rows, default_biz):
     """逐行全字段入库, SSE 流式进度"""
-    import json as _json
     total = len(rows)
     yield 'event: start' + chr(10) + 'data: ' + _json.dumps({'total': total}) + chr(10) + chr(10)
     done = 0
@@ -395,7 +395,6 @@ def import_articles(biz: str = "", file: UploadFile = File(...)):
 
 def _comment_import_sse(rows, art_biz):
     """逐行入库评论, SSE 进度"""
-    import json as _json
     total = len(rows)
     yield 'event: start' + chr(10) + 'data: ' + _json.dumps({'total': total}) + chr(10) + chr(10)
     done = 0
@@ -450,7 +449,6 @@ def delete_comments(ids: str = "", art_biz: str = ""):
 @router.get("/calendar/{aid}")
 def account_calendar(aid: int, year: int = None, month: int = None):
     """单个公众号的采集日历; 指定年/月返回该月每日数量, 否则返回全部daily"""
-    import calendar as _cal
     from ..services.stats import get_account_collect
     r = accounts_repo.get(aid)
     if not r:

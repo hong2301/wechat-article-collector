@@ -1,5 +1,10 @@
 # -*- coding: utf-8 -*-
 """自动识别流程(auto_setup): 人工预设流程 + OCR + AI 视觉识别 -> 自动设置点位坐标/滚动距离
+import ctypes
+import numpy as np
+from PIL import ImageGrab
+import ctypes
+import threading
 
 设计: 每个点位/每条滚动配置 匹配一个流程函数(代码模板式)
   POINT_FLOWS[点位名称] = fn(ctx) -> (x, y)      识别成功后由路由写回 points 表
@@ -100,9 +105,6 @@ def flow_point(name):
 # ---------------------------------------------------------------------------
 @flow_point("文章右上角3点")
 def _flow_point18_three_dots(ctx):
-    import time as _time
-    import numpy as np
-    from PIL import ImageGrab
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
 
@@ -126,7 +128,6 @@ def _flow_point18_three_dots(ctx):
     if not appex:
         log.warning("点位18 未找到可见搜一搜窗口")
         return None, None
-    import ctypes
     r_ap = ctypes.wintypes.RECT()
     _pc._u32().GetWindowRect(appex[0][0], ctypes.byref(r_ap))
     x_left = r_ap.left                      # 搜一搜窗口左边
@@ -240,7 +241,6 @@ def _ensure_wechat():
     ok, _txt = _tasks.init_wechat_window()
     if ok:
         return True
-    import ctypes
     hwnd = _pc.find_windows(exe=_tasks.WECHAT_MAIN, visible_only=True)
     if not hwnd:
         return False
@@ -291,7 +291,6 @@ def run_all_points_stream(names: str = ""):
     yield f"[step] 一键设置开始: 共 {len(order)} 个点位({'全部' if not names else '指定'})"
 
     global _flow_tid
-    import threading
     _flow_tid = threading.get_ident()   # 记录执行线程, ESC 注入 StopFlow 整流程放弃
     ok_n = fail_n = done = 0
     total = len(order)
@@ -370,7 +369,6 @@ _flow_tid = None    # 当前 run-all 执行线程 id(供 ESC 注入 StopFlow)
 
 def _notice_block():
     """拦截人工输入提示(限流3s)"""
-    import time as _t
     now = _t.monotonic()
     if now - _last_block_notice[0] < 3.0:
         return
@@ -388,7 +386,6 @@ def _on_esc():
     tid = _flow_tid
     if tid:
         try:
-            import ctypes
             ctypes.pythonapi.PyThreadState_SetAsyncExc(
                 ctypes.c_long(tid), ctypes.py_object(StopFlow))
         except Exception:
@@ -405,7 +402,6 @@ _lock_notices = []      # 拦截提示队列(lock 产生, run-all 流消费)
 
 def _notice_block_push():
     """拦截提示 -> 写入队列(供一键设置流读取)"""
-    import time as _t
     now = _t.monotonic()
     if now - _last_block_notice[0] < 3.0:
         return
@@ -471,8 +467,6 @@ ARTICLE_LINK_DEMO_27 = "https://mp.weixin.qq.com/s/X7fAdvvZ-Gq_2SW19OKfVw"  # �
 @flow_point("点击复制链接")
 def _flow_point27_copy(ctx):
     # 依赖点位(与库 depend_points 同步): [11, 12, 9, 14, 18, 28, 29]
-    import time as _time
-    from PIL import Image, ImageGrab
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
 

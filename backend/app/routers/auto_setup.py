@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """自动识别流程路由: 触发点位/滚动自动设置(执行对应流程函数, 识别成功写回数据库)
+import os as _os
 
 POST /api/auto-setup/point/{pid}    自动设置单个点位(识别后写回 x/y)
 POST /api/auto-setup/scroll/{sid}   自动设置单条滚动(识别后写回 distance)
@@ -71,7 +72,6 @@ def auto_setup_run_all(names: str = ""):
     """一键设置: 按依赖顺序执行全部点位(names为空)或仅指定点位(逗号分隔, 单点位自动设置用), SSE流式逐点位提示"""
     from fastapi.responses import StreamingResponse
 
-    import os as _os
     _dbg = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "..", "..", "auto_setup_dbg.log")
     try:
         if _os.path.exists(_dbg):

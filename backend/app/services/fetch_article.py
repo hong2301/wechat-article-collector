@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """文章元信息抓取: 输入微信文章链接, 提取 标题/发布时间/是否原创/IP属地/公众号名
+import hashlib
+import os
 来自旧程序 core/utils.py 的 fetch_article, 新后端独立版本(不依赖老目录)。
 
 核心:
@@ -121,7 +123,6 @@ def clean_filename(name):
 def localize_article_images(html_path, timeout=20):
     """把微信文章HTML里的图片下载到本地并改写src, 实现离线可看
     图片存入 html 同目录下的 images/ 文件夹; 返回处理成功的图片数"""
-    import os
     if not os.path.isfile(html_path):
         return 0
     try:
@@ -136,7 +137,6 @@ def localize_article_images(html_path, timeout=20):
         headers = {"User-Agent": "Mozilla/5.0",
                    "Referer": "https://mp.weixin.qq.com/"}
         n = 0
-        import hashlib
         for u in imgs:
             try:
                 r = requests.get(u, headers=headers, timeout=timeout)
@@ -179,7 +179,6 @@ def save_article_html(link, account_name="", base_dir=None):
       base_dir     根目录(默认 <数据目录>/article_data)
     返回: (保存路径 或 None, 说明文本)
     """
-    import os
     base_dir = base_dir or default_html_dir()
     try:
         data = fetch_article_full(link)

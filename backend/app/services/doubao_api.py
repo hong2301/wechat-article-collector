@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """backend.app.services.doubao_api: 豆包识图(4指标识别)
+import json as _json
 
 识别文章底部互动栏截图: 点赞/转发/喜欢/留言
 依赖: requests
@@ -142,7 +143,6 @@ def doubao_extract_comments(shot_b64s, api_key, timeout=30):
         m = re.search(r"\[.*\]", text, re.S)
         if not m:
             return []
-        import json as _json
         result = _json.loads(m.group(0))
         if not isinstance(result, list):
             return []

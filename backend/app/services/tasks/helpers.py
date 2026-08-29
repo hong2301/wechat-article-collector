@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 """任务子包: 后台线程池 + 调试截图辅助"""
+import os, shutil, time as _t
+import os, shutil, time as _t
+import os, base64, time as _t
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
@@ -24,7 +27,6 @@ def _submit_bg(fn, *args, **kwargs):
 def _save_debug_shot(shot_path, folder, tag):
     """调试: 复制截图文件到桌面文件夹(如 豆包/), 带时间戳防覆盖"""
     try:
-        import os, shutil, time as _t
         dst_dir = os.path.join(os.path.expanduser("~/Desktop"), folder)
         os.makedirs(dst_dir, exist_ok=True)
         name = f"{_t.strftime('%H%M%S')}_{tag.replace('#','_')}.png"
@@ -37,7 +39,6 @@ def _save_debug_shot(shot_path, folder, tag):
 def _save_debug_shot_b64(shot_b64, folder, tag):
     """调试: 把base64截图写入桌面文件夹(如 豆包/), 带时间戳防覆盖"""
     try:
-        import os, base64, time as _t
         dst_dir = os.path.join(os.path.expanduser("~/Desktop"), folder)
         os.makedirs(dst_dir, exist_ok=True)
         name = f"{_t.strftime('%H%M%S')}_{tag.replace('#','_')}.png"
@@ -59,7 +60,6 @@ def _done_bg(f):
 def wait_bg_done(timeout=120):
     """等待本次所有后台异步任务完成(自动停止时调用, 确保写表/保存Html/4指标/阅读数OCR收尾)
     主动停止不调用; 只等已提交的 future, executor 保持可复用(不 shutdown)"""
-    from concurrent.futures import wait
     with _bg_futures_lock:
         fs = list(_bg_futures)
     if fs:

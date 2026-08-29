@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 """设置/系统控制路由: AI 模型、微信版本确认、任务栏、微信启动/登录检测"""
+import os
+import subprocess
+import time as _time
+import ctypes
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -60,7 +64,6 @@ def save_ai_settings(payload: AiSettings):
 def open_downloads(sub: str = ""):
     """打开文章下载文件夹(默认 <数据目录>/article_data), sub给定公众号名则打开对应子文件夹
     不存在则创建"""
-    import os
     d = default_html_dir()
     if sub:
         d = os.path.join(d, sub)
@@ -75,7 +78,6 @@ def open_downloads(sub: str = ""):
 @router.post("/pick-dir")
 def pick_dir(current: str = ""):
     """弹系统文件夹选择器(initialdir=当前保存路径), 返回选中的目录; 取消返回空"""
-    import os
     import tkinter as tk
     from tkinter import filedialog
     if not current or not os.path.isdir(current):
@@ -125,8 +127,6 @@ def taskbar_control(p: TaskbarAction):
 @router.post("/launch-wechat")
 def launch_wechat():
     """未登录时点击微信图标: 启动微信程序(登录窗口)"""
-    import os
-    import subprocess
     candidates = [
         r"D:\Weixin\Weixin.exe",
         r"C:\Program Files\Tencent\WeChat\Weixin.exe",
@@ -147,9 +147,6 @@ def launch_wechat():
 
 def _wx_win_width_check():
     """窗口宽度判定: 将可见微信窗口移到左半屏, 量宽(≥半屏90%=已登录主窗, 登录窗被微信限小)"""
-    import time as _time
-    import ctypes
-    import ctypes.wintypes as wt
     from ..services import tasks as tasks_svc
     u32 = pc._u32()
     sw = u32.GetSystemMetrics(pc.SM_CXSCREEN)
@@ -173,7 +170,6 @@ def _wx_win_width_check():
 
 
 def _detect_wx_status():
-    import time as _time
     from ..services import tasks as tasks_svc
     main = pc._pids_by_exe([tasks_svc.WECHAT_MAIN])
     if not main:

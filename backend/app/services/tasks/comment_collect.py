@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 """任务子包: 评论采集(展开回复/豆包AI识别/主采集循环)"""
+import io as _io, base64
+import io as _io, base64
+import re as _re
+from PIL import Image as _PIL
 import ctypes
 import threading
 import time
@@ -24,7 +28,6 @@ def _expand_reply_buttons(x1, y1, x2, y2, max_rounds=3):
     """展开评论区更多回复: while循环(最多max_rounds次)
     每轮: 截图35/36找'更多回复/N条回复'灰字按钮 -> 点第一个 -> 35/36稳定检测(30次/连续10次)
     找不到按钮或超过轮数 -> 退出返回 True(有兜底, 最终必返True)"""
-    from PIL import Image as _PIL
     for rnd in range(1, max_rounds + 1):
         shot, _b = pc.screenshot(x1, y1, x2, y2, img_format="png")
         if not shot:
@@ -61,8 +64,6 @@ def _expand_reply_buttons(x1, y1, x2, y2, max_rounds=3):
 
 def _bg_ai_comments(shot_b64s, art_biz, max_level1, max_level2, shot_x=None):
     """后台合成任务: 豆包识别评论(多图base64拼接) + OCR识别层级 -> 写评论表(异步)"""
-    from concurrent.futures import ThreadPoolExecutor
-    from PIL import Image as _PIL
     from ...database import get_conn
     tag = f"评论#{art_biz[:10]}"
     try:
@@ -89,7 +90,6 @@ def _bg_ai_comments(shot_b64s, art_biz, max_level1, max_level2, shot_x=None):
         else:
             merged_img = None
         if merged_img is not None:
-            import io as _io, base64
             _buf = _io.BytesIO(); merged_img.save(_buf, format="PNG")
             shot_b64s = [_buf.getvalue()]
             _buf2 = _io.BytesIO(); merged_img.save(_buf2, format="WEBP", lossless=True, method=6)
@@ -100,8 +100,6 @@ def _bg_ai_comments(shot_b64s, art_biz, max_level1, max_level2, shot_x=None):
 
         def _ocr_levels():
             try:
-                import io as _io, base64
-                import re as _re
                 name_rows = []
                 _sb = shot_b64s[0].split(",", 1)[1] if "," in shot_b64s[0] else shot_b64s[0]
                 img = _PIL.open(_io.BytesIO(base64.b64decode(_sb))).convert("RGB")

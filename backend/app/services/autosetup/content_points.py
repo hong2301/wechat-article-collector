@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
 """点位自动设置: 文章内容区点位 30/31(4指标) 34(评论按钮) 35/36(评论区)
+import time as _time
+from PIL import ImageGrab
+import numpy as np
 依赖前置点位搜索出文章后 OCR/截图识别"""
 from ...database import get_conn as _get_conn
 from .engine import POINT_FLOWS, flow_point, log   # noqa: F401  (POINT_FLOWS 注册 / flow_point 装饰器)
@@ -11,8 +14,6 @@ ARTICLE_LINK_DEMO = "https://mp.weixin.qq.com/s/X7fAdvvZ-Gq_2SW19OKfVw"
 def _flow_article_bar_find(ctx):
     """30/31 共同识别: 找文章底栏(4指标区域)写入两个点位
     依赖点位(与库 depend_points 同步): [11, 12, 9, 14]"""
-    import time as _time
-    from PIL import ImageGrab
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
 
@@ -98,7 +99,6 @@ POINT_FLOWS["4指标区域右下"] = _article_bar_entry("4指标区域右下")
 # ---------------------------------------------------------------------------
 def _diff_red(img1, img2):
     """[30,31]区域变化率 + 变化区域是否含红色"""
-    import numpy as np
     d = np.abs(img2.astype(int) - img1.astype(int)).sum(axis=2)
     changed = (d > 15).mean()
     if changed <= 0.001:
@@ -113,9 +113,6 @@ def _diff_red(img1, img2):
 @flow_point("评论按钮")
 def _flow_point34_comment(ctx):
     # 依赖点位(与库 depend_points 同步): [11, 12, 9, 14, 30, 31]
-    import time as _time
-    from PIL import Image, ImageGrab
-    import numpy as np
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
 
@@ -207,9 +204,6 @@ def _flow_point34_comment(ctx):
 def _flow_comment_area_find(ctx):
     """35/36 共同识别: 点34打开评论区后识别评论区矩形
     依赖点位(与库 depend_points 同步): [11, 12, 9, 14, 30, 31, 34]"""
-    import time as _time
-    from PIL import Image, ImageGrab
-    import numpy as np
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
 
