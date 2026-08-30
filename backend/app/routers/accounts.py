@@ -9,6 +9,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from ..models import Account, AccountCreate, AccountUpdate
 from fastapi import UploadFile, File, Form
+from typing import List
+from pydantic import BaseModel
 from ..services.importer import parse_file, extract_art_biz
 from ..services.resolve import resolve_account
 from ..repositories import accounts_repo
@@ -165,6 +167,17 @@ def create_account(payload: AccountCreate):
         raise HTTPException(400, "biz 代码已存在，不能重复添加")
 
 
+class SortPayload(BaseModel):
+    ids: List[int]
+
+
+@router.put("/sort")
+def sort_accounts(payload: SortPayload):
+    """按拖拽后的 id 顺序重写 sort_config, 持久化排序"""
+    accounts_repo.set_sort(payload.ids)
+    return {"ok": True, "count": len(payload.ids)}
+
+
 @router.put("/{aid}", response_model=Account)
 def update_account(aid: int, payload: AccountUpdate):
     if not accounts_repo.get(aid):
@@ -180,10 +193,6 @@ def update_account(aid: int, payload: AccountUpdate):
 
 from typing import List
 from pydantic import BaseModel
-
-class SortPayload(BaseModel):
-    ids: List[int]
-
 
 _ORDER_WHITELIST = {
     "date": "date", "title": "title", "read": "CAST(reads AS REAL)",
@@ -525,13 +534,6 @@ def delete_article(aid: int, artid: int):
     """删除某公众号下的一篇文章"""
     if not accounts_repo.article_delete_by_account(artid, aid):
         raise HTTPException(404, "文章不存在")
-
-
-@router.put("/sort")
-def sort_accounts(payload: SortPayload):
-    """按拖拽后的 id 顺序重写 sort_config, 持久化排序"""
-    accounts_repo.set_sort(payload.ids)
-    return {"ok": True, "count": len(payload.ids)}
 
 
 @router.delete("/clear", status_code=200)

@@ -44,7 +44,6 @@ def test_search_q(client):
     assert isinstance(d, list) and any(x["name"] == GZH["name"] for x in d)
 
 
-@pytest.mark.xfail(reason="已知bug: PUT /api/accounts/sort 被 /{aid} 路由抢占返回422, 需后端调整路由顺序", strict=False)
 def test_sort(client):
     d = client.get("/api/accounts?page=0").json()
     ids = [x["id"] for x in d]
