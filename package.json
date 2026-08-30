@@ -10,7 +10,8 @@
     "build": "node scripts/build.js",
     "build:clean": "node scripts/build.js --clean",
     "release": "node scripts/release-it-wrapper.js",
-    "test": "playwright test"
+    "test": "playwright test",
+    "test:api": "python -m pytest tests -q"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

@@ -69,3 +69,4 @@ backend_dev.log
 test-results/
 playwright-report/
 e2e/.baseline
+.tmp-tests/
