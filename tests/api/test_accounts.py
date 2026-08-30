@@ -47,10 +47,17 @@ def test_search_q(client):
 def test_sort(client):
     d = client.get("/api/accounts?page=0").json()
     ids = [x["id"] for x in d]
-    r = client.put("/api/accounts/sort", json={"ids": list(reversed(ids))})
+    # 按传入顺序写排序 -> 列表顺序应与 payload 一致(并支持反转)
+    r = client.put("/api/accounts/sort", json={"ids": ids})
     assert r.status_code == 200 and r.json()["count"] == len(ids)
     after = [x["id"] for x in client.get("/api/accounts?page=0").json()]
-    assert after == list(reversed(ids))
+    assert after == ids
+    r2 = client.put("/api/accounts/sort", json={"ids": list(reversed(ids))})
+    assert r2.status_code == 200
+    import time as _t
+    _t.sleep(0.7)   # 列表接口 400ms 去重缓存, 等失效再读
+    after2 = [x["id"] for x in client.get("/api/accounts?page=0").json()]
+    assert after2 == list(reversed(ids))
 
 
 def test_import_csv_with_biz_link(client):
