@@ -120,23 +120,6 @@ def _flow_point18_three_dots(ctx):
     except Exception:
         _dbg = None
 
-    def _flash_rect(box, ms=200):
-        """在屏幕 box=(x1,y1,x2,y2) 位置闪半透明红框 ms 毫秒(视觉提示探测区域)"""
-        try:
-            import tkinter
-            tk = tkinter.Tk()
-            tk.overrideredirect(True)
-            tk.attributes("-topmost", True)
-            tk.wm_geometry(f"{box[2]-box[0]}x{box[3]-box[1]}+{box[0]}+{box[1]}")
-            cv = tkinter.Canvas(tk, highlightthickness=0, bd=0)
-            cv.pack(fill="both", expand=True)
-            cv.create_rectangle(0, 0, box[2]-box[0], box[3]-box[1], outline="red", width=4)
-            tk.attributes("-alpha", 0.25)
-            tk.after(ms, tk.destroy)
-            tk.mainloop()
-        except Exception:
-            pass
-
     def attempt():
         """一次完整探测(初始化窗口+几何+横向扫描) -> (x,y) 命中; None 需完全重来"""
         snap_no = [0]
@@ -173,8 +156,10 @@ def _flow_point18_three_dots(ctx):
 
         def snap():
             # 截图范围: 宽=左半屏中线(sw/4) 到 屏幕中线(sw/2); 高=搜一搜按钮y×2
-            _im = ImageGrab.grab(bbox=(half_w // 2, 0, half_w, base_y * 2)).convert("RGB")
-            _flash_rect((half_w // 2, 0, half_w, base_y * 2))
+            _box = (half_w // 2, 0, half_w, base_y * 2)
+            _p, _ = pc.screenshot(*_box)          # pc.screenshot 内含红框闪烁(0.2s)
+            _im = (Image.open(_p).convert("RGB") if _p
+                   else ImageGrab.grab(bbox=_box).convert("RGB"))
             snap_no[0] += 1
             if _dbg is not None:
                 try:

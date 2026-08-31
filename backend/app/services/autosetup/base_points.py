@@ -4,7 +4,7 @@ from ...core import ocr as ocr_service
 from ...core import computer as pc
 import ctypes
 import time as _time
-from PIL import Image, ImageGrab
+from PIL import Image
 import numpy as np
 from .engine import POINT_FLOWS, flow_point, log, _ensure_wechat   # noqa: F401
 
@@ -38,7 +38,7 @@ def _flow_point12_search_network(ctx):
     sw = ctypes.windll.user32.GetSystemMetrics(0)
     sh = ctypes.windll.user32.GetSystemMetrics(1)
     for attempt in range(3):
-        img = ImageGrab.grab(bbox=(0, 0, sw // 4, sh // 4)).convert("RGB")
+        img = Image.open(pc.screenshot(0, 0, sw // 4, sh // 4)[0]).convert("RGB")
         for cx, cy, text, score, sbox, _bright in ctx.ocr_box(img):
             if "网络结果" not in text:
                 continue
@@ -83,7 +83,7 @@ def _flow_point11_search_box(ctx):
     sw = ctypes.windll.user32.GetSystemMetrics(0)
     sh = ctypes.windll.user32.GetSystemMetrics(1)
     x1, y1, x2, y2 = 0, 0, sw // 4, sh // 4      # 屏幕左上 1/16(微信左半屏的左上角)
-    img = ImageGrab.grab(bbox=(x1, y1, x2, y2)).convert("RGB")
+    img = Image.open(pc.screenshot(x1, y1, x2, y2)[0]).convert("RGB")
 
     items = ctx.ocr_box(img)                       # [(cx,cy,text,score,sbox,brightness)]
     for cx, cy, text, score, sbox, _bright in items:
@@ -134,7 +134,7 @@ def _flow_point14_query_button(ctx):
         sh = u32.GetSystemMetrics(_pc.SM_CYSCREEN)
         x2 = sw // 2
         y_top = max(80, sh * 2 // 10)          # 最上 2/10(1/10 太窄OCR不出/不稳)
-        img0 = ImageGrab.grab(bbox=(0, 0, x2, sh)).convert("RGB")
+        img0 = Image.open(pc.screenshot(0, 0, x2, sh)[0]).convert("RGB")
         hit = None
         for cx, cy, text, score, sbox, _br in ctx.ocr_box(img0):
             if "搜一搜" in text and cy <= y_top:
@@ -155,9 +155,9 @@ def _flow_point14_query_button(ctx):
             cx = start_x - i * step
             if cx <= sx:
                 break
-            before = np.array(ImageGrab.grab(bbox=(0, 0, x2, sh)).convert("RGB"))
+            before = np.array(Image.open(pc.screenshot(0, 0, x2, sh)[0]).convert("RGB"))
             ctx.click(cx, sy, wait_after=0.7)
-            after = np.array(ImageGrab.grab(bbox=(0, 0, x2, sh)).convert("RGB"))
+            after = np.array(Image.open(pc.screenshot(0, 0, x2, sh)[0]).convert("RGB"))
             # 搜一搜窗口被关闭 => 步长太大过了查询按钮, 整轮重来
             if not _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
                 log.warning(f"点位14 第{round_idx+1}轮 ({cx},{sy}) 搜一搜被关闭, 步长过大重试")
