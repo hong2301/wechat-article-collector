@@ -10,7 +10,7 @@ from ...database import get_conn as _get_conn
 from .engine import POINT_FLOWS, flow_point, log   # noqa: F401  (POINT_FLOWS 注册 / flow_point 装饰器)
 
 
-ARTICLE_LINK_DEMO = "https://mp.weixin.qq.com/s/X7fAdvvZ-Gq_2SW19OKfVw"
+ARTICLE_LINK_DEMO = "https://mp.weixin.qq.com/s/LrmG9G4qXeo8A0xDAcMX3Q"
 
 
 def _flow_article_bar_find(ctx):
