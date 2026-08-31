@@ -776,9 +776,13 @@ def _ll_kbd_proc(nCode, wParam, lParam):
                     _u32().GetAsyncKeyState(_VK_LWIN) & 0x8000 or
                     _u32().GetAsyncKeyState(_VK_RWIN) & 0x8000):
                 return 1                                # 吞 Win+S / Win+Shift+S / Win+K
-            if vk in (ord('A'), ord('X')) and (
-                    _u32().GetAsyncKeyState(VK_MENU) & 0x8000):
-                return 1                                # 吞 Alt+A / Alt+X(微信/输入法截图热键)
+            _alt = _u32().GetAsyncKeyState(VK_MENU) & 0x8000
+            _ctl = _u32().GetAsyncKeyState(VK_CONTROL) & 0x8000
+            if _alt and _ctl and vk in (ord('D'), ord('Y'), ord('O'),
+                                        ord('S'), ord('X'), ord('Z')):
+                return 1                                # 吞 Ctrl+Alt+D/Y/O/S/X/Z(有道词典/翻译截图翻译取词等)
+            if _alt and vk in (ord('A'), ord('X'), ord('D'), ord('Z'), ord('S')):
+                return 1                                # 吞 Alt+A/X/D/Z/S(微信/有道等全局截图热键)
         except Exception:
             pass
     return _u32().CallNextHookEx(_snip_hook, nCode, wParam, lParam)
