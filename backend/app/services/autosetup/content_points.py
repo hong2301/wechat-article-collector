@@ -10,7 +10,10 @@ from ...database import get_conn as _get_conn
 from .engine import POINT_FLOWS, flow_point, log   # noqa: F401  (POINT_FLOWS 注册 / flow_point 装饰器)
 
 
-ARTICLE_LINK_DEMO = "https://mp.weixin.qq.com/s/LrmG9G4qXeo8A0xDAcMX3Q"
+ARTICLE_LINK_DEMO = "https://mp.weixin.qq.com/s/X7fAdvvZ-Gq_2SW19OKfVw"
+
+# 30/31(4指标区域)专用演示链接(用户指定换为新的)
+ARTICLE_LINK_DEMO_BAR = "https://mp.weixin.qq.com/s/LrmG9G4qXeo8A0xDAcMX3Q"
 
 
 def _flow_article_bar_find(ctx):
@@ -37,7 +40,7 @@ def _flow_article_bar_find(ctx):
     sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
     sh_ = u32_.GetSystemMetrics(_pc.SM_CYSCREEN)
 
-    ok_q, _txt = tasks_svc.search_query(ARTICLE_LINK_DEMO)
+    ok_q, _txt = tasks_svc.search_query(ARTICLE_LINK_DEMO_BAR)   # 仅30/31用新链接
     if not ok_q:
         return None
     _time.sleep(5.0)
