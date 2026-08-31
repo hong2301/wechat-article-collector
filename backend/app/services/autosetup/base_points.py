@@ -13,6 +13,7 @@ from .engine import POINT_FLOWS, flow_point, log, _ensure_wechat   # noqa: F401
 from .engine import _ensure_wechat  # noqa: F401
 
 
+@flow_point("微信左上角搜索网络")
 def _flow_point12_search_network(ctx):
     # 依赖点位(与库 depend_points 同步): [11]
     from ...services import tasks as tasks_svc
