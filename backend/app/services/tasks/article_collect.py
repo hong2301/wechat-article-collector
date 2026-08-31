@@ -75,11 +75,17 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
         for cx, cy, text, score, sbox, brightness in items:
             if not text or not text.strip():
                 continue
-            # 文章标记: 灰色系深色文字 且 文本含"文章"
+            # 文章标记: 黑字白底(文本含"文章"; 颜色兜底兼容跨机黑/灰渲染)
             if "文章" not in text:
                 continue
-            gray = ocr_service._region_grayish(sbox, (x1, y1))
-            if gray is True:
+            with Image.open(shot_path) as _im:   # shot为区域截图, sbox直接相对
+                cols = ocr_service.color_sort(_im, region=(
+                    min(p[0] for p in sbox), min(p[1] for p in sbox),
+                    max(p[0] for p in sbox), max(p[1] for p in sbox)))
+            colset = {c for _, _, c in cols[:2]}
+            if not cols or "白" not in colset or not ({"黑", "灰"} & colset):
+                continue   # 非黑/灰字白底 -> 排除
+            if True:
                 # 点击坐标: sbox是截图内相对坐标, 加区域左上角(x1,y1)偏移成屏幕坐标, 取box中心
                 xs = [p[0] + x1 for p in sbox]
                 ys = [p[1] + y1 for p in sbox]
@@ -91,8 +97,8 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
                 clicked = True
                 break
         if not clicked:
-            logs.append("未识别到文章标记(灰字), 跳过点击")
-            tasks_echo("未识别到文章标记(灰字), 跳过点击")
+            logs.append("未识别到文章标记(黑字白底), 跳过点击")
+            tasks_echo("未识别到文章标记(黑字白底), 跳过点击")
     except Exception as e:
         logs.append(f"文章标记识别失败: {e}")
 
