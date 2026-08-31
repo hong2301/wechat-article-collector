@@ -163,8 +163,8 @@ def _flow_point18_three_dots(ctx):
             if changed(cur, prev) > 0.001:
                 changes += 1
                 if changes == 1:
-                    # 第一次变化: 停3秒等界面稳定, 再截图作为变化基准
-                    _time.sleep(3.0)
+                    # 第一次变化: 停0.5秒等界面稳定, 再截图作为变化基准
+                    _time.sleep(0.5)
                     cur = snap()
                 log.info(f"点位18 探测({cx},{base_y}) 第{changes}次变化 步长={raw_step}")
                 if changes >= 4:
