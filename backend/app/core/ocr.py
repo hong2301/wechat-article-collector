@@ -289,3 +289,50 @@ def classify_items(items, box=None):
 
 __all__ = ["init", "ocr", "classify_items",
            "extract_reads", "extract_likes", "resolve_date"]
+
+def _name_color(rgb):
+    """按常见色系把 (r,g,b) 归名(自然语言): 白/黑/灰/蓝/红/绿/黄/紫/彩"""
+    r, g, b = rgb
+    span = max(rgb) - min(rgb)
+    if span < 40:                       # 无彩色系
+        avg = (r + g + b) // 3
+        if avg >= 205:
+            return "白"
+        if avg <= 55:
+            return "黑"
+        return "灰"
+    if r >= 150 and r - g > 60 and r - b > 60:
+        return "红"
+    if b >= 150 and b - r > 60 and b - g > 60:
+        return "蓝"
+    if g >= 150 and g - r > 60 and g - b > 60:
+        return "绿"
+    if r >= 140 and b >= 140 and r - g > 60 and b - g > 60:
+        return "紫"
+    if r >= 150 and g >= 150 and r - b > 60 and g - b > 60:
+        return "黄"
+    return "彩"
+
+
+def color_sort(img, region=None, top=4):
+    """按 RGB 出现频率对图片主色排序, 每项带色系名称(判定留给调用方)
+
+    参数:
+      img    PIL Image
+      region 可选 (x1, y1, x2, y2); None=整图
+      top    返回前 top 名
+
+    返回: [(rgb, count, 色系名称), ...] 从多到少
+      例: 白底黑字 -> [(白,..), (黑,..), ...]; 灰底灰字 -> [(灰,..), (灰,..), ...]
+    """
+    if region is not None:
+        img = img.crop(region)
+    if img.width < 4 or img.height < 4:
+        return []
+    small = img.convert("RGB").resize((30, 30))            # 降采样, 主色占比更稳
+    counts = {}
+    for px in small.getdata():
+        q = ((px[0] // 40) * 40, (px[1] // 40) * 40, (px[2] // 40) * 40)
+        counts[q] = counts.get(q, 0) + 1
+    return [(rgb, c, _name_color(rgb))
+            for rgb, c in sorted(counts.items(), key=lambda kv: -kv[1])[:top]]

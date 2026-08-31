@@ -13,26 +13,6 @@ from .engine import POINT_FLOWS, flow_point, log, _ensure_wechat   # noqa: F401
 from .engine import _ensure_wechat  # noqa: F401
 
 
-def _top2_colors(img, region):
-    """白色区域主色: 取文字框内像素按颜色出现频率排序的前两主色(降采样+量化去噪)
-    返回 [(r,g,b), (r,g,b)] 或 None(区域太小/不足两色)"""
-    crop = img.crop(region)
-    if crop.width < 4 or crop.height < 4:
-        return None
-    small = crop.resize((30, 30))   # 降采样, 主色占比更稳
-    counts = {}
-    for px in small.convert("RGB").getdata():
-        q = ((px[0] // 40) * 40, (px[1] // 40) * 40, (px[2] // 40) * 40)  # 量化到 40 级
-        counts[q] = counts.get(q, 0) + 1
-    if len(counts) < 2:
-        return None
-    return [c for c, _ in sorted(counts.items(), key=lambda kv: -kv[1])[:2]]
-
-
-# 点位 12: 微信左上角搜索网络 (依赖点位11已设值)
-# 流程: 同点位11初始化 -> 截图左上1/16 -> OCR找"搜索网络结果" -> 两主色一明一暗校验
-# ---------------------------------------------------------------------------
-@flow_point("微信左上角搜索网络")
 def _flow_point12_search_network(ctx):
     # 依赖点位(与库 depend_points 同步): [11]
     from ...services import tasks as tasks_svc
@@ -61,14 +41,15 @@ def _flow_point12_search_network(ctx):
         for cx, cy, text, score, sbox, _bright in ctx.ocr_box(img):
             if "网络结果" not in text:
                 continue
-            # 校验: OCR 文字框内取 RGB 出现频率排序前两主色(代表字色与背景色)
-            # 不做亮度/色差过滤, 黑-灰/深-浅 这类搭配不同电脑判定一致
-            top2 = _top2_colors(img, (min(p[0] for p in sbox), min(p[1] for p in sbox),
-                                       max(p[0] for p in sbox), max(p[1] for p in sbox)))
-            if not top2:
-                log.info(f"点位12 文本命中但取不到前两主色: {text}")
+            # 校验: 文字框 RGB 频率排序, 前两主色应为"暗色字+白底"(黑/灰字白底, 不管顺序)
+            cols = ocr_service.color_sort(img, region=(
+                min(p[0] for p in sbox), min(p[1] for p in sbox),
+                max(p[0] for p in sbox), max(p[1] for p in sbox)))
+            colset = {c for _, _, c in cols[:2]}
+            if not cols or "白" not in colset or not ({"黑", "灰"} & colset):
+                log.info(f"点位12 文本命中但颜色不符({cols}): {text}")
                 continue
-            log.info(f"点位12 识别成功: 文本={text} box=({cx},{cy}) 两主色={top2}")
+            log.info(f"点位12 识别成功: 文本={text} box=({cx},{cy}) 颜色排序={cols}")
             return cx, cy
         if attempt == 1:
             # 兜底: 重复点位11动作(下拉未弹出时)
@@ -107,19 +88,16 @@ def _flow_point11_search_box(ctx):
     for cx, cy, text, score, sbox, _bright in items:
         if "搜索" not in text:
             continue
-        # 校验1: 文字主色为灰色(灰字); box 传空偏移即可(仅绕过守卫, sbox已相对截图)
-        gray = ocr_service._region_grayish(sbox, box=(0, 0, 0, 0), img=img)
-        if not gray:
-            continue
-        # 校验2: 背景为白色(框区域大多数像素 >235)
-        crop = img.crop((min(p[0] for p in sbox), min(p[1] for p in sbox),
-                         max(p[0] for p in sbox), max(p[1] for p in sbox)))
-        px = list(crop.convert("L").getdata())
-        white_ratio = sum(1 for v in px if v > 235) / max(1, len(px))
-        if white_ratio < 0.5:
+        # 颜色校验: 文字框 RGB 频率排序, 前两主色应为{灰,白}(灰字白底, 不管顺序)
+        cols = ocr_service.color_sort(img, region=(
+            min(p[0] for p in sbox), min(p[1] for p in sbox),
+            max(p[0] for p in sbox), max(p[1] for p in sbox)))
+        colset = {c for _, _, c in cols[:2]}
+        if not cols or not {"灰", "白"}.issubset(colset):
+            log.info(f"点位11 文本命中但颜色不符({cols}): {text}")
             continue
         # 截图起点为 (0,0), 相对坐标即绝对坐标
-        log.info(f"点位11 识别成功: 文本={text} box=({cx},{cy}) gray={gray} 白底占比={white_ratio:.2f}")
+        log.info(f"点位11 识别成功: 文本={text} box=({cx},{cy}) 颜色排序={cols}")
         return cx, cy
     log.warning("点位11 未识别到白底灰字的'搜索'输入框")
     return None, None
