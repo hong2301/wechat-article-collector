@@ -11,7 +11,7 @@ import time
 
 from . import computer as pc
 from ..database import get_conn
-from .ocr import _region_grayish, extract_reads
+from .ocr import color_sort, extract_reads
 from .robot import tasks_echo
 
 
@@ -80,9 +80,16 @@ def _extract_read_from_items(items, box, img=None):
     items = list(items or [])
     for i, (cx, cy, text, score, sbox, brightness) in enumerate(items):
         if "阅读" in (text or ""):
-            gray = _region_grayish(sbox, (ox, oy), img)
-            if gray is False:
-                continue   # 颜色不是灰色系 -> 排除
+            # 颜色校验: 文字框 RGB 频率排序, 前两主色应为{灰,白}(灰字白底, 不管顺序)
+            if img is None:      # 兼容无图(默认抓屏). 正常调用均带 img
+                from PIL import ImageGrab
+                img = ImageGrab.grab().convert("RGB")
+            cols = color_sort(img, region=(
+                min(p[0] for p in sbox), min(p[1] for p in sbox),
+                max(p[0] for p in sbox), max(p[1] for p in sbox)))
+            colset = {c for _, _, c in cols[:2]}
+            if not cols or not {"灰", "白"}.issubset(colset):
+                continue   # 颜色不符(非灰字白底) -> 排除
             # 优先: 本段提取数字(阅读 730 / 阅读730)
             r = extract_reads(text)
             if r is not None:
