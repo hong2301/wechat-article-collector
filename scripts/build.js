@@ -20,6 +20,21 @@ const ROOT = path.join(__dirname, '..')
 const RELEASE = path.join(ROOT, 'release')
 const ELECTRON_DIR = path.join(ROOT, 'frontend', 'electron')
 const ELECTRON_BUILD = path.join(ROOT, 'frontend', 'build')
+
+// 打包日志镜像到 <data>/logs/build.log(与运行日志同目录, 不落根目录)
+const __closeBuildLog = (() => {
+  const dir = path.join(ROOT, 'data', 'logs')
+  try { fs.mkdirSync(dir, { recursive: true }) } catch (e) {}
+  let f = null
+  try { f = fs.openSync(path.join(dir, 'build.log'), 'a') } catch (e) {}
+  const wr = (...a) => { if (f) { try { fs.writeSync(f, a.join(' ') + '\n') } catch (e) {} } }
+  const oLog = console.log, oErr = console.error
+  console.log = (...a) => { oLog(...a); wr(...a) }
+  console.error = (...a) => { oErr(...a); wr(...a) }
+  return () => { if (f) { try { fs.closeSync(f) } catch (e) {} } }
+})()
+process.on('exit', __closeBuildLog)
+
 const WIN_UNPACKED = path.join(ELECTRON_BUILD, 'win-unpacked')
 const BACKEND_DIST = path.join(ROOT, 'backend', 'dist', 'collector-backend')   // PyInstaller onedir
 const TPL_DB = path.join(ROOT, 'scripts', 'template_collector.db')
