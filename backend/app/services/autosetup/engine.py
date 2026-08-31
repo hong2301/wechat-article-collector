@@ -110,54 +110,52 @@ def _flow_point18_three_dots(ctx):
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
 
-    # 完整调用: 微信窗口初始化 + 采集器 + 搜一搜窗口初始化
-    ok_wx, txt_wx = tasks_svc.init_wechat_window()
-    if not ok_wx:
-        log.warning(f"点位18 微信窗口初始化失败: {txt_wx}")
-        return None, None
-    ok_ap, txt_ap = tasks_svc.init_app_window()
-    if not ok_ap:
-        log.warning(f"点位18 采集器窗口初始化失败: {txt_ap}")
-        return None, None
-    ok_sw, txt_sw = tasks_svc.search_window_init()
-    if not ok_sw:
-        log.warning(f"点位18 搜一搜窗口初始化失败: {txt_sw}")
-        return None, None
-    p14 = tasks_svc._read_point(14)          # 搜一搜按钮(查询)
-    if not p14:
-        return None, None
-    appex = _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True)
-    if not appex:
-        log.warning("点位18 未找到可见搜一搜窗口")
-        return None, None
-    r_ap = ctypes.wintypes.RECT()
-    _pc._u32().GetWindowRect(appex[0][0], ctypes.byref(r_ap))
-    x_left = r_ap.left                      # 搜一搜窗口左边
-    x_right = r_ap.right - 1                # 搜一搜窗口最右边(探测原点)
-    u32_ = _pc._u32()
-    sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
-    sh_ = u32_.GetSystemMetrics(_pc.SM_CYSCREEN)
-    half_w = sw_ // 2
-    base_y = int(p14[1])                      # y = 搜一搜按钮的y
-    raw_step = max(1, (int(p14[0]) - x_left) // 30)   # 搜索按钮到窗口左边 / 30
+    def attempt():
+        """一次完整探测(初始化窗口+几何+横向扫描) -> (x,y) 命中; None 需完全重来"""
+        # 完整调用: 微信窗口初始化 + 采集器 + 搜一搜窗口初始化
+        ok_wx, txt_wx = tasks_svc.init_wechat_window()
+        if not ok_wx:
+            log.warning(f"点位18 微信窗口初始化失败: {txt_wx}")
+            return None
+        ok_ap, txt_ap = tasks_svc.init_app_window()
+        if not ok_ap:
+            log.warning(f"点位18 采集器窗口初始化失败: {txt_ap}")
+            return None
+        ok_sw, txt_sw = tasks_svc.search_window_init()
+        if not ok_sw:
+            log.warning(f"点位18 搜一搜窗口初始化失败: {txt_sw}")
+            return None
+        p14 = tasks_svc._read_point(14)          # 搜一搜按钮(查询)
+        if not p14:
+            log.warning("点位18 无点位14, 需完全重来")
+            return None
+        appex = _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True)
+        if not appex:
+            log.warning("点位18 未找到可见搜一搜窗口, 需完全重来")
+            return None
+        r_ap = ctypes.wintypes.RECT()
+        _pc._u32().GetWindowRect(appex[0][0], ctypes.byref(r_ap))
+        x_left = r_ap.left                      # 搜一搜窗口左边
+        x_right = r_ap.right - 1                # 搜一搜窗口最右边(探测原点)
+        u32_ = _pc._u32()
+        sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
+        half_w = sw_ // 2
+        base_y = int(p14[1])                      # y = 搜一搜按钮的y
+        raw_step = max(1, (int(p14[0]) - x_left) // 30)   # 搜索按钮到窗口左边 / 30
 
-    def snap():
-        # 截图范围: 宽=左半屏中线(sw/4) 到 屏幕中线(sw/2); 高=搜一搜按钮y×2
-        return np.array(ImageGrab.grab(
-            bbox=(half_w // 2, 0, half_w, base_y * 2)).convert("RGB"))
+        def snap():
+            # 截图范围: 宽=左半屏中线(sw/4) 到 屏幕中线(sw/2); 高=搜一搜按钮y×2
+            return np.array(ImageGrab.grab(
+                bbox=(half_w // 2, 0, half_w, base_y * 2)).convert("RGB"))
 
-    def changed(a, b):
-        return (np.abs(a.astype(int) - b.astype(int)).sum(axis=2) > 15).mean()
+        def changed(a, b):
+            return (np.abs(a.astype(int) - b.astype(int)).sum(axis=2) > 15).mean()
 
-    for round_idx in range(3):
-        step = max(1, raw_step // (1 << round_idx))   # 每轮减半
-        log.info(f"点位18 第{round_idx+1}轮: y={base_y} 右缘={x_right} 步长={step} (基准={raw_step})")
         prev = snap()
         changes = 0
         cx = x_right
         first_click = True
-        overshoot = False   # 步长过大标志
-        while cx > half_w // 2:   # 扫过左半屏中线(sw/4)仍无目标 => 步长过大
+        while cx > half_w // 2:   # 扫过左半屏中线(sw/4)仍无目标 => 需完全重来
             # 横向探测: 移动鼠标(不点击)触发 hover 变化
             _pc._u32().SetCursorPos(cx, base_y)
             # 第一下动完等3s, 其余1.5s
@@ -170,33 +168,37 @@ def _flow_point18_three_dots(ctx):
                     # 第一次变化: 停3秒等界面稳定, 再截图作为变化基准
                     _time.sleep(3.0)
                     cur = snap()
-                log.info(f"点位18 第{round_idx+1}轮({cx},{base_y}) 第{changes}次变化")
+                log.info(f"点位18 探测({cx},{base_y}) 第{changes}次变化 步长={raw_step}")
                 if changes >= 4:
                     # 第4次: 连续点击两次(间隔0.5s), 然后判定搜一搜窗口是否在左半屏:
-                    #   在左半屏 => 目标点位; 不在(切走/收起) => 步长过大
+                    #   在左半屏 => 目标点位; 不在(切走/收起) => 步长过大需完全重来
                     ctx.click(cx, base_y)
                     _time.sleep(0.5)
                     ctx.click(cx, base_y)
                     _time.sleep(0.5)
                     appex_now = _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True)
                     if not appex_now:
-                        log.warning(f"点位18 第{changes}次后搜一搜窗口不可见, 步长过大")
-                    else:
-                        r_chk = ctypes.wintypes.RECT()
-                        _pc._u32().GetWindowRect(appex_now[0][0], ctypes.byref(r_chk))
-                        if abs(r_chk.left) <= 2:
-                            log.info(f"点位18 第{round_idx+1}轮({cx},{base_y}) 搜一搜仍在左半屏 => 命中")
-                            return cx, base_y
-                        log.warning(f"点位18 第{changes}次后搜一搜不在左半屏, 步长过大")
-                    overshoot = True
-                    break
+                        log.warning(f"点位18 第{changes}次后搜一搜窗口不可见, 步长过大, 需完全重来")
+                        return None
+                    r_chk = ctypes.wintypes.RECT()
+                    _pc._u32().GetWindowRect(appex_now[0][0], ctypes.byref(r_chk))
+                    if abs(r_chk.left) <= 2:
+                        log.info(f"点位18 ({cx},{base_y}) 搜一搜仍在左半屏 => 命中")
+                        return cx, base_y
+                    log.warning(f"点位18 第{changes}次后搜一搜不在左半屏, 步长过大, 需完全重来")
+                    return None
             prev = cur
-            cx -= step
-        if overshoot:
-            continue   # 确认有变化 => 步长过大, 下一轮更小步长重试
+            cx -= raw_step
         # while 正常结束(已过左半屏中线)仍未凑满4次变化 => 步长过大
-        log.warning("点位18 扫过左半屏中线仍未达4次变化, 步长过大, 换更小步长")
-    log.warning("点位18 探测未命中(多次步长过大或扫过按钮)")
+        log.warning("点位18 扫过左半屏中线仍未达4次变化, 需完全重来")
+        return None
+
+    # 完全重试: 每次从窗口初始化+几何重建开始(不循环部分逻辑)
+    for attempt_idx in range(3):
+        got = attempt()
+        if got:
+            return got
+    log.warning("点位18 3次完全重试均未命中(步长过大或扫过中线)")
     return None, None
 def run_point_flow(name: str, attach: bool = True):
     """执行点位自动设置流程 -> (x, y, remark, err); 流程函数可返回 (x,y) 或 (x,y,remark)"""
