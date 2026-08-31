@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """后端启动入口: python backend/run.py
 启动前检测 8000 端口占用, 被占则给出明确提示(避免重复 dev 起多个后端抢端口)"""
+import os
 import socket
 import sys
 
