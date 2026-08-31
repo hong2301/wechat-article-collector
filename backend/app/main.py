@@ -67,6 +67,7 @@ def _setup_logging():
         fh = logging.FileHandler(logfile, encoding="utf-8")
         fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
         root.addHandler(fh)
+    root.setLevel(logging.INFO)   # info 级日志(点位识别等)也入文件, 便于排查
 
 
 _setup_logging()
