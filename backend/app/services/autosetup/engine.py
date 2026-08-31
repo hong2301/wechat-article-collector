@@ -219,10 +219,13 @@ def _flow_point18_three_dots(ctx):
     log.warning("点位18 3次完全重试均未命中(步长过大或扫过中线)")
     return None, None
 def run_point_flow(name: str, attach: bool = True):
-    """执行点位自动设置流程 -> (x, y, remark, err); 流程函数可返回 (x,y) 或 (x,y,remark)"""
+    """执行点位自动设置流程 -> (x, y, remark, err); 流程函数可返回 (x,y) 或 (x,y,remark)
+    支持 ESC: 记录当前执行线程, 外部 ESC 可注入 StopFlow 立即中断"""
+    global _flow_tid
     fn = POINT_FLOWS.get(name)
     if not fn:
         return None, None, "", f"未找到点位流程: {name}"
+    _flow_tid = threading.get_ident()   # 记录执行线程(单点自动设置也支持 ESC 中断)
     if attach:
         _attach_wechat()
     try:
@@ -236,8 +239,12 @@ def run_point_flow(name: str, attach: bool = True):
         if x is None or y is None:
             return None, None, "", f"识别失败: {name}"
         return x, y, remark, ""
+    except StopFlow:
+        return None, None, "", "已停止: 手动放弃(ESC)"
     except Exception as e:
         return None, None, "", f"流程异常: {e}"
+    finally:
+        _flow_tid = None
 
 
 def _attach_wechat():

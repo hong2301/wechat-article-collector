@@ -26,17 +26,24 @@ def _dpi():
 @router.post("/point/{pid}")
 def auto_setup_point(pid: int):
     _dpi()
-    """执行该点位的自动识别流程, 成功则写回 x/y"""
-    row = points_repo.get(pid)
-    if not row:
-        raise HTTPException(404, f"点位不存在 id={pid}")
-    name = row["name"]
-    x, y, remark, err = as_svc.run_point_flow(name)
-    if x is None:
-        return {"ok": False, "name": name, "error": err or "识别失败"}
-    # 点位9: 非99999(真实识别到坐标)时清除备注; 99999 待定保留备注(set_coords 内部处理)
-    points_repo.set_coords(pid, x, y, remark if x == 99999 else "")
-    return {"ok": True, "name": name, "x": x, "y": y, "remark": remark}
+    """执行该点位的自动识别流程, 成功则写回 x/y; 与一键设置一致支持 ESC 停止"""
+    owned = False
+    try:
+        if not as_svc.locked():              # 输入锁开着时直接复用(不重复抢)/否则本次开启
+            owned = as_svc.lock()
+        row = points_repo.get(pid)
+        if not row:
+            raise HTTPException(404, f"点位不存在 id={pid}")
+        name = row["name"]
+        x, y, remark, err = as_svc.run_point_flow(name)
+        if x is None:
+            return {"ok": False, "name": name, "error": err or "识别失败"}
+        # 点位9: 非99999(真实识别到坐标)时清除备注; 99999 待定保留备注(set_coords 内部处理)
+        points_repo.set_coords(pid, x, y, remark if x == 99999 else "")
+        return {"ok": True, "name": name, "x": x, "y": y, "remark": remark}
+    finally:
+        if owned:
+            as_svc.unlock()                  # 仅释放自己开启的锁(不误关他人)
 
 
 @router.post("/scroll/{sid}")
