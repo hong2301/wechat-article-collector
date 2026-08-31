@@ -369,6 +369,7 @@ export default function PointsDialog({
     <Modal mask={{ closable: false }}
       title="点位设置" open={open}
       onCancel={onClose}
+      keyboard={false}
       footer={<Button onClick={onClose}>关闭</Button>}
       width={860}
       style={{ maxHeight: "80vh" }}
