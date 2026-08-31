@@ -771,24 +771,6 @@ def show_taskbar():
 # ===========================================================================
 # 截图：屏幕区域截图（存文件 / 转 base64 / 5参数截图）
 # ===========================================================================
-def _flash_rect(x1, y1, x2, y2, ms=200):
-    """在屏幕区域 (x1,y1)-(x2,y2) 闪半透明红框 ms 毫秒(视觉提示截图/探测区域)"""
-    try:
-        import tkinter
-        tk = tkinter.Tk()
-        tk.overrideredirect(True)
-        tk.attributes("-topmost", True)
-        tk.wm_geometry(f"{int(x2)-int(x1)}x{int(y2)-int(y1)}+{int(x1)}+{int(y1)}")
-        cv = tkinter.Canvas(tk, highlightthickness=0, bd=0)
-        cv.pack(fill="both", expand=True)
-        cv.create_rectangle(0, 0, int(x2)-int(x1), int(y2)-int(y1), outline="red", width=4)
-        tk.attributes("-alpha", 0.25)
-        tk.after(ms, tk.destroy)
-        tk.mainloop()
-    except Exception:
-        pass
-
-
 def screenshot(x1, y1, x2, y2, img_format="png", as_base64=False):
     """【截图】截取屏幕区域，保存到系统缓存目录并返回文件路径。
     参数:
@@ -812,7 +794,6 @@ def screenshot(x1, y1, x2, y2, img_format="png", as_base64=False):
             if fmt not in ("png", "jpg", "bmp", "webp"):
                 fmt = "png"
             img = ImageGrab.grab(bbox=(int(x1), int(y1), int(x2), int(y2)))
-            _flash_rect(x1, y1, x2, y2)          # 截图后红框闪烁提示
             if fmt == "jpg":
 
                 img = img.convert("RGB")
