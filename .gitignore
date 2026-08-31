@@ -68,6 +68,13 @@ backend_dev.log
 # E2E 测试产物
 test-results/
 playwright-report/
-e2e/.baseline
+tests/.baseline
 .tmp-tests/
 data/logs/
+
+# 测试产物(全部在 tests/ 内)
+tests/.tmp-tests/
+tests/.pytest_cache/
+tests/artifacts/
+tests/report/
+tests/.baseline

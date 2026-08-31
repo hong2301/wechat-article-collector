@@ -1,16 +1,18 @@
 import { defineConfig } from "@playwright/test";
+import path from "path";
 
 // E2E 配置: 双模式
 //   chromium: dev 浏览器(localhost:3000 -> 开发后端 8000)
 //   electron: 打包版/electron(localhost 生产后端 8001), 需要先 build 出 electron
 export default defineConfig({
-  testDir: "./e2e/specs",
+  testDir: "./specs",
   timeout: 120_000,               // 全链路(点位/采集)单用例上限
   expect: { timeout: 10_000 },
   fullyParallel: false,           // 会移动真实微信窗口/锁键鼠, 必须串行
   workers: 1,
   retries: 0,
-  reporter: [["list"], ["html", { open: "never" }]],
+  reporter: [["list"], ["html", { outputFolder: path.join(__dirname, "report"), open: "never" }]],
+  outputDir: path.join(__dirname, "artifacts"),        // trace/screenshot/video 全进 tests/artifacts
   use: {
     baseURL: process.env.E2E_BASE_URL || "http://localhost:3000",  // dev 前端
     trace: "retain-on-failure",    // 失败保留 trace
@@ -29,6 +31,6 @@ export default defineConfig({
       grep: /@electron|@all/i,
     },
   ],
-  globalSetup: "./e2e/setup/global-setup.ts",
-  globalTeardown: "./e2e/setup/global-teardown.ts",
+  globalSetup: "./setup/global-setup.ts",
+  globalTeardown: "./setup/global-teardown.ts",
 });

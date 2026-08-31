@@ -11,11 +11,11 @@ import tempfile
 
 import pytest
 
-ROOT = pathlib.Path(__file__).resolve().parent.parent
+ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 TPL_DB = ROOT / "scripts" / "template_collector.db"
 
 # ============ 隔离库(必须先于 import app.main 设置 env) ============
-_TMPROOT = ROOT / ".tmp-tests"
+_TMPROOT = ROOT / "tests" / ".tmp-tests"
 _TMPROOT.mkdir(exist_ok=True)
 _TMP = tempfile.mkdtemp(prefix="collector_test_", dir=str(_TMPROOT))
 os.environ["WECHAT_COLLECTOR_DATA_DIR"] = _TMP
@@ -43,6 +43,6 @@ def _cleanup():
     import shutil
     shutil.rmtree(_TMP, ignore_errors=True)
     try:
-        shutil.rmtree(str(ROOT / ".tmp-tests"), ignore_errors=True)
+        shutil.rmtree(str(ROOT / "tests" / ".tmp-tests"), ignore_errors=True)
     except Exception:
         pass
