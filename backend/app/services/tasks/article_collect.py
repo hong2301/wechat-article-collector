@@ -140,7 +140,14 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             for cx, cy, text, score, sbox, brightness in items:
                 if not text or "余下" not in text:
                     continue
-                if ocr_service.text_color(sbox, (x1, y1)) == "blue":
+                # 蓝字灰底: 文字框 RGB 频率排序, 前两主色应为{蓝,灰}(不管顺序, shot为区域截图, sbox直接相对)
+                with Image.open(shot_path) as _im:
+                    cols = ocr_service.color_sort(_im, region=(
+                        min(p[0] for p in sbox), min(p[1] for p in sbox),
+                        max(p[0] for p in sbox), max(p[1] for p in sbox)))
+                colset = {c for _, _, c in cols[:2]}
+                if not cols or not {"蓝", "灰"}.issubset(colset):
+                    continue   # 非蓝字灰底(颜色不符) -> 排除
                     xs = [p[0] + x1 for p in sbox]
                     ys = [p[1] + y1 for p in sbox]
                     btn = (int(sum(xs) / len(xs)), int(sum(ys) / len(ys)), text)
