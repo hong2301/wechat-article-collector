@@ -157,8 +157,8 @@ def _flow_point18_three_dots(ctx):
         while cx > half_w // 2:   # 扫过左半屏中线(sw/4)仍无目标 => 需完全重来
             # 横向探测: 移动鼠标(不点击)触发 hover 变化
             _pc._u32().SetCursorPos(cx, base_y)
-            # 每次移动后等 5s 让 hover 变化稳定
-            _time.sleep(5.0)
+            # 每次移动后等 0.5s 让 hover 变化稳定
+            _time.sleep(0.5)
             cur = snap()
             if changed(cur, prev) > 0.001:
                 changes += 1
