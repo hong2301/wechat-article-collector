@@ -3,6 +3,7 @@ import { API_BASE } from "./lib/api";
 import { AntdRegistry } from "@ant-design/nextjs-registry";
 import { ConfigProvider } from "antd";
 import Header from "./Header";
+import { ConflictGateProvider } from "./components/ConflictGate";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -23,10 +24,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body style={{ margin: 0 }}>
         <AntdRegistry>
           <ConfigProvider>
+            <ConflictGateProvider>
             <div style={{ height: "100vh", boxSizing: "border-box", overflow: "hidden", display: "flex", flexDirection: "column", background: "#f5f6f8", padding: "0 20px 14px" }}>
               <Header />
               <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>{children}</div>
             </div>
+            </ConflictGateProvider>
           </ConfigProvider>
         </AntdRegistry>
       </body>

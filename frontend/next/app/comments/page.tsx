@@ -7,6 +7,7 @@ import { ArrowLeftOutlined, ReloadOutlined, PlusOutlined, ImportOutlined, Delete
 import * as XLSX from "xlsx";
 import PaginationBar, { calcPageSize } from "../components/PaginationBar";
 import { hideTaskbar, showTaskbar } from "../components/taskbar";
+import { useConflictGate } from "../components/ConflictGate";
 import { useSettingsIssues } from "../components/useSettingsIssues";
 import { useWechatStatus } from "../components/useWechatStatus";
 import { useNav } from "../lib/nav";
@@ -253,9 +254,11 @@ export default function CommentsPage() {
     setCcCount(0); setCcCount1(0); setCcCount2(0);
     setCcOpen(true);
   }
+  const { runWithGuard } = useConflictGate();
   // 确认采集: 调后端 /api/collect/comments, SSE 接收日志
   function confirmCommentCollect() {
     if (!artBiz) { message.warning("无文章链接"); return; }
+    void runWithGuard(async () => {
     setCcStopped(false);
     const link = `https://mp.weixin.qq.com/s/${artBiz}`;
     setCcStarted(true);
@@ -310,6 +313,7 @@ export default function CommentsPage() {
         if ((e as Error)?.name !== "AbortError") setCcLogs((p) => [...p, `❌ 接口异常: ${(e as Error)?.message || e}`]);
       }
     })();
+    });
   }
 
   // 过滤

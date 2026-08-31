@@ -9,6 +9,7 @@ import * as XLSX from "xlsx";
 import PaginationBar, { calcPageSize } from "../components/PaginationBar";
 import { useNav } from "../lib/nav";
 import { hideTaskbar, showTaskbar } from "../components/taskbar";
+import { useConflictGate } from "../components/ConflictGate";
 import { useSettingsIssues } from "../components/useSettingsIssues";
 import { useWechatStatus } from "../components/useWechatStatus";
 
@@ -322,12 +323,15 @@ export default function ArticlePage() {
     setUpdLogs([]);
     setUpdOpen(true);
   }
+  const { runWithGuard } = useConflictGate();
   // 确认更新: 按队列启动(多个串行完整更新流程)
   function confirmUpdate() {
     if (updQueue.length === 0) return;
-    setUpdStopped(false);
-    setUpdStarted(true);
-    runUpd(0);
+    void runWithGuard(async () => {
+      setUpdStopped(false);
+      setUpdStarted(true);
+      runUpd(0);
+    }, "文章更新采集");
   }
   // 关闭更新弹窗: 收起界面 + 刷新文章列表(更新数据后重新拉取)
   function closeUpd() {

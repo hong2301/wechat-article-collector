@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { API_BASE } from "../lib/api";
 import { Modal, Button } from "antd";
 import { hideTaskbar, showTaskbar } from "./taskbar";
+import { useConflictGate } from "./ConflictGate";
 
 interface QLog { text: string; color: string }
 
@@ -53,7 +54,13 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
+  const { runWithGuard } = useConflictGate();
   async function start() {
+    await runWithGuard(async () => {
+      await startInner();
+    }, "快速开始");
+  }
+  async function startInner() {
     setLogs([]);
     setRunning(true);
     setFinished(false);

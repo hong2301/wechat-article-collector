@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .database import init_db, data_dir
-from .routers import accounts, resolve_api, points, scrolls, collect, settings, auto_setup
+from .routers import accounts, resolve_api, points, scrolls, collect, settings, auto_setup, conflicts
 from .core import ocr as ocr_service
 
 
@@ -133,3 +133,4 @@ app.include_router(scrolls.router)
 app.include_router(collect.router)
 app.include_router(settings.router)
 app.include_router(auto_setup.router)
+app.include_router(conflicts.router)

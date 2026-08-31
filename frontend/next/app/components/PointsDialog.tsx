@@ -12,6 +12,7 @@ import {
 } from "@ant-design/icons";
 import { useWechatStatus } from "./useWechatStatus";
 import { hideTaskbar, showTaskbar } from "./taskbar";
+import { useConflictGate } from "./ConflictGate";
 
 const API = API_BASE + "/api/points";
 
@@ -171,7 +172,15 @@ export default function PointsDialog({
   }
   useEffect(() => { if (open) load(); /* eslint-disable-next-line */ }, [open]);
   // 通用自动设置执行(点位一键/单点位共用): 锁+任务栏+进度+日志文本+流式
+  // 一键设置/单点自动设置: 统一经冲突检测(冲突弹窗)后放行
+  const { runWithGuard } = useConflictGate();
   async function runAutoSetup(names: string[], loadingId?: number) {
+    if (names.length === 0) return;
+    await runWithGuard(async () => {
+      await runAutoSetupInner(names, loadingId);
+    }, "自动设置");
+  }
+  async function runAutoSetupInner(names: string[], loadingId?: number) {
     if (names.length === 0) return;
     if (loadingId != null) setAutoLoading(loadingId);
     setRunProg({ done: 0, total: names.length });
