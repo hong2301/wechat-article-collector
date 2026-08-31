@@ -34,6 +34,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
   const abortRef = useRef<AbortController | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const runningRef = useRef(false);
+  const stopRef = useRef(false);
   runningRef.current = running;
 
   const add = (text: string, color = "#444") => setLogs((p) => [...p, { text, color }]);
@@ -73,7 +74,16 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
         add(`[warn] 点位不完整(${missing.length}个), 执行一键设置(输入锁定, 请勿操作)…`, "#d29922");
         await fetch(API_BASE + "/api/auto-setup/lock", { method: "POST" }).catch(() => {});
         const resp = await fetch(API_BASE + "/api/auto-setup/run-all", { method: "POST", signal: sig });
-        await readSSE(resp, (d) => { if (d.msg) emit(d.msg); });
+        await readSSE(resp, (d) => {
+          if (d.msg) {
+            emit(d.msg);
+            // 后端输入锁收到 ESC -> 一键设置停止 -> 前端置停止标志, 后续步骤整体中止
+            if (d.msg.includes("已停止") || d.msg.includes("已请求停止") ||
+                d.msg.includes("手动放弃") || d.msg.includes("已放弃")) {
+              stopRef.current = true;
+            }
+          }
+        });
         await fetch(API_BASE + "/api/auto-setup/unlock", { method: "POST" }).catch(() => {});
         add("[ok] 一键设置完成", "#3fb950");
       } else {
@@ -81,6 +91,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
       }
 
       // ---- 2 滚动设置: 按点位自动获取 ----
+      if (stopRef.current) { add("[warn] 已停止: 不再继续(滚动设置)", "#d29922"); setFailed(true); return; }
       add("[step] 按点位自动获取滚动距离…", "#58a6ff");
       for (const sid of [3, 5]) {
         const d = await (await fetch(`${API_BASE}/api/auto-setup/scroll/${sid}`, { method: "POST", signal: sig })).json();
@@ -89,6 +100,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
       }
 
       // ---- 3 公众号检查: 无则添加测试公众号 ----
+      if (stopRef.current) { add("[warn] 已停止: 不再继续(公众号检查)", "#d29922"); setFailed(true); return; }
       add("[step] 检查公众号列表…", "#58a6ff");
       const ad = await (await fetch(API_BASE + "/api/accounts?page=1&page_size=1", { signal: sig })).json();
       // 兼容: page=0 返回纯数组, page>=1 返回 {total,items}
@@ -111,6 +123,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
       }
 
       // ---- 4 采集: 时间=今天, 第二行4开关(4指标/阅读数/保存Html/评论采集)全关 ----
+      if (stopRef.current) { add("[warn] 已停止: 不再继续(采集)", "#d29922"); setFailed(true); return; }
       add("[step] 开始采集「" + nme + "」(今天, 4指标/阅读数/保存Html/评论采集均关闭)…", "#58a6ff");
       const today = new Date().toLocaleDateString("sv-SE");   // 本地日期 yyyy-mm-dd(非UTC)
       const payload = {
@@ -160,6 +173,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
   useEffect(() => {
     const esc = (ev: KeyboardEvent) => {
       if (ev.key === "Escape" && open && runningRef.current) {
+        stopRef.current = true;               // 置整体停止标志(后续步骤不再开始)
         add("[warn] 已请求退出: 停止当前步骤…", "#d29922");
         abortRef.current?.abort();
         fetch(API_BASE + "/api/collect/stop", { method: "POST" }).catch(() => {});
@@ -178,7 +192,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
   }, [open]);
 
   return (
-    <Modal mask={{ closable: false }} open={open} onCancel={onClose} footer={null} width={780} title="快速开始" destroyOnHidden>
+    <Modal mask={{ closable: false }} open={open} onCancel={onClose} keyboard={false} footer={null} width={780} title="快速开始" destroyOnHidden>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, height: 420 }}>
         {running && (
           <div style={{ padding: "8px 10px", borderRadius: 8, background: "#fff8e1", border: "1px solid #ffe082", fontSize: 13, color: "#b26a00" }}>
