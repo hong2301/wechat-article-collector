@@ -745,6 +745,116 @@ def clear_clipboard():
         u32.CloseClipboard()
 
 
+# ===========================================================================
+# 系统截图热键防护: 采集期间禁用 Win+Shift+S / PrintScreen(与任务栏隐藏同步)
+# ===========================================================================
+_snip_hook = None            # 低层键盘钩子句柄
+_snip_ready = False          # 钩子线程已就绪(消息循环在跑)
+_VK_SNAPSHOT = 0x2C          # PrintScreen
+_VK_LWIN, _VK_RWIN = 0x5B, 0x5C
+_VK_SHIFT = 0x10
+_WM_KEYDOWN = 0x0100
+_WH_KEYBOARD_LL = 13
+_HOOKPROC = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_int, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM)
+_kbd_lock = threading.Lock()
+
+
+@_HOOKPROC
+def _ll_kbd_proc(nCode, wParam, lParam):
+    """低层键盘钩子: 吞掉 PrintScreen 与 Win(+Shift)+S 截图热键"""
+    if nCode == 0 and wParam in (_WM_KEYDOWN, 0x0104):   # WM_KEYDOWN / WM_SYSKEYDOWN
+        try:
+            class _KBDLL(ctypes.Structure):
+                _fields_ = [("vkCode", ctypes.c_ulong), ("scanCode", ctypes.c_ulong),
+                            ("flags", ctypes.c_ulong), ("time", ctypes.c_ulong),
+                            ("dwExtraInfo", ctypes.c_ulong)]
+            kb = _KBDLL.from_address(lParam)
+            vk = kb.vkCode
+            if vk == _VK_SNAPSHOT:
+                return 1                                # 吞 PrintScreen
+            if vk in (ord('S'), ord('W'), ord('K')) and (
+                    _u32().GetAsyncKeyState(_VK_LWIN) & 0x8000 or
+                    _u32().GetAsyncKeyState(_VK_RWIN) & 0x8000):
+                return 1                                # 吞 Win+S / Win+Shift+S / Win+K
+        except Exception:
+            pass
+    return _u32().CallNextHookEx(_snip_hook, nCode, wParam, lParam)
+
+
+def _snip_hook_thread():
+    """钩子线程: 跑消息循环保持钩子存活(daemon, 进程退出自动结束)"""
+    global _snip_ready
+    _snip_ready = True
+    msg = ctypes.wintypes.MSG()
+    while _u32().GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+        _u32().TranslateMessage(ctypes.byref(msg))
+        _u32().DispatchMessageW(ctypes.byref(msg))
+
+
+def disable_snipping():
+    """禁用系统截图热键(PrintScreen / Win+Shift+S), 返回是否成功; 幂等"""
+    global _snip_hook, _snip_ready
+    with _kbd_lock:
+        if _snip_hook:                       # 已禁用, 幂等
+            return True
+        try:
+            import winreg
+            k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Control Panel\Keyboard",
+                               0, winreg.KEY_SET_VALUE)
+            try:
+                winreg.SetValueEx(k, "PrintScreenKeyForSnippingEnabled", 0,
+                                  winreg.REG_SZ, "0")   # PrtScn 直开截图关闭(新Win)
+            finally:
+                winreg.CloseKey(k)
+        except Exception:
+            pass
+        try:
+            _hook = _u32().SetWindowsHookExW(_WH_KEYBOARD_LL, _ll_kbd_proc,
+                                             None, 0)   # 全局钩子, 回调在当前线程
+        except Exception:
+            _hook = None
+        if not _hook:
+            return False
+        _snip_hook = _hook
+        threading.Thread(target=_snip_hook_thread, daemon=True).start()
+        return True
+
+
+def enable_snipping():
+    """恢复系统截图热键; 幂等"""
+    global _snip_hook
+    with _kbd_lock:
+        if _snip_hook:
+            try:
+                _u32().UnhookWindowsHookEx(_snip_hook)
+            except Exception:
+                pass
+            _snip_hook = None
+        try:
+            import winreg
+            k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Control Panel\Keyboard",
+                               0, winreg.KEY_SET_VALUE)
+            try:
+                winreg.DeleteValue(k, "PrintScreenKeyForSnippingEnabled")
+            except FileNotFoundError:
+                pass
+            finally:
+                winreg.CloseKey(k)
+        except Exception:
+            pass
+        return True
+
+
+def hide_taskbar():
+    """隐藏底部任务栏(采集时屏幕全高); 返回是否成功"""
+    hwnd = _find_taskbar()
+    if not hwnd:
+        return False
+    _u32().ShowWindow(hwnd, SW_HIDE)
+    disable_snipping()          # 同步禁用截图热键
+    return True
+
+
 def _find_taskbar():
     """Windows 任务栏窗口句柄(Shell_TrayWnd)"""
     return _u32().FindWindowW("Shell_TrayWnd", None)
@@ -765,6 +875,7 @@ def show_taskbar():
     if not hwnd:
         return False
     _u32().ShowWindow(hwnd, SW_SHOW)
+    enable_snipping()           # 同步恢复截图热键
     return True
 
 
@@ -825,7 +936,7 @@ __all__ = [
     "enable_dpi_awareness",
     # 窗口
     "find_windows", "show_window", "close_window", "move_window",
-    "hide_taskbar", "show_taskbar",
+    "hide_taskbar", "show_taskbar", "disable_snipping", "enable_snipping",
     # 鼠标
     "mouse_click", "scroll", "preview_point", "capture_point",
     "get_latest_click", "clear_latest_click",

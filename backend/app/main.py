@@ -90,14 +90,29 @@ def startup():
     threading.Thread(target=ocr_service.init, daemon=True).start()
 
 
+def _restore_desktop():
+    """兜底: 恢复任务栏+截图热键(幂等; 任务栏已显示则无事可做)"""
+    try:
+        from .core import computer as pc
+        pc.show_taskbar()          # 内部同时 enable_snipping
+    except Exception:
+        pass
+
+
+@app.on_event("startup")
+def startup():
+    """后端启动兜底: 上一次异常退出(强杀/崩溃)可能遗留隐藏任务栏, 启动即恢复"""
+    threading.Thread(target=_restore_desktop, daemon=True).start()
+
+
 @app.on_event("shutdown")
 def shutdown():
     """后端退出: 恢复任务栏(防采集结束时任务栏仍隐藏/异常退出遗留)"""
-    try:
-        from .core import computer as pc
-        pc.show_taskbar()
-    except Exception:
-        pass
+    _restore_desktop()
+
+
+import atexit as _atexit
+_atexit.register(_restore_desktop)   # uvicorn 干净退出兜底
 
 
 @app.get("/api/health")

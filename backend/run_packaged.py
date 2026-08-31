@@ -44,7 +44,12 @@ def start_watchdog(parent_pid):
         while True:
             time.sleep(3)
             if not _is_parent_alive(parent_pid):
-                print(f"[watchdog] 主程序(pid={parent_pid})已退出, 本进程自动关闭")
+                print(f"[watchdog] 主程序(pid={parent_pid})已退出, 先恢复任务栏再自动关闭")
+                try:
+                    from app.core import computer as pc
+                    pc.show_taskbar()          # 兜底: 父进程消失前恢复任务栏/截图热键
+                except Exception:
+                    pass
                 os._exit(0)
     threading.Thread(target=loop, daemon=True).start()
     print(f"[watchdog] 已启用: 监听主程序 pid={parent_pid}")
