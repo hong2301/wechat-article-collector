@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import json
 """SQLite 数据库连接 + 建表
 单文件: data/collector.db; 后续多表(设置/文章/评论等)在这里扩展"""
 import os
@@ -107,6 +108,26 @@ def init_db():
             value TEXT DEFAULT ''
         );
         """)
+        # 冲突软件表: 采集/自动设置期间可能干扰屏幕的其他软件(窗口标题/进程名称均可多个)
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS conflict_apps (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            name          TEXT NOT NULL,
+            window_titles TEXT DEFAULT '[]',     -- JSON 数组: 窗口标题(子串匹配)
+            process_names TEXT DEFAULT '[]'      -- JSON 数组: 进程名(不区分大小写)
+        );
+        """)
+        # 种子: 已知可能干扰采集的软件(幂等, 用户可改)
+        _seed_conflicts = [
+            ("有道翻译", ["有道翻译", "有道词典", "有道", "youdao"], ["youdao-dict.exe", "youdao-dictangel.exe", "youdaodict.exe"]),
+            ("企业微信", ["企业微信", "WeCom"], ["WXWork.exe"]),
+        ]
+        for _nm, _titles, _procs in _seed_conflicts:
+            _cnt = conn.execute("SELECT COUNT(*) FROM conflict_apps WHERE name=?", (_nm,)).fetchone()[0]
+            if _cnt == 0:
+                conn.execute("INSERT INTO conflict_apps(name, window_titles, process_names) VALUES(?,?,?)",
+                             (_nm, json.dumps(_titles, ensure_ascii=False), json.dumps(_procs, ensure_ascii=False)))
+        conn.commit()
         # biz 唯一(同 biz 不允许重复公众号)
         try:
             conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_biz ON accounts(biz)")
