@@ -106,73 +106,6 @@ def _text_brightness(crop):
         return 255.0
 
 
-def _region_sample(sbox, box=None, img=None):
-    """通用: 截取 sbox 区域像素采样(深色像素)
-    img 给定时从该 PIL 图裁剪(sbox相对图内+box偏移对应图区域), 否则 ImageGrab 抓当前屏幕
-    返回: [RGB元组,...]; 失败返回 None"""
-    if not sbox or len(sbox) < 4 or box is None:
-        return None
-    try:
-        if img is not None:
-            # sbox 相对截图坐标(截图时OCR基于该图), 直接用, 不加box偏移
-            crop = img.crop((min(p[0] for p in sbox), min(p[1] for p in sbox),
-                             max(p[0] for p in sbox), max(p[1] for p in sbox)))
-            samples = [crop.getpixel((x, y)) for y in range(0, crop.size[1], 2)
-                       for x in range(0, crop.size[0], 2)]
-        else:
-            from PIL import ImageGrab
-            xs = [p[0] for p in sbox]
-            ys = [p[1] for p in sbox]
-            abs_box = (box[0] + min(xs), box[1] + min(ys),
-                       box[0] + max(xs), box[1] + max(ys))
-            img = ImageGrab.grab(bbox=abs_box).convert("RGB")
-            w, h = img.size
-            samples = [img.getpixel((x, y)) for y in range(0, h, 2)
-                       for x in range(0, w, 2)]
-        dark = [p for p in samples if sum(p) < 650]   # 深色像素(文字)
-        return dark if dark else None
-    except Exception:
-        return None
-
-
-def _region_grayish(sbox, box=None, img=None):
-    """判断 sbox 区域主色是否为灰色系(时间点位文字: 三通道接近, 中等亮度)
-    返回 True/False; box 为空或失败返回 None(不判定/不阻断)
-    img 给定时基于该图像素, 否则 ImageGrab 抓屏幕"""
-    dark = _region_sample(sbox, box, img)
-    if not dark:
-        return None
-    r = sum(p[0] for p in dark) / len(dark)
-    g = sum(p[1] for p in dark) / len(dark)
-    b = sum(p[2] for p in dark) / len(dark)
-    spread = max(r, g, b) - min(r, g, b)
-    avg = (r + g + b) / 3
-    # 灰色系: 三通道接近(spread小) 且 中等亮度
-    return spread < 45 and 100 <= avg <= 210
-
-
-def text_color(sbox, box=None):
-    """通用: 判断 sbox 区域文字主色调(平均色判定, 同 _region_grayish 思路)
-    返回: 'blue'(蓝调: B明显高于R且不低于G) / 'gray'(灰系: 三通道接近+中等亮度)
-          / 'black'(深黑) / 'other'; 无深色或失败返回 None"""
-    dark = _region_sample(sbox, box)
-    if not dark:
-        return None
-    r = sum(p[0] for p in dark) / len(dark)
-    g = sum(p[1] for p in dark) / len(dark)
-    b = sum(p[2] for p in dark) / len(dark)
-    spread = max(r, g, b) - min(r, g, b)
-    avg = (r + g + b) / 3
-    # 蓝调: B 明显高于 R 且不低于 G (余下按钮实测) / 灰系: 三通道接近+中等亮度
-    if b > r + 15 and b >= g:
-        return "blue"
-    if spread < 45 and 100 <= avg <= 210:
-        return "gray"
-    if avg < 60 and spread < 60:
-        return "black"
-    return "other"
-
-
 def extract_reads(text):
     """从文本中提取阅读数, 提取不到返回 None
     如: '阅读730赞8' -> 730, '昨天 阅读 117' -> 117, '阅读10万+' -> 100000"""
@@ -263,12 +196,12 @@ def classify_items(items, box=None):
         m_read = re.search(r"阅读\s*\d+", text or "")    # '阅读'+数字
         m_pay = "付费" in (text or "")                    # '付费'(可能无阅读)
         if has_time and not m_read:
-            # 时间点位: 浅灰白文字(亮度>=140) + 灰色系校验
+            # 时间点位: 浅灰白文字(亮度>=140) + 灰字灰底校验
             if brightness < TIME_BRIGHT_MIN:
                 continue                      # 深色 -> 非时间点位
-            gray = _region_grayish(sbox, box)
-            if gray is False:
-                continue                      # 非灰 -> 非时间点位
+            cols = gray_on_gray(sbox, box)
+            if cols is False:
+                continue                      # 非灰字灰底 -> 非时间点位
             d = resolve_date(text)
             data = {"time": d.strftime("%Y/%m/%d") if d else None,
                     "reads": None, "likes": None}
@@ -336,3 +269,23 @@ def color_sort(img, region=None, top=4):
         counts[q] = counts.get(q, 0) + 1
     return [(rgb, c, _name_color(rgb))
             for rgb, c in sorted(counts.items(), key=lambda kv: -kv[1])[:top]]
+
+
+def gray_on_gray(sbox, box=None):
+    """时间点位判定: 文字框前两主色均为灰系(灰字灰底)
+    与 classify_items 配套; sbox 相对截图坐标 + box 区域左上角 -> 屏幕绝对区域
+    返回 True/False; 取色失败返回 None(不阻断, 语义同原 _region_grayish)
+    """
+    if not sbox or len(sbox) < 4 or box is None:
+        return None
+    try:
+        from PIL import ImageGrab
+        full = ImageGrab.grab().convert("RGB")
+        cols = color_sort(full, region=(
+            box[0] + min(p[0] for p in sbox), box[1] + min(p[1] for p in sbox),
+            box[0] + max(p[0] for p in sbox), box[1] + max(p[1] for p in sbox)))
+    except Exception:
+        return None
+    if not cols:
+        return None
+    return {c for _, _, c in cols[:2]}.issubset({"灰"})
