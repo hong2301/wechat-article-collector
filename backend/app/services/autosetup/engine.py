@@ -110,8 +110,19 @@ def _flow_point18_three_dots(ctx):
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
 
+    # 调试: 探测截图存桌面 点位18调试/(命名=第几次尝试_第几次截图)
+    try:
+        from pathlib import Path
+        _home = Path.home()
+        _desk = (_home / "OneDrive" / "Desktop") if (_home / "OneDrive" / "Desktop").exists() else (_home / "Desktop")
+        _dbg = _desk / "点位18调试"
+        _dbg.mkdir(exist_ok=True)
+    except Exception:
+        _dbg = None
+
     def attempt():
         """一次完整探测(初始化窗口+几何+横向扫描) -> (x,y) 命中; None 需完全重来"""
+        snap_no = [0]
         # 完整调用: 微信窗口初始化 + 采集器 + 搜一搜窗口初始化
         ok_wx, txt_wx = tasks_svc.init_wechat_window()
         if not ok_wx:
@@ -145,8 +156,14 @@ def _flow_point18_three_dots(ctx):
 
         def snap():
             # 截图范围: 宽=左半屏中线(sw/4) 到 屏幕中线(sw/2); 高=搜一搜按钮y×2
-            return np.array(ImageGrab.grab(
-                bbox=(half_w // 2, 0, half_w, base_y * 2)).convert("RGB"))
+            _im = ImageGrab.grab(bbox=(half_w // 2, 0, half_w, base_y * 2)).convert("RGB")
+            snap_no[0] += 1
+            if _dbg is not None:
+                try:
+                    _im.save(_dbg / f"{attempt_no}_{snap_no[0]}.png")
+                except Exception:
+                    pass
+            return np.array(_im)
 
         def changed(a, b):
             return (np.abs(a.astype(int) - b.astype(int)).sum(axis=2) > 15).mean()
@@ -192,7 +209,7 @@ def _flow_point18_three_dots(ctx):
         return None
 
     # 完全重试: 每次从窗口初始化+几何重建开始(不循环部分逻辑)
-    for attempt_idx in range(3):
+    for attempt_no in range(1, 4):
         got = attempt()
         if got:
             return got
