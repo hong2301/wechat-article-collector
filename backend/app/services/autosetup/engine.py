@@ -151,7 +151,7 @@ def _flow_point18_three_dots(ctx):
         u32_ = _pc._u32()
         sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
         half_w = sw_ // 2
-        base_y = int(p14[1])                      # y = 搜一搜按钮的y
+        base_y = max(1, int(p14[1]) // 2)           # y = 点位14的y / 2(按钮高度一半处)
         raw_step = max(1, (int(p14[0]) - x_left) // 30)   # 搜索按钮到窗口左边 / 30
 
         def snap():
