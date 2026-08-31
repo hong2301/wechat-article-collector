@@ -15,7 +15,7 @@ from .engine import _ensure_wechat  # noqa: F401
 
 def _top2_colors(img, region):
     """白色区域主色: 取文字框内像素按颜色出现频率排序的前两主色(降采样+量化去噪)
-    返回 [(r,g,b), (r,g,b)] 或 None(区域太小)"""
+    返回 [(r,g,b), (r,g,b)] 或 None(区域太小/不足两色)"""
     crop = img.crop(region)
     if crop.width < 4 or crop.height < 4:
         return None
@@ -26,16 +26,7 @@ def _top2_colors(img, region):
         counts[q] = counts.get(q, 0) + 1
     if len(counts) < 2:
         return None
-    top = [c for c, _ in sorted(counts.items(), key=lambda kv: -kv[1])[:2]]
-    return top
-
-
-def _is_bilevel(top2):
-    """自然语言校验: 前两主色应是一明一暗(黑字白底), 不管顺序
-    用两主色亮度之差的相对判断, 不卡绝对值, 跨显示器稳健"""
-    l0 = sum(top2[0])
-    l1 = sum(top2[1])
-    return abs(l0 - l1) > 200   # 一极亮一极暗(如白-黑 / 白-深灰 均成立)
+    return [c for c, _ in sorted(counts.items(), key=lambda kv: -kv[1])[:2]]
 
 
 # 点位 12: 微信左上角搜索网络 (依赖点位11已设值)
@@ -70,11 +61,12 @@ def _flow_point12_search_network(ctx):
         for cx, cy, text, score, sbox, _bright in ctx.ocr_box(img):
             if "网络结果" not in text:
                 continue
-            # 校验: OCR 文字框内取两主色 -> 应为一明一暗(黑字白底, 不管顺序)
+            # 校验: OCR 文字框内取 RGB 出现频率排序前两主色(代表字色与背景色)
+            # 不做亮度/色差过滤, 黑-灰/深-浅 这类搭配不同电脑判定一致
             top2 = _top2_colors(img, (min(p[0] for p in sbox), min(p[1] for p in sbox),
                                        max(p[0] for p in sbox), max(p[1] for p in sbox)))
-            if not top2 or not _is_bilevel(top2):
-                log.info(f"点位12 文本命中但颜色不符({top2}): {text}")
+            if not top2:
+                log.info(f"点位12 文本命中但取不到前两主色: {text}")
                 continue
             log.info(f"点位12 识别成功: 文本={text} box=({cx},{cy}) 两主色={top2}")
             return cx, cy

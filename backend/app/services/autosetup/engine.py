@@ -331,6 +331,10 @@ def run_all_points_stream(names: str = ""):
             else:
                 fail_n += 1
                 yield f"[fail] ✗ {name}: {errtxt}"
+                # 任一点位失败: 立即停止后续点位(可单独重试失败点位)
+                stopped = True
+                yield "[warn] 点位识别失败, 一键设置已停止, 可单独重试该点位"
+                break
     except StopFlow:
         # ESC 注入: 当前点位整流程直接放弃, 正常收尾
         stopped = True

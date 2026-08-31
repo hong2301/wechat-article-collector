@@ -47,8 +47,8 @@ test.describe("首页 UI 冒烟", () => {
   test("@dev 本轮操作后后端日志无异常(Traceback)", async () => {
     // 只查本轮(测试启动后)的新增日志段
     const fs = require("fs");
-    const base = fs.existsSync("e2e/.baseline")
-      ? Number(fs.readFileSync("e2e/.baseline", "utf8")) : 0;
+    const base = fs.existsSync("tests/.baseline")
+      ? Number(fs.readFileSync("tests/.baseline", "utf8")) : 0;
     await assertLogClean(base);
   });
 });
