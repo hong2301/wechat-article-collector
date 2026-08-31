@@ -247,16 +247,18 @@ def _name_color(rgb):
     return "彩"
 
 
-def color_sort(img, region=None, top=4):
+def color_sort(img, region=None, top=4, merge=True):
     """按 RGB 出现频率对图片主色排序, 每项带色系名称(判定留给调用方)
 
     参数:
       img    PIL Image
       region 可选 (x1, y1, x2, y2); None=整图
       top    返回前 top 名
+      merge  True(默认) 同色系合并: 每种色系一条(rgb=加权平均, count=求和)
+             例: 灰字白底 -> [(灰均值, 灰像素数, '灰'), (白均值, 白像素数, '白'), ...]
+             False 输出未合并的量化桶(可能同色系多档, 如多个深浅不同的灰)
 
     返回: [(rgb, count, 色系名称), ...] 从多到少
-      例: 白底黑字 -> [(白,..), (黑,..), ...]; 灰底灰字 -> [(灰,..), (灰,..), ...]
     """
     if region is not None:
         img = img.crop(region)
@@ -267,8 +269,24 @@ def color_sort(img, region=None, top=4):
     for px in small.getdata():
         q = ((px[0] // 40) * 40, (px[1] // 40) * 40, (px[2] // 40) * 40)
         counts[q] = counts.get(q, 0) + 1
-    return [(rgb, c, _name_color(rgb))
-            for rgb, c in sorted(counts.items(), key=lambda kv: -kv[1])[:top]]
+    buckets = sorted(counts.items(), key=lambda kv: -kv[1])[:top]
+    if not merge:
+        return [(rgb, c, _name_color(rgb)) for rgb, c in buckets]
+    # 合并同色系: rgb 按 count 加权平均, count 求和, 按合并后 count 降序
+    merged = {}
+    for rgb, c in buckets:
+        name = _name_color(rgb)
+        if name not in merged:
+            merged[name] = [0, 0, 0, 0]          # r,g,b,count
+        w = merged[name]
+        w[0] += rgb[0] * c; w[1] += rgb[1] * c; w[2] += rgb[2] * c
+        w[3] += c
+    out = []
+    for name, w in merged.items():
+        rgb_avg = (w[0] // w[3], w[1] // w[3], w[2] // w[3])
+        out.append((rgb_avg, w[3], name))
+    out.sort(key=lambda t: -t[1])
+    return out[:top]
 
 
 def gray_on_gray(sbox, box=None):
