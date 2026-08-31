@@ -771,11 +771,14 @@ def _ll_kbd_proc(nCode, wParam, lParam):
             kb = _KBDLL.from_address(lParam)
             vk = kb.vkCode
             if vk == _VK_SNAPSHOT:
-                return 1                                # 吞 PrintScreen
+                return 1                                # 吞 PrintScreen(含 Alt+PrtSc)
             if vk in (ord('S'), ord('W'), ord('K')) and (
                     _u32().GetAsyncKeyState(_VK_LWIN) & 0x8000 or
                     _u32().GetAsyncKeyState(_VK_RWIN) & 0x8000):
                 return 1                                # 吞 Win+S / Win+Shift+S / Win+K
+            if vk in (ord('A'), ord('X')) and (
+                    _u32().GetAsyncKeyState(VK_MENU) & 0x8000):
+                return 1                                # 吞 Alt+A / Alt+X(微信/输入法截图热键)
         except Exception:
             pass
     return _u32().CallNextHookEx(_snip_hook, nCode, wParam, lParam)
