@@ -157,11 +157,11 @@ def _flow_point18_three_dots(ctx):
         cx = x_right
         first_click = True
         overshoot = False   # 步长过大标志
-        while cx > int(p14[0]):   # 扫到搜一搜按钮为止(越过即步长过大)
+        while cx > half_w // 2:   # 扫过左半屏中线(sw/4)仍无目标 => 步长过大
             # 横向探测: 移动鼠标(不点击)触发 hover 变化
             _pc._u32().SetCursorPos(cx, base_y)
-            # 第一下动完等3s, 其余0.5s
-            _time.sleep(3.0 if first_click else 0.5)
+            # 第一下动完等3s, 其余1.5s
+            _time.sleep(3.0 if first_click else 1.5)
             first_click = False
             cur = snap()
             if changed(cur, prev) > 0.001:
@@ -194,8 +194,8 @@ def _flow_point18_three_dots(ctx):
             cx -= step
         if overshoot:
             continue   # 确认有变化 => 步长过大, 下一轮更小步长重试
-        # while 正常结束(扫过搜一搜按钮)仍未凑满4次变化 => 步长过大
-        log.warning("点位18 扫过搜一搜按钮仍未达4次变化, 步长过大, 换更小步长")
+        # while 正常结束(已过左半屏中线)仍未凑满4次变化 => 步长过大
+        log.warning("点位18 扫过左半屏中线仍未达4次变化, 步长过大, 换更小步长")
     log.warning("点位18 探测未命中(多次步长过大或扫过按钮)")
     return None, None
 def run_point_flow(name: str, attach: bool = True):
