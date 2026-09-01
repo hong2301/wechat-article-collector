@@ -45,6 +45,7 @@ def _flow_point12_search_network(ctx):
         _items = ctx.ocr_box(img)
         _ocrt = [it[2] for it in _items if len(it) > 2 and it[2]]
         log.info(f"点位12 第{attempt+1}次截图OCR文本({len(_ocrt)}): {' | '.join(_ocrt[:15])}")
+        _fail_cand = []
         for cx, cy, text, score, sbox, _bright in _items:
             _cx_abs, _cy_abs = wr[0] + int(cx), wr[1] + int(cy)
             if "网络结果" not in text:
@@ -55,10 +56,15 @@ def _flow_point12_search_network(ctx):
                 max(p[0] for p in sbox), max(p[1] for p in sbox)))
             colset = {c for _, _, c in cols[:2]}
             if not cols or "白" not in colset or not ({"黑", "灰"} & colset):
+                _fail_cand.append(f"{text!r} 颜色={[(r, n) for r, c, n in (cols or [])[:2]]}")
                 log.info(f"点位12 文本命中但颜色不符({cols}): {text}")
                 continue
             log.info(f"点位12 识别成功: 文本={text} box=({_cx_abs},{_cy_abs}) 颜色排序={cols}")
             return _cx_abs, _cy_abs
+        if attempt == 2:
+            log.warning("点位12 失败现场: "
+                        + (f"候选={_fail_cand} " if _fail_cand else "OCR未识别到'网络结果'文本 ")
+                        + f"全部OCR({len(_ocrt)})={_ocrt[:10]}")
         if attempt == 1:
             # 兜底: 重复点位11动作(下拉未弹出时)
             ctx.click(p11[0], p11[1], wait_after=0.2)
