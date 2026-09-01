@@ -43,27 +43,22 @@ def _flow_article_bar_find(ctx):
         return None
     _w, _h = wr[2] - wr[0], wr[3] - wr[1]
 
-    ok_q, txt_q = tasks_svc.search_query(ARTICLE_LINK_DEMO_BAR)   # 仅30/31用新链接
+    ok_q, _txt = tasks_svc.search_query(ARTICLE_LINK_DEMO_BAR)   # 仅30/31用新链接
     if not ok_q:
-        log.warning(f"点位30/31 查询文章链接失败(静默前): {txt_q}")
         return None
     _time.sleep(5.0)
 
     # 截微信窗口最下2/10, OCR找"关注"box(1/10窄条OCR不稳; 关注按钮在最底部)
     y0_1, y1_1 = wr[1] + _h * 8 // 10, wr[3]
     shot = ImageGrab.grab(bbox=(wr[0], y0_1, wr[2], y1_1)).convert("RGB")
-    _it30 = ctx.ocr_box(shot)
-    _t30 = [it[2] for it in _it30 if len(it) > 2 and it[2]]
-    log.info(f"点位30/31 OCR文本({len(_t30)}): {' | '.join(_t30[:15])}")
     hit = None
-    for cx, cy, text, score, sbox, _br in _it30:
+    for cx, cy, text, score, sbox, _br in ctx.ocr_box(shot):
         if "关注" in text:
             ys = [p[1] for p in sbox]
             h = max(ys) - min(ys)
             hit = (wr[0] + int(cx), y0_1 + int(cy), h)   # 截图起点为窗口: 加x偏移
             break
     if not hit:
-        log.warning("点位30/31 未识别到'关注'(文章页可能未打开/关注按钮不在此区域)")
         return None
     cx_abs, cy_abs, box_h = hit
 
