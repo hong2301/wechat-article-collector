@@ -59,6 +59,13 @@ def _setup_logging():
         else:
             root.handlers[:] = [_rfh, _efh]   # 替换旧 FileHandler/手动 trim
         root.setLevel(logging.INFO)   # info 级日志(点位识别等)也入文件, 便于排查
+        # 过滤: uvicorn 访问日志里的健康轮询(wechat-status 每秒一次, 刷屏无信息量)
+        class _SlimAccess(logging.Filter):
+            def filter(self, record):
+                msg = record.getMessage()
+                return "wechat-status" not in msg
+        _access = logging.getLogger("uvicorn.access")
+        _access.addFilter(_SlimAccess())
         # print()/uvicorn 控制台输出也入文件(打包版无控制台时至少落盘)
         try:
             _logger_file = open(logfile, "a", encoding="utf-8")
