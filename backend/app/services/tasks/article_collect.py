@@ -88,11 +88,12 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             colset = {c for _, _, c in cols[:2]}
             if not cols or "白" not in colset or not ({"黑", "灰"} & colset):
                 continue   # 非黑/灰字白底 -> 排除
-            # 点击坐标: sbox是截图内相对坐标, 加区域左上角(x1,y1)偏移成屏幕坐标, 取box中心
-            xs = [p[0] + x1 for p in sbox]
-            ys = [p[1] + y1 for p in sbox]
-            click_x = int(sum(xs) / len(xs))
-            click_y = int(sum(ys) / len(ys))
+            # 点击坐标: sbox 相对截图 -> 屏幕绝对(统一 ocr_abs, DPI按比例)
+            _cx0, _cy0 = ocr_service.ocr_abs(_im, (x1, y1, x2, y2),
+                                             min(p[0] for p in sbox), min(p[1] for p in sbox))
+            _cx1, _cy1 = ocr_service.ocr_abs(_im, (x1, y1, x2, y2),
+                                             max(p[0] for p in sbox), max(p[1] for p in sbox))
+            click_x, click_y = (_cx0 + _cx1) // 2, (_cy0 + _cy1) // 2
             logs.append(f"识别文章标记: {text!r} @({click_x},{click_y})")
             tasks_echo(f"识别文章标记: {text!r} @({click_x},{click_y})")
             pc.mouse_click(click_x, click_y)
@@ -149,9 +150,11 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
                 # 格式校验即可(余下N篇字样非常特异, 不需要颜色判定)
                 if not text or not re.search(r"余下\s*\d+\s*篇", text):
                     continue
-                xs = [p[0] + x1 for p in sbox]
-                ys = [p[1] + y1 for p in sbox]
-                btn = (int(sum(xs) / len(xs)), int(sum(ys) / len(ys)), text)
+                _bx0, _by0 = ocr_service.ocr_abs(_im, (x1, y1, x2, y2),
+                                                min(p[0] for p in sbox), min(p[1] for p in sbox))
+                _bx1, _by1 = ocr_service.ocr_abs(_im, (x1, y1, x2, y2),
+                                                max(p[0] for p in sbox), max(p[1] for p in sbox))
+                btn = ((_bx0 + _bx1) // 2, (_by0 + _by1) // 2, text)
                 break
             if btn:
                 echo(f"识别到'余下'加载更多按钮: {btn[2]!r} @({btn[0]},{btn[1]}), 点击后重新截图")
@@ -167,7 +170,7 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             # 诊断: 本轮 OCR 原始文本(前20条), 确认日期文本是否被识别/可见
             _ocr_texts = [it[2] for it in items if it and len(it) > 2 and it[2]]
             echo(f"第{loop_n}轮OCR原始文本({len(_ocr_texts)}): {' | '.join(_ocr_texts[:20])}")
-            classified = ocr_service.classify_items(items, box=(x1, y1))
+            classified = ocr_service.classify_items(items, box=(x1, y1, x2, y2), img=img)
         except Exception as e:
             echo(f"第{loop_n}轮分类失败: {e}")
             return False, f"第{loop_n}轮分类失败: {e}"

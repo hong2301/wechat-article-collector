@@ -174,12 +174,32 @@ def resolve_date(text, today=None):
     return None
 
 
-def classify_items(items, box=None):
+
+def _abs_sbox(pt, sbox, box, img):
+    """sbox 单点 -> 屏幕绝对(统一换算; img+完整bbox 走 shot_abs 比例, 否则直加)"""
+    return ocr_abs(img, box, int(pt[0]), int(pt[1]))
+
+
+def ocr_abs(img, bbox, x, y):
+    """图像相对坐标 -> 屏幕绝对坐标(全项目唯一换算入口)
+    img 给且 bbox 含 x2,y2(4元素) 时按 DPI 比例(shot_abs); 否则用 bbox 起点直加(旧行为)"""
+    from ..core import computer as _pc
+    if bbox is None:
+        return int(x), int(y)
+    bbox = tuple(bbox)
+    if img is None or len(bbox) < 4:
+        return int(bbox[0]) + int(x), int(bbox[1]) + int(y)
+    return _pc.shot_abs(img, bbox, x, y)
+
+
+def classify_items(items, box=None, img=None):
     """对 OCR 原始数据分类识别时间/文章点位。
     参数:
       items  ocr() 的原始返回: [(cx, cy, text, score, sbox, brightness)]
              sbox 为相对截图坐标; box=(截图区域左上x,左上y) 用于换算屏幕绝对坐标
-      box   截图区域左上角 (x1,y1); None 时灰字校验跳过
+      box   截图区域 (x1,y1) 或 (x1,y1,x2,y2); None 时灰字校验跳过
+      img   截图 PIL 图(可选): 给出时 sbox->绝对 走 pc.shot_abs(DPI按比例);
+            否则用 box 起点直加(旧行为)
     返回: [(顺序, 点位类型, 点位文本, 点位box坐标, data), ...] 按 y 从上到下
       点位类型: 'time'(时间点位) / 'article'(文章点位, 含'阅读'+数字 或 '付费')
       点位box坐标: [(x1,y1),(x2,y2)...] 屏幕绝对坐标(四角)
@@ -215,14 +235,14 @@ def classify_items(items, box=None):
             data = {"time": d.strftime("%Y/%m/%d"),
                     "reads": None, "likes": None}
             ordered.append((cy, "time", text,
-                            [(int(p[0]) + ox, int(p[1]) + oy) for p in sbox],
+                            [_abs_sbox(p, sbox, box, img) for p in sbox],
                             data))
         elif m_read or m_pay:
             data = {"time": None,
                     "reads": extract_reads(text),
                     "likes": extract_likes(text)}
             ordered.append((cy, "article", text,
-                            [(int(p[0]) + ox, int(p[1]) + oy) for p in sbox],
+                            [_abs_sbox(p, sbox, box, img) for p in sbox],
                             data))
     ordered.sort(key=lambda r: r[0])   # 按 y 排序(从上到下)
     # 文章点位位置校验(不靠颜色): box 的 y / 高度 应与同屏其他点位"差不多"
