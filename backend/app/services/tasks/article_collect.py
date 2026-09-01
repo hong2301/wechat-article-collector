@@ -615,12 +615,9 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
                 break
         step(f"已复制链接: {link[:60]}" if link else "未读取到剪贴板链接")
         if not link:
-            # 未读到: 点击右半屏中点(收起当前3点菜单), 等0.5s, 清剪贴板后进入下一次尝试
-            _sw = ctypes.windll.user32.GetSystemMetrics(0)
-            _sh = ctypes.windll.user32.GetSystemMetrics(1)
-            _mx, _my = int(_sw * 3 / 4), int(_sh / 2)
-            step(f"未读到链接, 点击右半屏中点({_mx},{_my})收起菜单")
-            pc.mouse_click(_mx, _my)
+            # 未读到: 重新点18弹菜单, 等0.5s, 清剪贴板后进入下一次尝试
+            step(f"再次点击点位18(3点)({p18[0]},{p18[1]}), 等0.5s")
+            pc.mouse_click(p18[0], p18[1])
             time.sleep(0.5)
             pc.clear_clipboard()
         else:
