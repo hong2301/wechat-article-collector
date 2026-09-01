@@ -141,6 +141,16 @@ function waitForBackend(timeoutMs = 30000) {
 }
 
 // 退出时清理后端进程树(防残留占 8000 端口)
+function taskbar(action) {
+  // 同步调后端 taskbar(show/hide): 程序启动隐藏, 退出恢复
+  try {
+    execFileSync('curl', ['-s', '-m', '3', '-X', 'POST',
+      `http://127.0.0.1:${BACKEND_PORT}/api/settings/taskbar`,
+      '-H', 'Content-Type: application/json', '-d', `{"action":"${action}"}`],
+      { windowsHide: true, stdio: 'ignore' })
+  } catch (e) { /* 后端不可达忽略 */ }
+}
+
 function killBackend() {
   if (!backendProc || backendProc.killed) return
   // 先兜底恢复任务栏/截图热键(强杀后 Python 端 atexit/shutdown 不触发)
@@ -156,7 +166,10 @@ function killBackend() {
   backendProc = null
 }
 
-app.on('before-quit', killBackend)
+app.on('before-quit', () => {
+  taskbar('show')            // 退出恢复任务栏
+  killBackend()
+})
 
 function createIcon() {
   try {
@@ -297,6 +310,10 @@ app.whenReady().then(async () => {
   }
   createWindow()
   log('主窗口已创建')
+  if (!isDev) {
+    taskbar('hide')          // 程序打开即隐藏任务栏
+    log('任务栏已隐藏(程序启动)')
+  }
   setupAutoUpdater(mainWindow)   // 窗口创建后检查更新 (生产)
 })
 app.on('window-all-closed', () => {
