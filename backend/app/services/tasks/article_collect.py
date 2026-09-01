@@ -619,12 +619,13 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
             _mx, _my = int(_sw * 3 / 4), int(_sh / 2)
             step(f"未读到链接, 点击右半屏中点({_mx},{_my})收起菜单")
             pc.mouse_click(_mx, _my)
-            time.sleep(0.5)
+            time.sleep(1.0)   # 等菜单收起稳定, 下一轮重新点3点
         else:
             break   # 已拿到链接, 跳出
     if not link:
         step(f"{COPY_TRIES}次复制链接均未获取到, 本轮结束")
-        return _finish(logs, copy_seen, False, "未获取到链接")
+        # copy_seen 传 False: 失败时焦点可能已切到采集器(点右半屏中点后), Ctrl+W 会误关采集器窗口
+        return _finish(logs, False, False, "未获取到链接")
 
     # art_biz 同步提取(供 4指标/阅读数 使用, 不依赖写表)
     art = extract_art_biz(link)
