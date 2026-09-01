@@ -209,6 +209,9 @@ def classify_items(items, box=None):
             except Exception:
                 _okc = True                    # 取色失败不阻断(同原 None 语义)
             if _okc is False:
+                _logger_ = logging.getLogger("classify.time")
+                _logger_.log(20, f"时间候选被颜色过滤: {text!r} 主色={[c for _, _, c in (_cols or [])][:3]}") if False else None
+                log_time_reject(text, _cols)
                 continue                      # 非灰+浅色 -> 非时间点位
             d = resolve_date(text)
             data = {"time": d.strftime("%Y/%m/%d") if d else None,
@@ -254,6 +257,17 @@ def classify_items(items, box=None):
 
 __all__ = ["init", "ocr", "classify_items",
            "extract_reads", "extract_likes", "resolve_date"]
+
+
+def log_time_reject(text, cols=None):
+    """诊断: 时间点位颜色判据拒绝时打日志(便于采集时定位原因)"""
+    import logging as _lg
+    try:
+        _lg.getLogger("perf").log(20, "[time-reject] %r 主色=%s", text,
+                                  [c for _, _, c in (cols or [])][:4])
+    except Exception:
+        pass
+
 
 def _name_color(rgb):
     """按常见色系把 (r,g,b) 归名(自然语言): 白/黑/灰/蓝/红/绿/黄/紫/彩"""

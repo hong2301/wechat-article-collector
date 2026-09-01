@@ -173,6 +173,9 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
 
         # 流程二: 分类 -> 截断借时间 -> 配对时间
         try:
+            # 诊断: 本轮 OCR 原始文本(前20条), 确认日期文本是否被识别/可见
+            _ocr_texts = [it[2] for it in items if it and len(it) > 2 and it[2]]
+            echo(f"第{loop_n}轮OCR原始文本({len(_ocr_texts)}): {' | '.join(_ocr_texts[:20])}")
             classified = ocr_service.classify_items(items, box=(x1, y1))
         except Exception as e:
             echo(f"第{loop_n}轮分类失败: {e}")
