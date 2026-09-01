@@ -146,10 +146,10 @@ def _flow_point14_query_button(ctx):
 
         xs = [p[0] for p in box]; ys = [p[1] for p in box]
         ox = max(xs)                       # 原点 x = box 最右
-        oy = min(ys)                       # 原点 y = box 最上
+        oy = max(ys)                       # 原点 y = box 最下(探测线与截图高度覆盖到box底)
         mid_x = int(sum(xs) / len(xs))
         limit_x = sw * 3 // 8              # 上限: 左半屏右半部分的中线 x
-        shot_box = (ox, 0, limit_x, oy)    # 截图范围: x∈[ox,limit_x], y∈[0,oy]
+        shot_box = (ox, 0, limit_x, oy)    # 截图范围: x∈[ox,limit_x], y∈[0,oy]（高度到box底）
 
         def snap():
             return np.array(Image.open(pc.screenshot(*shot_box)[0]).convert("RGB"))
