@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from PIL import Image, ImageGrab
 from ...core import computer as pc
+from ...core import ocr as ocr_service
 import time as _time
 from PIL import ImageGrab
 import numpy as np
