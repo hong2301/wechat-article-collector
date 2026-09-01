@@ -910,15 +910,7 @@ def work_area():
         return None
 
 
-def _find_taskbar():
-    """Windows 任务栏窗口句柄(Shell_TrayWnd)"""
-    return _u32().FindWindowW("Shell_TrayWnd", None)
 
-
-# ===========================================================================
-# 截图：屏幕区域截图（存文件 / 转 base64 / 5参数截图）
-# ===========================================================================
-@obs.timed("shot")
 def screenshot(x1, y1, x2, y2, img_format="png", as_base64=False):
     """【截图】截取屏幕区域，保存到系统缓存目录并返回文件路径。
     参数:

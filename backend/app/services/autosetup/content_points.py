@@ -17,31 +17,6 @@ ARTICLE_LINK_DEMO = "https://mp.weixin.qq.com/s/X7fAdvvZ-Gq_2SW19OKfVw"
 ARTICLE_LINK_DEMO_BAR = "https://mp.weixin.qq.com/s/LrmG9G4qXeo8A0xDAcMX3Q"
 
 
-def _log_wx_rect(tag):
-    """诊断: 打印微信窗口 RECT/屏幕/WorkArea/任务栏可见性(观察任务栏占位影响)"""
-    try:
-        from ...core import computer as _pc
-        from ...services import tasks as _tsvc
-        import ctypes
-        wins = _pc.find_windows(exe=_tsvc.WECHAT_MAIN, visible_only=True)
-        if not wins:
-            log.info(f"点位30 {tag} 无微信窗口")
-            return
-        r = ctypes.wintypes.RECT()
-        _pc._u32().GetWindowRect(wins[0][0], ctypes.byref(r))
-        sw = _pc._u32().GetSystemMetrics(_pc.SM_CXSCREEN)
-        sh = _pc._u32().GetSystemMetrics(_pc.SM_CYSCREEN)
-        tb = _pc._find_taskbar()
-        tb_vis = bool(_pc._u32().IsWindowVisible(tb)) if tb else "无句柄"
-        # WorkArea(不含任务栏区)
-        wa = ctypes.wintypes.RECT()
-        _pc._u32().SystemParametersInfoW(0x0030, 0, ctypes.byref(wa), 0)  # SPI_GETWORKAREA
-        log.info(
-            f"点位30 {tag} 微信RECT=({r.left},{r.top})-({r.right},{r.bottom}) "
-            f"宽{r.right-r.left} 高{r.bottom-r.top} | 屏{sw}x{sh} "
-            f"任务栏可见={tb_vis} WorkArea=({wa.left},{wa.top})-({wa.right},{wa.bottom})")
-    except Exception as e:
-        log.info(f"点位30 {tag} 窗口读取失败: {e}")
 
 
 def _flow_article_bar_find(ctx):
@@ -69,7 +44,6 @@ def _flow_article_bar_find(ctx):
         log.warning(f"点位30/31 搜一搜窗口初始化失败: {txt_sw}")
         return None
     log.info(f"点位30/31 ③搜一搜就位 ✓ {txt_sw[:60]}")
-    _log_wx_rect("③搜一搜后")
     wr = _pc.wechat_rect()                    # 微信窗口(内缩1%)为基准
     if not wr:
         log.warning("点位30/31 未找到微信窗口")
@@ -83,7 +57,6 @@ def _flow_article_bar_find(ctx):
         return None
     log.info(f"点位30/31 ④查询成功 ✓ {txt_q[:60]}")
     _time.sleep(5.0)
-    _log_wx_rect("④查询5s后")
 
     # 截微信窗口最下2/10, OCR找"香柠"锚点文本(1/10窄条OCR不稳; 锚点文本在窗口最下2/10)
     y0_1, y1_1 = wr[1] + _h * 8 // 10, wr[3]
