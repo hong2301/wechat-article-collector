@@ -56,7 +56,7 @@ def _flow_article_bar_find(ctx):
     log.info(f"点位30/31 ④查询成功 ✓ {txt_q[:60]}")
     _time.sleep(5.0)
 
-    # 截微信窗口最下2/10, OCR找"关注"box(1/10窄条OCR不稳; 关注按钮在最底部)
+    # 截微信窗口最下2/10, OCR找"香柠"锚点文本(1/10窄条OCR不稳; 锚点文本在窗口最下2/10)
     y0_1, y1_1 = wr[1] + _h * 8 // 10, wr[3]
     shot = ImageGrab.grab(bbox=(wr[0], y0_1, wr[2], y1_1)).convert("RGB")
     hit = None
@@ -64,13 +64,13 @@ def _flow_article_bar_find(ctx):
     _t30 = [it[2] for it in _it30 if len(it) > 2 and it[2]]
     log.info(f"点位30/31 ⑤OCR文本({len(_t30)}): {' | '.join(_t30[:15])}")
     for cx, cy, text, score, sbox, _br in _it30:
-        if "关注" in text:
+        if "香柠" in text:
             ys = [p[1] for p in sbox]
             h = max(ys) - min(ys)
             hit = (wr[0] + int(cx), y0_1 + int(cy), h)   # 截图起点为窗口: 加x偏移
             break
     if not hit:
-        log.warning("点位30/31 ⑤未识别到'关注'(文章页可能未打开/关注按钮不在窗口下2/10)")
+        log.warning("点位30/31 ⑤未识别到'香柠'锚点文本(底部区域内容异于预期)")
         return None
     cx_abs, cy_abs, box_h = hit
 
