@@ -575,7 +575,7 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
     异步设计: 写表/保存Html/豆包识图/阅读数OCR 丢线程池, 主流程不阻塞网络耗时。
     """
     logs = []
-    copy_seen = False   # 标志: 是否检测到过"复制"字样
+    copy_seen = False   # 标志: 是否成功拿到链接(点到过复制按钮/打开过文章页); 成功才True, 轮尽仍False
 
     def step(msg):
         """步骤日志: 实时转发(带[step]标记) + 入汇总"""
@@ -597,7 +597,6 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
     link = None
     for _try in range(1, COPY_TRIES + 1):
         step(f"--- 复制链接 第{_try}次 ---")
-        copy_seen = True    # 已执行复制动作(供退出时 Ctrl+W 关文章页判定)
         pc.clear_clipboard()
         step(f"点击点位18(3点)({p18[0]},{p18[1]})")
         pc.mouse_click(p18[0], p18[1])
@@ -621,11 +620,12 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
             pc.mouse_click(_mx, _my)
             time.sleep(1.0)   # 等菜单收起稳定, 下一轮重新点3点
         else:
+            copy_seen = True    # 拿到链接=确实打开过文章页(收尾 Ctrl+W 关闭文章页合理)
             break   # 已拿到链接, 跳出
     if not link:
         step(f"{COPY_TRIES}次复制链接均未获取到, 本轮结束")
-        # copy_seen 传 False: 失败时焦点可能已切到采集器(点右半屏中点后), Ctrl+W 会误关采集器窗口
-        return _finish(logs, False, False, "未获取到链接")
+        # copy_seen 保持 False(未点到复制按钮): 不 Ctrl+W(焦点可能在采集器, 避免误关)
+        return _finish(logs, copy_seen, False, "未获取到链接")
 
     # art_biz 同步提取(供 4指标/阅读数 使用, 不依赖写表)
     art = extract_art_biz(link)
