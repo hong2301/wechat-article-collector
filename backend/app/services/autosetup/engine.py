@@ -489,9 +489,9 @@ def drain_lock_notices():
 def stop_requested():
     return _stop_requested[0]
 
-# 点位 27: 点击复制链接 (依赖28/29区域)
+# 点位 27: 点击复制链接 (截图范围用参考值: 左半屏右上, 不依赖点位28/29)
 # 流程: 微信就位 -> 完整调用init+search_window_init -> 搜一搜查询文章链接
-#   -> 等1s -> 点18(3点弹菜单) -> 等0.5s -> 截[28,29]区域 -> OCR找"复制"文字按钮
+#   -> 等1s -> 点18(3点弹菜单) -> 等0.5s -> 截图右上区域 -> OCR找"复制"文字按钮
 #   -> 按钮中心坐标 = 点位27
 
 ARTICLE_LINK_DEMO_27 = "https://mp.weixin.qq.com/s/X7fAdvvZ-Gq_2SW19OKfVw"  # 与 content_points.ARTICLE_LINK_DEMO 相同(搜一搜演示文章)
