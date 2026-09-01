@@ -140,89 +140,86 @@ def _flow_point34_comment(ctx):
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
 
-    log.info("点位34 ①微信窗口初始化...")
-    ok_wx, txt_wx = tasks_svc.init_wechat_window()
-    if not ok_wx:
-        log.warning(f"点位34 微信窗口初始化失败: {txt_wx}")
-        return None, None
-    log.info(f"点位34 ①微信就位 ✓ {txt_wx[:40]}")
-    log.info("点位34 ②采集器窗口初始化...")
-    ok_ap, txt_ap = tasks_svc.init_app_window()
-    if not ok_ap:
-        log.warning(f"点位34 采集器窗口初始化失败: {txt_ap}")
-        return None, None
-    log.info(f"点位34 ②采集器就位 ✓ {txt_ap[:40]}")
-    log.info("点位34 ③搜一搜窗口初始化...")
-    ok_sw, txt_sw = tasks_svc.search_window_init()
-    if not ok_sw:
-        log.warning(f"点位34 搜一搜初始化失败: {txt_sw}")
-        return None, None
-    log.info(f"点位34 ③搜一搜就位 ✓ {txt_sw[:60]}")
-    log.info("点位34 ④查询文章链接...")
-    ok_q, txt_q = tasks_svc.search_query(ARTICLE_LINK_DEMO)
-    if not ok_q:
-        log.warning(f"点位34 查询文章链接失败: {txt_q}")
-        return None, None
-    log.info(f"点位34 ④查询成功 ✓ {txt_q[:60]}")
+    def attempt():
+        """一次完整设置(前置初始化+查询+稳定+横向探测) -> (x,y) 命中; None 需整个流程重来"""
+        # ①微信窗口初始化
+        log.info("点位34 ①微信窗口初始化...")
+        ok_wx, txt_wx = tasks_svc.init_wechat_window()
+        if not ok_wx:
+            log.warning(f"点位34 微信窗口初始化失败: {txt_wx}")
+            return None
+        log.info(f"点位34 ①微信就位 ✓ {txt_wx[:40]}")
+        log.info("点位34 ②采集器窗口初始化...")
+        ok_ap, txt_ap = tasks_svc.init_app_window()
+        if not ok_ap:
+            log.warning(f"点位34 采集器窗口初始化失败: {txt_ap}")
+            return None
+        log.info(f"点位34 ②采集器就位 ✓ {txt_ap[:40]}")
+        log.info("点位34 ③搜一搜窗口初始化...")
+        ok_sw, txt_sw = tasks_svc.search_window_init()
+        if not ok_sw:
+            log.warning(f"点位34 搜一搜初始化失败: {txt_sw}")
+            return None
+        log.info(f"点位34 ③搜一搜就位 ✓ {txt_sw[:60]}")
+        log.info("点位34 ④查询文章链接...")
+        ok_q, txt_q = tasks_svc.search_query(ARTICLE_LINK_DEMO)
+        if not ok_q:
+            log.warning(f"点位34 查询文章链接失败: {txt_q}")
+            return None
+        log.info(f"点位34 ④查询成功 ✓ {txt_q[:60]}")
 
-    p30 = tasks_svc._read_point(30)
-    p31 = tasks_svc._read_point(31)
-    if not p30 or not p31:
-        log.warning("点位34 缺30/31")
-        return None, None
-    wr = _pc.wechat_rect()                    # 微信窗口(内缩1%)为基准
-    if not wr:
-        log.warning("点位34 未找到微信窗口")
-        return None, None
-    # [30,31]页面稳定检测(50次/连续30相同)后再截图基准
-    ok_st, info_st = tasks_svc.wait_page_stable(p30[0], p30[1], p31[0], p31[1],
-                                                same_need=30, timeout=50, interval=0.1)
-    if not ok_st:
-        log.warning(f"点位34 [30,31]未稳定: {info_st}")
-    else:
-        log.info(f"点位34 [30,31]稳定: {info_st}")
+        p30 = tasks_svc._read_point(30)
+        p31 = tasks_svc._read_point(31)
+        if not p30 or not p31:
+            log.warning("点位34 缺30/31")
+            return None
+        wr = _pc.wechat_rect()
+        if not wr:
+            log.warning("点位34 未找到微信窗口")
+            return None
+        # [30,31]页面稳定检测(50次/连续30相同)后再截图基准
+        ok_st, info_st = tasks_svc.wait_page_stable(p30[0], p30[1], p31[0], p31[1],
+                                                    same_need=30, timeout=50, interval=0.1)
+        if not ok_st:
+            log.warning(f"点位34 [30,31]未稳定: {info_st}")
+        else:
+            log.info(f"点位34 [30,31]稳定: {info_st}")
 
-    sy = (p30[1] + p31[1]) // 2
-    mid_x = wr[2]
-    raw_step = max(1, (mid_x - p30[0]) // 10)   # 步长=(屏幕中线-30.x)/10
-    box = (p30[0], p30[1], p31[0], p31[1])
-    _pc._u32().ShowCursor(False)                       # 隐藏光标(防光标入镜误判)
-    baseline = np.array(ImageGrab.grab(bbox=box).convert("RGB"))   # 初始基准图(稳定后)
-    _pc._u32().ShowCursor(True)
-    # 调试: 保存基准图到桌面
-    try:
-        Image.fromarray(baseline).save("C:/Users/86150/Desktop/_p34_base.png")
-    except Exception as e:
-        log.warning(f"基准图保存失败: {e}")
-
-    for round_i in range(3):
-        step = max(1, raw_step // (1 << round_i))
-        log.info(f"点位34 第{round_i+1}轮: y={sy} 起点={mid_x} 步长={step}")
+        sy = (p30[1] + p31[1]) // 2
+        mid_x = wr[2]
+        raw_step = max(1, (mid_x - p30[0]) // 30)   # 步长=(窗口右缘-30.x)/30
+        box = (p30[0], p30[1], p31[0], p31[1])
+        _pc._u32().ShowCursor(False)                       # 隐藏光标(防光标入镜误判)
+        baseline = np.array(ImageGrab.grab(bbox=box).convert("RGB"))   # 初始基准图(稳定后)
+        _pc._u32().ShowCursor(True)
+        log.info(f"点位34 探测: y={sy} 起点={mid_x} 步长={raw_step}")
         x = mid_x
         while x > p30[0]:
             ctx.click(x, sy, wait_after=0.8)   # 点击后等红点反馈消失再截图
             _pc._u32().ShowCursor(False)
             after = np.array(ImageGrab.grab(bbox=box).convert("RGB"))   # 隐藏光标截图
             _pc._u32().ShowCursor(True)
-            # 调试: 保存本次点击后图到桌面
-            try:
-                Image.fromarray(after).save(f"C:/Users/86150/Desktop/_p34_click_{x}_{sy}.png")
-            except Exception:
-                pass
-            # 与初始基准对比(评论按钮点击后变化>50%, 阈值15%过滤点击副作用~0.2%)
             d = np.abs(after.astype(int) - baseline.astype(int)).sum(axis=2)
             changed = (d > 15).mean()
             if changed <= 0.15:
-                x -= step
+                x -= raw_step
                 continue
             r, g, b = after.astype(int)[..., 0], after.astype(int)[..., 1], after.astype(int)[..., 2]
             red = bool(((r > 120) & (r - g > 50) & (r - b > 50) & (d > 15)).any())
             if red:
-                log.warning(f"点位34 ({x},{sy}) 变化且红色 chr={changed:.3f} => 步长过大重试")
-                break
+                log.warning(f"点位34 ({x},{sy}) 变化且红色 => 未命中, 整个流程重来")
+                return None
             log.info(f"点位34 命中评论按钮: ({x},{sy})")
             return x, sy
-    log.warning("点位34 多轮未命中")
+        log.warning("点位34 扫过起点仍未命中, 整个流程重来")
+        return None
+
+    # 完全重试: 每次从窗口初始化+几何重建开始(不循环部分逻辑)
+    for _attempt_i in range(3):
+        res = attempt()
+        if res:
+            return res
+    log.warning("点位34 3次完整重试均未命中")
     return None, None
 
 
