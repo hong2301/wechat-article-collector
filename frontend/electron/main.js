@@ -143,13 +143,6 @@ function waitForBackend(timeoutMs = 30000) {
 // 退出时清理后端进程树(防残留占 8000 端口)
 function killBackend() {
   if (!backendProc || backendProc.killed) return
-  // 先兜底恢复任务栏/截图热键(强杀后 Python 端 atexit/shutdown 不触发)
-  try {
-    execFileSync('curl', ['-s', '-m', '2', '-X', 'POST',
-      `http://127.0.0.1:${BACKEND_PORT}/api/settings/taskbar`,
-      '-H', 'Content-Type: application/json', '-d', '{"action":"show"}'],
-      { windowsHide: true, stdio: 'ignore' })
-  } catch (e) { /* 后端已die则忽略 */ }
   try {
     execFileSync('taskkill', ['/pid', String(backendProc.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
   } catch (e) { /* 已退出则忽略 */ }

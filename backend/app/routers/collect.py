@@ -32,12 +32,7 @@ def _task_begin():
 def _task_end():
     with _task_count_lock:
         _task_count[0] = max(0, _task_count[0] - 1)
-    # 兜底: 任务结束自动恢复任务栏/截图热键(不依赖前端; 前端窗口直接关闭/命令调用时也能解锁)
-    try:
-        from ..core import computer as pc
-        pc.show_taskbar()
-    except Exception:
-        pass
+
 
 
 def _task_running_count():

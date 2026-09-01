@@ -865,12 +865,6 @@ def enable_snipping():
         return True
 
 
-def hide_taskbar():
-    """【机制已停用】不再隐藏任务栏(no-op): 任务栏隐藏/恢复会改 WorkArea/RECT,
-    截图坐标与实际渲染不一致(报告高1039但渲染1080, OCR目标落入任务栏区), 彻底去除"""
-    return True
-
-
 def shot_abs(shot, bbox, x, y, h=None):
     """图像相对坐标 -> 屏幕绝对坐标(DPI按比例换算, 不写死1:1像素比)
     参数:
@@ -919,17 +913,6 @@ def work_area():
 def _find_taskbar():
     """Windows 任务栏窗口句柄(Shell_TrayWnd)"""
     return _u32().FindWindowW("Shell_TrayWnd", None)
-
-
-def hide_taskbar():
-    """【机制已停用】不再隐藏任务栏(no-op): 任务栏隐藏/恢复会改 WorkArea/RECT,
-    截图坐标与实际渲染不一致(报告高1039但渲染1080, OCR目标落入任务栏区), 彻底去除"""
-    return True
-
-
-def show_taskbar():
-    """【机制已停用】与 hide_taskbar 对称的 no-op(见上)"""
-    return True
 
 
 # ===========================================================================
@@ -990,7 +973,7 @@ __all__ = [
     "enable_dpi_awareness",
     # 窗口
     "find_windows", "show_window", "close_window", "move_window",
-    "hide_taskbar", "show_taskbar", "disable_snipping", "enable_snipping",
+    "disable_snipping", "enable_snipping",
     "shot_abs",
     "wechat_rect",
     # 鼠标

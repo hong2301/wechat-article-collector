@@ -108,19 +108,6 @@ def save_article_html_api(payload: dict = None):
     return {"ok": False, "error": info}
 
 
-class TaskbarAction(BaseModel):
-    action: str = "hide"   # hide / show
-
-
-@router.post("/taskbar")
-def taskbar_control(p: TaskbarAction):
-    """隐藏/恢复 Windows 任务栏(采集开始隐藏, 全部任务结束恢复); 幂等"""
-    if p.action == "hide":
-        return {"ok": pc.hide_taskbar()}
-    if p.action == "show":
-        return {"ok": pc.show_taskbar()}
-    return {"ok": False, "error": "action 只能是 hide/show"}
-
 
 
 
