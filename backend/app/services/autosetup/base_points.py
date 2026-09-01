@@ -160,25 +160,38 @@ def _flow_point14_query_button(ctx):
         divide = 1 << round_idx
         step = max(1, mid_x // 10 // divide)   # 步长 = box中心x/10, 每轮减半
         log.info(f"点位14 第{round_idx+1}轮: 原点=({ox},{oy}) 步长={step} 上限x={limit_x} 截图{shot_box}")
-        prev = snap()
+        base0 = snap()       # 初始基准(未hover)
+        base1 = None         # 首次变化后的基准(变化时保存)
         changes = 0
         cx = ox
         while cx < limit_x:
             _pc._u32().SetCursorPos(cx, oy)
             _time.sleep(0.5)
             cur = snap()
-            if changed(cur, prev) > 0.001:
-                changes += 1
-                log.info(f"点位14 第{round_idx+1}轮 ({cx},{oy}) 第{changes}次变化")
-                if changes >= 2:
-                    # 2次变化后点击; 窗口未关=>命中, 关闭=>步长过大减半重试
-                    ctx.click(cx, oy, wait_after=0.5)
-                    if _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
-                        log.info(f"点位14 第{round_idx+1}轮 ({cx},{oy}) 点击后搜一搜未关 => 命中")
-                        return cx, oy, ""
-                    log.warning(f"点位14 第{round_idx+1}轮 ({cx},{oy}) 点击后搜一搜被关闭, 步长过大重试")
-                    break
-            prev = cur
+            if base1 is None:
+                # 首次变化判定: 与初始基准比
+                if changed(cur, base0) > 0.001:
+                    changes = 1
+                    base1 = cur          # 保存变化后的图作为新基准
+                    log.info(f"点位14 第{round_idx+1}轮 ({cx},{oy}) 第1次变化(已存基准)")
+            else:
+                # 已出现首次变化: 对比"初始基准"与"变化基准"两张
+                c0 = changed(cur, base0)
+                c1 = changed(cur, base1)
+                if c0 > 0.001 and c1 > 0.001:
+                    # 与两张都不同 -> 新的变化状态(非恢复初始, 非停留在原状态)
+                    changes += 1
+                    base1 = cur
+                    log.info(f"点位14 第{round_idx+1}轮 ({cx},{oy}) 第{changes}次变化(已存基准)")
+                    if changes >= 2:
+                        # 2次变化后点击; 窗口未关=>命中, 关闭=>步长过大减半重试
+                        ctx.click(cx, oy, wait_after=0.5)
+                        if _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
+                            log.info(f"点位14 第{round_idx+1}轮 ({cx},{oy}) 点击后搜一搜未关 => 命中")
+                            return cx, oy, ""
+                        log.warning(f"点位14 第{round_idx+1}轮 ({cx},{oy}) 点击后搜一搜被关闭, 步长过大重试")
+                        break
+                # 与初始相同=恢复初始(不计); 与变化基准相同=仍在原状态(不计)
             cx += step
         else:
             log.warning("点位14 扫过上限x仍未达2次变化, 步长过大重试")
