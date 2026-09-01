@@ -184,6 +184,7 @@ def _flow_point14_query_button(ctx):
                     base1 = cur
                     log.info(f"点位14 第{round_idx+1}轮 ({cx},{oy}) 第{changes}次变化(已存基准)")
                     if changes >= 2:
+                        log.info(f"点位14 第{round_idx+1}轮 ({cx},{oy}) 第2次变化 => 准备点击")
                         # 2次变化后点击; 窗口未关=>命中, 关闭=>步长过大减半重试
                         ctx.click(cx, oy, wait_after=0.5)
                         if _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
