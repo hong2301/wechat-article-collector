@@ -33,7 +33,6 @@ TIME_PATTERNS = (
 )
 TIME_RE = re.compile("|".join(f"({p})" for p in TIME_PATTERNS))
 
-TIME_BRIGHT_MIN = 140   # 时间点位文字最小亮度
 
 _WEEKDAY_CN = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6}
 
@@ -198,9 +197,7 @@ def classify_items(items, box=None):
         m_read = re.search(r"阅读\s*\d+", text or "")    # '阅读'+数字
         m_pay = "付费" in (text or "")                    # '付费'(可能无阅读)
         if has_time and not m_read:
-            # 时间点位: 浅灰白文字(亮度>=140) + 灰字灰底校验
-            if brightness < TIME_BRIGHT_MIN:
-                continue                      # 深色 -> 非时间点位
+            # 时间点位: 仅颜色判据(前两主色 灰+浅色), 不带亮度阈值
             cols = gray_on_gray(sbox, box)
             if cols is False:
                 continue                      # 非灰字灰底 -> 非时间点位
