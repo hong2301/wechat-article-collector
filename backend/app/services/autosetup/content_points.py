@@ -303,7 +303,10 @@ def _flow_comment_left_find(ctx):
     except Exception as e:
         log.warning(f"点位35 前置异常: {e}")
         return None
-    for cx, cy, text, _score, sbox, _br in ctx.ocr_box(img):
+    _it35 = ctx.ocr_box(img)
+    _t35 = [it[2] for it in _it35 if len(it) > 2 and it[2]]
+    log.info(f"点位35 OCR文本({len(_t35)}): {' | '.join(_t35[:15])}")
+    for cx, cy, text, _score, sbox, _br in _it35:
         if not text or "留言" not in text:
             continue
         # 颜色判据: 白底暗字(前两主色 白 + (黑|灰), 兼容深灰渲染)
