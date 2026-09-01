@@ -119,55 +119,69 @@ def _flow_point14_query_button(ctx):
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
 
+    # 新探测逻辑: 原点=搜一搜文本box右上角, 向右扫, 步长=box中心x/10, 上限3sw/8,
+    # 截图x∈[box.max_x,3sw/8], y∈[0,box.top]; 2次变化后点击, 窗口未关=命中, 关闭=步长过大减半重试
     for round_idx in range(3):
         if not _ensure_wechat():
             return None, None
-        # 搜一搜完整初始化: 点11+输入1+全选删除+点12+自动分离判断+AppEx移左半屏
         ok_sw, txt_sw = tasks_svc.search_window_init()
         if not ok_sw:
             log.warning(f"点位14 搜一搜窗口初始化失败: {txt_sw}")
             return None, None
 
-        # 截左半屏 OCR 找"搜一搜"(窄条1/10 OCR不稳, 用全左半屏图+限定y在最上1/10)
         u32 = _pc._u32()
         sw = u32.GetSystemMetrics(_pc.SM_CXSCREEN)
         sh = u32.GetSystemMetrics(_pc.SM_CYSCREEN)
         x2 = sw // 2
         y_top = max(80, sh * 2 // 10)          # 最上 2/10(1/10 太窄OCR不出/不稳)
         img0 = Image.open(pc.screenshot(0, 0, x2, sh)[0]).convert("RGB")
-        hit = None
-        for cx, cy, text, score, sbox, _br in ctx.ocr_box(img0):
+        box = None
+        for _cx, cy, text, _score, sbox, _br in ctx.ocr_box(img0):
             if "搜一搜" in text and cy <= y_top:
-                hit = (int(cx), int(cy))
+                box = sbox
                 break
-        if not hit:
-            log.warning("点位14 未识别到最上1/10的'搜一搜'")
+        if not box:
+            log.warning("点位14 未识别到'搜一搜'文本")
             return None, None
-        sx, sy = hit[0], hit[1]
 
-        # 从左半屏右边的中线(sw*3//8)往左点击; 步长=(sw*3//8 - sx)/20 / 本轮减半
-        start_x = sw * 3 // 8
+        xs = [p[0] for p in box]; ys = [p[1] for p in box]
+        ox = max(xs)                       # 原点 x = box 最右
+        oy = min(ys)                       # 原点 y = box 最上
+        mid_x = int(sum(xs) / len(xs))
+        limit_x = sw * 3 // 8              # 上限: 左半屏右半部分的中线 x
+        shot_box = (ox, 0, limit_x, oy)    # 截图范围: x∈[ox,limit_x], y∈[0,oy]
+
+        def snap():
+            return np.array(Image.open(pc.screenshot(*shot_box)[0]).convert("RGB"))
+
+        def changed(a, b):
+            return (np.abs(a.astype(int) - b.astype(int)).sum(axis=2) > 15).mean()
+
         divide = 1 << round_idx
-        step = max(1, int((start_x - sx) / 20 / divide))
-        log.info(f"点位14 第{round_idx+1}轮: y={sy} 起点={start_x} 搜一搜x={sx} 步长={step}")
-        i = 0
-        while True:
-            cx = start_x - i * step
-            if cx <= sx:
-                break
-            before = np.array(Image.open(pc.screenshot(0, 0, x2, sh)[0]).convert("RGB"))
-            ctx.click(cx, sy, wait_after=0.7)
-            after = np.array(Image.open(pc.screenshot(0, 0, x2, sh)[0]).convert("RGB"))
-            # 搜一搜窗口被关闭 => 步长太大过了查询按钮, 整轮重来
-            if not _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
-                log.warning(f"点位14 第{round_idx+1}轮 ({cx},{sy}) 搜一搜被关闭, 步长过大重试")
-                break
-            # 只要有变化即成功(用户实测: 一点变化就命中), 仅排除纯噪声(>0.001)
-            changed = (np.abs(after.astype(int) - before.astype(int)).sum(axis=2) > 15).mean()
-            if changed > 0.001:
-                log.info(f"点位14 第{round_idx+1}轮 ({cx},{sy}) 截图变化率={changed:.4f} => 命中查询按钮")
-                return cx, sy, ""
-            i += 1
+        step = max(1, mid_x // 10 // divide)   # 步长 = box中心x/10, 每轮减半
+        log.info(f"点位14 第{round_idx+1}轮: 原点=({ox},{oy}) 步长={step} 上限x={limit_x} 截图{shot_box}")
+        prev = snap()
+        changes = 0
+        cx = ox
+        while cx < limit_x:
+            _pc._u32().SetCursorPos(cx, oy)
+            _time.sleep(0.5)
+            cur = snap()
+            if changed(cur, prev) > 0.001:
+                changes += 1
+                log.info(f"点位14 第{round_idx+1}轮 ({cx},{oy}) 第{changes}次变化")
+                if changes >= 2:
+                    # 2次变化后点击; 窗口未关=>命中, 关闭=>步长过大减半重试
+                    ctx.click(cx, oy, wait_after=0.5)
+                    if _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
+                        log.info(f"点位14 第{round_idx+1}轮 ({cx},{oy}) 点击后搜一搜未关 => 命中")
+                        return cx, oy, ""
+                    log.warning(f"点位14 第{round_idx+1}轮 ({cx},{oy}) 点击后搜一搜被关闭, 步长过大重试")
+                    break
+            prev = cur
+            cx += step
+        else:
+            log.warning("点位14 扫过上限x仍未达2次变化, 步长过大重试")
     log.warning("点位14 多轮未命中")
     return None, None
 
