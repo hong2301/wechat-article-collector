@@ -222,7 +222,8 @@ def search_window_init():
     hwnd = appex[0][0]
     u32_sm = pc._u32()
     sw = u32_sm.GetSystemMetrics(pc.SM_CXSCREEN)
-    sh = u32_sm.GetSystemMetrics(pc.SM_CYSCREEN)
+    wa = pc.work_area() or (0, 0, sw, u32_sm.GetSystemMetrics(pc.SM_CYSCREEN))
+    sh = wa[3]                                   # 工作区高(不含任务栏, 防AppEx盖住任务栏)
     # 分离后: 把搜一搜窗口移到左半屏(确保位置统一)
     pc.move_window(hwnd, 0, 0, sw // 2, sh)
     time.sleep(0.5)

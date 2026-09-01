@@ -129,7 +129,8 @@ def _search_window_init_no_p9():
     hwnd2 = appex[0][0]
     u32_sm2 = pc._u32()
     sw2 = u32_sm2.GetSystemMetrics(pc.SM_CXSCREEN)
-    sh2 = u32_sm2.GetSystemMetrics(pc.SM_CYSCREEN)
+    wa2 = pc.work_area() or (0, 0, sw2, u32_sm2.GetSystemMetrics(pc.SM_CYSCREEN))
+    sh2 = wa2[3]                                  # 工作区高, 防盖任务栏
     pc.move_window(hwnd2, 0, 0, sw2 // 2, sh2)
     _time.sleep(0.5)
 

@@ -905,6 +905,17 @@ def wechat_rect():
         return None
 
 
+def work_area():
+    """系统工作区(不含任务栏)矩形: (x1,y1,x2,y2); 任务栏在底时 bottom=任务栏上沿
+    移动窗口用工作区高度, 避免窗口盖住任务栏"""
+    try:
+        r = ctypes.wintypes.RECT()
+        _u32().SystemParametersInfoW(0x0030, 0, ctypes.byref(r), 0)  # SPI_GETWORKAREA
+        return (r.left, r.top, r.right, r.bottom)
+    except Exception:
+        return None
+
+
 def _find_taskbar():
     """Windows 任务栏窗口句柄(Shell_TrayWnd)"""
     return _u32().FindWindowW("Shell_TrayWnd", None)
