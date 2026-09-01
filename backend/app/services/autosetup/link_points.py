@@ -58,10 +58,12 @@ def _flow_articles_list_find(ctx):
     _w, _h = wr[2] - wr[0], wr[3] - wr[1]
 
     # 搜一搜查询测试公众号
+    log.info("点位15/16 ④查询测试公众号...")
     ok_q, _txt = tasks_svc.search_query(TEST_BIZ_QUERY)
     if not ok_q:
-        log.warning("点位15/16 搜一搜查询失败: " + _txt)
+        log.warning("点位15/16 ④搜一搜查询失败: " + _txt)
         return None
+    log.info(f"点位15/16 ④查询成功 ✓ {_txt[:60]}")
     _time.sleep(5.0)                        # 等加载
 
     # 先下滚1000 -> 截图1; 再下滚1000 -> 截图2; 对比得出列表区
