@@ -34,14 +34,14 @@ def _flow_point12_search_network(ctx):
     pc.key_press(pc.VK_DELETE)
     _time.sleep(0.8)
 
-    # 3) (采集此处点击点位12, 自动设置改为:) 截图微信窗口左上 1/2宽×1/4高 -> OCR找"搜索网络结果"
+    # 3) (采集此处点击点位12, 自动设置改为:) 截图微信窗口左上 1/4×1/4 -> OCR找"搜索网络结果"
     wr = pc.wechat_rect()
     if not wr:
         log.warning("点位12 未找到微信窗口")
         return None, None
     _w, _h = wr[2] - wr[0], wr[3] - wr[1]
     for attempt in range(3):
-        img = Image.open(pc.screenshot(wr[0], wr[1], wr[0] + _w // 2, wr[1] + _h // 4)[0]).convert("RGB")
+        img = Image.open(pc.screenshot(wr[0], wr[1], wr[0] + _w // 4, wr[1] + _h // 4)[0]).convert("RGB")
         for cx, cy, text, score, sbox, _bright in ctx.ocr_box(img):
             _cx_abs, _cy_abs = wr[0] + int(cx), wr[1] + int(cy)
             if "网络结果" not in text:
@@ -89,7 +89,7 @@ def _flow_point11_search_box(ctx):
         log.warning("点位11 未找到微信窗口")
         return None, None
     _w, _h = wr[2] - wr[0], wr[3] - wr[1]
-    x1, y1, x2, y2 = wr[0], wr[1], wr[0] + _w // 2, wr[1] + _h // 4   # 窗口内左上 1/2宽×1/4高
+    x1, y1, x2, y2 = wr[0], wr[1], wr[0] + _w // 4, wr[1] + _h // 4   # 窗口内左上 1/4×1/4
     img = Image.open(pc.screenshot(x1, y1, x2, y2)[0]).convert("RGB")
 
     items = ctx.ocr_box(img)                       # [(cx,cy,text,score,sbox,brightness)]
