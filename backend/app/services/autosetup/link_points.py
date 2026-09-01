@@ -83,18 +83,17 @@ def _flow_articles_list_find(ctx):
         if len(xs) < 50:
             log.warning(f"点位15/16 变化区域过小({len(xs)}px), 文章列表未加载?")
             return None
+        _img1 = Image.fromarray(img1)          # img1 已是 RGB ndarray
+        bbox = (wr[0], wr[1], wr[2], wr[3])
+        rx1 = pc.shot_abs(_img1, bbox, int(xs.min()), int(ys.min()))[0]
+        ry1 = pc.shot_abs(_img1, bbox, int(xs.min()), int(ys.min()))[1]
+        rx2 = pc.shot_abs(_img1, bbox, int(xs.max()), int(ys.max()))[0]
+        ry2 = pc.shot_abs(_img1, bbox, int(xs.max()), int(ys.max()))[1]
+        log.info(f"点位15/16 文章列表矩形: ({rx1},{ry1})-({rx2},{ry2})")
+        return rx1, ry1, rx2, ry2
     except Exception as e:
-        log.warning(f"点位15/16 ⑤滚动对比异常: {type(e).__name__}: {e}")
+        log.warning(f"点位15/16 ⑤滚动对比/矩形异常: {type(e).__name__}: {e}")
         return None
-    _img1 = Image.fromarray(img1)              # img1 已是 RGB ndarray(不需要 convert)
-    bbox = (wr[0], wr[1], wr[2], wr[3])
-    rx1 = pc.shot_abs(_img1, bbox, int(xs.min()), int(ys.min()))[0]
-    ry1 = pc.shot_abs(_img1, bbox, int(xs.min()), int(ys.min()))[1]
-    rx2 = pc.shot_abs(_img1, bbox, int(xs.max()), int(ys.max()))[0]
-    ry2 = pc.shot_abs(_img1, bbox, int(xs.max()), int(ys.max()))[1]
-    log.info(f"点位15/16 文章列表矩形: ({rx1},{ry1})-({rx2},{ry2})")
-
-    return rx1, ry1, rx2, ry2
 
 
 def _articles_list_entry(self_name):
