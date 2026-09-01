@@ -6,6 +6,7 @@ import requests as _requests
 from datetime import datetime
 import ctypes
 import hashlib
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 
