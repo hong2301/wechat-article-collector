@@ -79,7 +79,7 @@ def _flow_articles_list_find(ctx):
     if len(xs) < 50:
         log.warning(f"点位15/16 变化区域过小({len(xs)}px), 文章列表未加载?")
         return None
-    _img1 = Image.fromarray(img1.convert("RGB"))
+    _img1 = Image.fromarray(img1)              # img1 已是 RGB ndarray(不需要 convert)
     bbox = (wr[0], wr[1], wr[2], wr[3])
     rx1 = pc.shot_abs(_img1, bbox, int(xs.min()), int(ys.min()))[0]
     ry1 = pc.shot_abs(_img1, bbox, int(xs.min()), int(ys.min()))[1]
