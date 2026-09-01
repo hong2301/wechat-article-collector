@@ -622,7 +622,6 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
             step(f"未读到链接, 点击右半屏中点({_mx},{_my})收起菜单")
             pc.mouse_click(_mx, _my)
             time.sleep(0.5)
-            pc.clear_clipboard()
         else:
             break   # 已拿到链接, 跳出
     if not link:
