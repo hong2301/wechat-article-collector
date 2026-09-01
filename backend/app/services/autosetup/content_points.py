@@ -48,9 +48,12 @@ def _flow_article_bar_find(ctx):
         return None
     _w, _h = wr[2] - wr[0], wr[3] - wr[1]
 
-    ok_q, _txt = tasks_svc.search_query(ARTICLE_LINK_DEMO_BAR)   # 仅30/31用新链接
+    log.info("点位30/31 ④查询文章链接...")
+    ok_q, txt_q = tasks_svc.search_query(ARTICLE_LINK_DEMO_BAR)   # 仅30/31用新链接
     if not ok_q:
+        log.warning(f"点位30/31 ④查询文章链接失败: {txt_q}")
         return None
+    log.info(f"点位30/31 ④查询成功 ✓ {txt_q[:60]}")
     _time.sleep(5.0)
 
     # 截微信窗口最下2/10, OCR找"关注"box(1/10窄条OCR不稳; 关注按钮在最底部)
