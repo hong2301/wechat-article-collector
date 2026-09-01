@@ -222,28 +222,36 @@ def _collect_generate(payload: CollectStart):
     # 主循环: 从队列读日志并 yield(worker 线程阻塞跑死循环也不影响)
     # 空闲超过5秒发心跳帧, 保持SSE连接不断开
     last_sent = time.monotonic()
-    while not finished.is_set() or not log_q.empty():
-        try:
-            item = log_q.get(timeout=0.3)
-        except queue.Empty:
-            now = time.monotonic()
-            if now - last_sent >= 5:
-                yield _sse({"type": "keepalive"})
-                last_sent = now
-            continue
-        last_sent = time.monotonic()
-        with lock:
+    try:
+        while not finished.is_set() or not log_q.empty():
+            try:
+                item = log_q.get(timeout=0.3)
+            except queue.Empty:
+                now = time.monotonic()
+                if now - last_sent >= 5:
+                    yield _sse({"type": "keepalive"})
+                    last_sent = now
+                continue
+            last_sent = time.monotonic()
+            with lock:
+                if item[0] == "log":
+                    yield _sse({"type": "log", "msg": item[1]})
+                elif item[0] == "done":
+                    yield _sse({"type": "done", "ok": item[1], "reason": item[2]})
+            if item[0] == "done":
+                break
+        # 队列里可能还有残留日志, 清空发送
+        while not log_q.empty():
+            item = log_q.get_nowait()
             if item[0] == "log":
                 yield _sse({"type": "log", "msg": item[1]})
-            elif item[0] == "done":
-                yield _sse({"type": "done", "ok": item[1], "reason": item[2]})
-        if item[0] == "done":
-            break
-    # 队列里可能还有残留日志, 清空发送
-    while not log_q.empty():
-        item = log_q.get_nowait()
-        if item[0] == "log":
-            yield _sse({"type": "log", "msg": item[1]})
+    finally:
+        # 客户端断开/采集器窗口关闭等任意结束: 请求 worker 停止 -> finally 解锁键鼠
+        try:
+            tasks_service.request_stop()
+        except Exception:
+            pass
+
 
 
 def _update_generate(payload: UpdateStart):
@@ -329,27 +337,35 @@ def _update_generate(payload: UpdateStart):
     threading.Thread(target=worker, daemon=True).start()
 
     last_sent = time.monotonic()
-    while not finished.is_set() or not log_q.empty():
-        try:
-            item = log_q.get(timeout=0.3)
-        except queue.Empty:
-            now = time.monotonic()
-            if now - last_sent >= 5:
-                yield _sse({"type": "keepalive"})
-                last_sent = now
-            continue
-        last_sent = time.monotonic()
-        with lock:
+    try:
+        while not finished.is_set() or not log_q.empty():
+            try:
+                item = log_q.get(timeout=0.3)
+            except queue.Empty:
+                now = time.monotonic()
+                if now - last_sent >= 5:
+                    yield _sse({"type": "keepalive"})
+                    last_sent = now
+                continue
+            last_sent = time.monotonic()
+            with lock:
+                if item[0] == "log":
+                    yield _sse({"type": "log", "msg": item[1]})
+                elif item[0] == "done":
+                    yield _sse({"type": "done", "ok": item[1], "reason": item[2]})
+            if item[0] == "done":
+                break
+        while not log_q.empty():
+            item = log_q.get_nowait()
             if item[0] == "log":
                 yield _sse({"type": "log", "msg": item[1]})
-            elif item[0] == "done":
-                yield _sse({"type": "done", "ok": item[1], "reason": item[2]})
-        if item[0] == "done":
-            break
-    while not log_q.empty():
-        item = log_q.get_nowait()
-        if item[0] == "log":
-            yield _sse({"type": "log", "msg": item[1]})
+    finally:
+        # 客户端断开/采集器窗口关闭等任意结束: 请求 worker 停止 -> finally 解锁键鼠
+        try:
+            tasks_service.request_stop()
+        except Exception:
+            pass
+
 
 
 def _comment_generate(payload: CommentStart):
@@ -431,27 +447,35 @@ def _comment_generate(payload: CommentStart):
     threading.Thread(target=worker, daemon=True).start()
 
     last_sent = time.monotonic()
-    while not finished.is_set() or not log_q.empty():
-        try:
-            item = log_q.get(timeout=0.3)
-        except queue.Empty:
-            now = time.monotonic()
-            if now - last_sent >= 5:
-                yield _sse({"type": "keepalive"})
-                last_sent = now
-            continue
-        last_sent = time.monotonic()
-        with lock:
+    try:
+        while not finished.is_set() or not log_q.empty():
+            try:
+                item = log_q.get(timeout=0.3)
+            except queue.Empty:
+                now = time.monotonic()
+                if now - last_sent >= 5:
+                    yield _sse({"type": "keepalive"})
+                    last_sent = now
+                continue
+            last_sent = time.monotonic()
+            with lock:
+                if item[0] == "log":
+                    yield _sse({"type": "log", "msg": item[1]})
+                elif item[0] == "done":
+                    yield _sse({"type": "done", "ok": item[1], "reason": item[2]})
+            if item[0] == "done":
+                break
+        while not log_q.empty():
+            item = log_q.get_nowait()
             if item[0] == "log":
                 yield _sse({"type": "log", "msg": item[1]})
-            elif item[0] == "done":
-                yield _sse({"type": "done", "ok": item[1], "reason": item[2]})
-        if item[0] == "done":
-            break
-    while not log_q.empty():
-        item = log_q.get_nowait()
-        if item[0] == "log":
-            yield _sse({"type": "log", "msg": item[1]})
+    finally:
+        # 客户端断开/采集器窗口关闭等任意结束: 请求 worker 停止 -> finally 解锁键鼠
+        try:
+            tasks_service.request_stop()
+        except Exception:
+            pass
+
 
 
 @router.post("/stop")
