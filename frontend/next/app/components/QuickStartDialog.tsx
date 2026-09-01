@@ -185,6 +185,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
         abortRef.current?.abort();
         fetch(API_BASE + "/api/collect/stop", { method: "POST" }).catch(() => {});
         fetch(API_BASE + "/api/auto-setup/unlock", { method: "POST" }).catch(() => {});
+        fetch(API_BASE + "/api/auto-setup/stop", { method: "POST" }).catch(() => {});   // 注入StopFlow, 当前点位立即中断
         showTaskbar();
         setRunning(false);
       }

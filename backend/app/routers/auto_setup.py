@@ -116,3 +116,13 @@ def auto_setup_unlock():
     """前端任务结束: 停止输入锁定"""
     return {"ok": as_svc.unlock()}
 
+
+@router.post("/stop")
+def auto_setup_stop():
+    """立即停止当前点位自动设置(供前端ESC/快速开始调用): 置停止标记 + 注入StopFlow到执行线程"""
+    try:
+        as_svc._on_esc()
+        return {"ok": True}
+    except Exception:
+        return {"ok": False}
+
