@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import logging as _logging
 from . import obs
 """backend.app.services.ocr: OCR 识别模块（精简版）
 
