@@ -42,7 +42,10 @@ def _flow_point12_search_network(ctx):
     _w, _h = wr[2] - wr[0], wr[3] - wr[1]
     for attempt in range(3):
         img = Image.open(pc.screenshot(wr[0], wr[1], wr[0] + _w // 4, wr[1] + _h // 4)[0]).convert("RGB")
-        for cx, cy, text, score, sbox, _bright in ctx.ocr_box(img):
+        _items = ctx.ocr_box(img)
+        _ocrt = [it[2] for it in _items if len(it) > 2 and it[2]]
+        log.info(f"点位12 第{attempt+1}次截图OCR文本({len(_ocrt)}): {' | '.join(_ocrt[:15])}")
+        for cx, cy, text, score, sbox, _bright in _items:
             _cx_abs, _cy_abs = wr[0] + int(cx), wr[1] + int(cy)
             if "网络结果" not in text:
                 continue
