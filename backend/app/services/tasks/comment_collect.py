@@ -198,8 +198,7 @@ def _collect_comments(collect_type, link, art, biz,
         try:
             _sp, _ = pc.screenshot(p30[0], p30[1], p31[0], p31[1], img_format="png")
             if _sp:
-                with Image.open(_sp) as _im:
-                    _items = ocr_service.ocr(_im)
+                _items = ocr_service.ocr(Image.open(_sp))
                 if any("写留言" in (it[2] or "") for it in _items):
                     tasks_echo("评论采集: 检测到'写留言'(无评论), 退出")
                     return

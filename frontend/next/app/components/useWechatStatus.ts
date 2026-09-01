@@ -14,7 +14,7 @@ export function useWechatStatus(): boolean | null {
       } catch { /* 后端不可达保持旧状态 */ }
     }
     check();
-    const t = setInterval(check, 3000);   // 3 秒一次(1s 过频, 日志/负载都无谓)
+    const t = setInterval(check, 1000);   // 1 秒一次
     return () => { stopped = true; clearInterval(t); };
   }, []);
   return wxLogged;
