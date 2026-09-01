@@ -161,7 +161,7 @@ def _flow_point14_query_button(ctx):
         ox = wr[0] + max(xs)                       # 原点 x = box最右(绝对)
         oy = wr[1] + (min(ys) + max(ys)) // 2      # 原点 y = box中点(绝对)
         mid_x = wr[0] + int(sum(xs) / len(xs))     # box中心x(绝对)
-        limit_x = wr[0] + _w * 3 // 8              # 上限: 窗口内 x 3/8(原3sw/8语义)
+        limit_x = wr[0] + _w * 6 // 8              # 上限: 窗口内 x 6/8
         shot_box = (ox, wr[1], limit_x, oy)        # 截图范围: x∈[ox,limit_x], y∈[窗口顶,oy]
 
         def snap():
