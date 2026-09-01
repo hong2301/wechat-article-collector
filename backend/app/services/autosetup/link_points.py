@@ -85,10 +85,10 @@ def _flow_articles_list_find(ctx):
             return None
         _img1 = Image.fromarray(img1)          # img1 已是 RGB ndarray
         bbox = (wr[0], wr[1], wr[2], wr[3])
-        rx1 = pc.shot_abs(_img1, bbox, int(xs.min()), int(ys.min()))[0]
-        ry1 = pc.shot_abs(_img1, bbox, int(xs.min()), int(ys.min()))[1]
-        rx2 = pc.shot_abs(_img1, bbox, int(xs.max()), int(ys.max()))[0]
-        ry2 = pc.shot_abs(_img1, bbox, int(xs.max()), int(ys.max()))[1]
+        rx1 = _pc.shot_abs(_img1, bbox, int(xs.min()), int(ys.min()))[0]
+        ry1 = _pc.shot_abs(_img1, bbox, int(xs.min()), int(ys.min()))[1]
+        rx2 = _pc.shot_abs(_img1, bbox, int(xs.max()), int(ys.max()))[0]
+        ry2 = _pc.shot_abs(_img1, bbox, int(xs.max()), int(ys.max()))[1]
         log.info(f"点位15/16 文章列表矩形: ({rx1},{ry1})-({rx2},{ry2})")
         return rx1, ry1, rx2, ry2
     except Exception as e:
