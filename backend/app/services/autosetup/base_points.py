@@ -96,6 +96,8 @@ def _flow_point11_search_box(ctx):
     img = Image.open(pc.screenshot(x1, y1, x2, y2)[0]).convert("RGB")
 
     items = ctx.ocr_box(img)                       # [(cx,cy,text,score,sbox,brightness)]
+    _fail_cand = []                                # 含"搜索"但颜色不过的现场记录
+    _all_texts = [it[2] for it in items if len(it) > 2 and it[2]]
     for cx, cy, text, score, sbox, _bright in items:
         if "搜索" not in text:
             continue
@@ -105,13 +107,16 @@ def _flow_point11_search_box(ctx):
             max(p[0] for p in sbox), max(p[1] for p in sbox)))
         colset = {c for _, _, c in cols[:2]}
         if not cols or not {"灰", "白"}.issubset(colset):
+            _fail_cand.append(f"{text!r} 颜色={[(r, n) for r, c, n in (cols or [])[:2]]}")
             log.info(f"点位11 文本命中但颜色不符({cols}): {text}")
             continue
         # 截图起点为窗口左上(x1,y1): 相对坐标转窗口内缩后绝对坐标
         _ex, _ey = x1 + int(cx), y1 + int(cy)
         log.info(f"点位11 识别成功: 文本={text} box=({_ex},{_ey}) 颜色排序={cols}")
         return _ex, _ey
-    log.warning("点位11 未识别到白底灰字的'搜索'输入框")
+    log.warning("点位11 未识别到白底灰字的'搜索': "
+                + (f"候选={_fail_cand} " if _fail_cand else "OCR未识别到'搜索'文本 ")
+                + f"全部OCR({len(_all_texts)})={_all_texts[:10]}")
     return None, None
 
 
