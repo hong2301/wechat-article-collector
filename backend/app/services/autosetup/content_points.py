@@ -306,12 +306,12 @@ def _flow_comment_left_find(ctx):
     for cx, cy, text, _score, sbox, _br in ctx.ocr_box(img):
         if not text or "留言" not in text:
             continue
-        # 颜色判据: 黑字白底(前两主色 含黑且含白)
+        # 颜色判据: 白底暗字(前两主色 白 + (黑|灰), 兼容深灰渲染)
         cols = ocr_service.color_sort(img, region=(
             min(p[0] for p in sbox), min(p[1] for p in sbox),
             max(p[0] for p in sbox), max(p[1] for p in sbox)))
         colset = {c for _, _, c in cols[:2]}
-        if not cols or not ({"黑", "白"}.issubset(colset)):
+        if not cols or "白" not in colset or not ({"黑", "灰"} & colset):
             log.info(f"点位35 文本命中但颜色不符({cols}): {text}")
             continue
         # box 左上角 = 目标点位(截图起点为窗口左上, 加偏移)
