@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from . import obs
 import queue as _queue
 import base64
 import io
@@ -682,6 +683,7 @@ def key_press(vk):
 # ===========================================================================
 # 剪贴板：读 / 写 / 清空
 # ===========================================================================
+@obs.timed("clip_read")
 def read_clipboard_text():
     """读取剪贴板文本，失败返回 None（Win32，线程安全）"""
     u32 = _u32()
@@ -706,6 +708,7 @@ def read_clipboard_text():
         u32.CloseClipboard()
 
 
+@obs.timed("clip_write")
 def set_clipboard_text(text):
     """把文本写入剪贴板（Win32，线程安全）；成功返回 True"""
     u32 = _u32()
@@ -889,6 +892,7 @@ def show_taskbar():
 # ===========================================================================
 # 截图：屏幕区域截图（存文件 / 转 base64 / 5参数截图）
 # ===========================================================================
+@obs.timed("shot")
 def screenshot(x1, y1, x2, y2, img_format="png", as_base64=False):
     """【截图】截取屏幕区域，保存到系统缓存目录并返回文件路径。
     参数:

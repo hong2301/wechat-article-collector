@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from . import obs
 """backend.app.services.ocr: OCR 识别模块（精简版）
 
 参考原 main.py 使用的 RapidOCR 方案，只保留识别能力。
@@ -60,6 +61,7 @@ def get_ocr_engine():
         return _ocr_engine
 
 
+@obs.timed("ocr")
 def ocr(img):
     """输入 PIL 图片, 输出 OCR 识别结果。
     返回: [(中心x, 中心y, 文本, score, sbox, brightness), ...]

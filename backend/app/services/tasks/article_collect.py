@@ -10,6 +10,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from ...core import computer as pc
+from ...core import obs
 from ...core import ocr as ocr_service
 from ...core.common import (_read_point, _finish, _save_reads,
                             _extract_read_from_items, wait_page_stable)
@@ -25,6 +26,7 @@ from .wx_window import (init_wechat_window, search_window_init, search_query,
                         APP_TITLE, APP_EXE)
 
 
+@obs.timed("collect.list")
 def article_list_wait_stable(date_start="", date_end="", biz="",
                              capture_4metrics=False, capture_read=False,
                              save_html=False, save_dir="",
@@ -556,6 +558,7 @@ def _collect_reads(collect_type, link, biz, art):
             _submit_bg(_bg_reads_ocr, png_path, (p32[0], p32[1]), biz, art)
 
 
+@obs.timed("collect.article")
 def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=False,
                          save_html=False, save_dir="", biz="", list_reads=None, list_likes=None,
                          max_comments=None, max_level1=None, max_level2=0):

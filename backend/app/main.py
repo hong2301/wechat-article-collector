@@ -13,18 +13,19 @@ from .routers import accounts, resolve_api, points, scrolls, collect, settings, 
 from .core import ocr as ocr_service
 
 
-# ===== 后端日志: 统一写入 <数据目录>/logs/backend.log (dev/packaged 均在此) =====
-LOG_MAX = 10 * 1024 * 1024        # 单文件上限 10MB
-LOG_TRIM_RATIO = 0.7              # 超限后保留末尾 70%(删除最旧 30%)
+# ===== 后端日志: 统一写入 <数据目录>/logs/(dev/packaged 均在此) =====
+LOG_MAX = 10 * 1024 * 1024        # 单文件上限 10MB(按份轮转)
+LOG_BACKUP = 3                   # 保留最近的 3 份轮转文件
 
 
 def _setup_logging():
     logdir = os.path.join(data_dir(), "logs")
     os.makedirs(logdir, exist_ok=True)
     logfile = os.path.join(logdir, "backend.log")
+    errfile = os.path.join(logdir, "error.log")     # ERROR+ 独立文件(秒定位)
 
     class _Tee:
-        """同时写终端与日志文件; 文件超上限时截断(删最旧 30%)"""
+        """同时写终端与日志文件(uvicorn 控制台输出也入文件)"""
         def __init__(self, stream, fh):
             self._s = stream
             self._f = fh
@@ -32,42 +33,42 @@ def _setup_logging():
             return False          # 非终端(uvicorn 据此禁用彩色日志)
         def fileno(self):
             return self._f.fileno()
-        def _trim(self):
-            self._f.flush()
-            size = os.fstat(self._f.fileno()).st_size
-            if size <= LOG_MAX:
-                return
-            keep = int(size * LOG_TRIM_RATIO)
-            self._f.seek(size - keep)
-            tail = self._f.read()
-            self._f.seek(0)
-            self._f.truncate()
-            self._f.write(tail)
-            self._f.flush()
         def write(self, data):
             self._s.write(data)
             self._f.write(data)
-            self._trim()
         def flush(self):
             self._s.flush()
             self._f.flush()
 
     try:
-        _logger_file = open(logfile, "a", encoding="utf-8")
-    except Exception:
-        _logger_file = None
-    if _logger_file is not None:
+        from logging.handlers import RotatingFileHandler
+        # 主日志: 10MB×3 轮转; console/uvicorn/业务 全量镜像
+        _rfh = RotatingFileHandler(logfile, maxBytes=LOG_MAX, backupCount=LOG_BACKUP,
+                                   encoding="utf-8")
+        _fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(threadName)s %(message)s")
+        _rfh.setFormatter(_fmt)
+        # ERROR+ 独立文件(error.log, 2MB×2)
+        _efh = RotatingFileHandler(errfile, maxBytes=2 * 1024 * 1024, backupCount=2,
+                                   encoding="utf-8")
+        _efh.setLevel(logging.ERROR)
+        _efh.setFormatter(_fmt)
+        root = logging.getLogger()
+        if not any(isinstance(h, logging.FileHandler) for h in root.handlers):
+            root.addHandler(_rfh)
+            root.addHandler(_efh)
+        else:
+            root.handlers[:] = [_rfh, _efh]   # 替换旧 FileHandler/手动 trim
+        root.setLevel(logging.INFO)   # info 级日志(点位识别等)也入文件, 便于排查
         # print()/uvicorn 控制台输出也入文件(打包版无控制台时至少落盘)
-        sys.stdout = _Tee(sys.__stdout__, _logger_file)
-        sys.stderr = _Tee(sys.__stderr__, _logger_file)
-        atexit.register(lambda: _logger_file.close())
-
-    root = logging.getLogger()
-    if not any(isinstance(h, logging.FileHandler) for h in root.handlers):
-        fh = logging.FileHandler(logfile, encoding="utf-8")
-        fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-        root.addHandler(fh)
-    root.setLevel(logging.INFO)   # info 级日志(点位识别等)也入文件, 便于排查
+        try:
+            _logger_file = open(logfile, "a", encoding="utf-8")
+            sys.stdout = _Tee(sys.__stdout__, _logger_file)
+            sys.stderr = _Tee(sys.__stderr__, _logger_file)
+            atexit.register(lambda: _logger_file.close())
+        except Exception:
+            pass
+    except Exception as _e:
+        print(f"日志初始化失败(降级): {_e}")
 
 
 _setup_logging()
@@ -103,6 +104,12 @@ def _restore_desktop():
 def startup():
     """后端启动兜底: 上一次异常退出(强杀/崩溃)可能遗留隐藏任务栏, 启动即恢复"""
     threading.Thread(target=_restore_desktop, daemon=True).start()
+    try:
+        from .core import obs
+        obs.start_sampler(interval=60)   # 性能采样线程(资源+耗时窗口聚合)
+        obs.timed("startup")(lambda: None)()
+    except Exception:
+        pass
 
 
 @app.on_event("shutdown")
