@@ -213,7 +213,9 @@ def classify_items(items, box=None):
                 log_time_reject(text, _cols)
                 continue                      # 非灰+浅色 -> 非时间点位
             d = resolve_date(text)
-            data = {"time": d.strftime("%Y/%m/%d") if d else None,
+            if d is None:
+                continue                      # 解析不出标准日期(如日期区间'8.31-9.6') -> 非法时间点位, 忽略
+            data = {"time": d.strftime("%Y/%m/%d"),
                     "reads": None, "likes": None}
             ordered.append((cy, "time", text,
                             [(int(p[0]) + ox, int(p[1]) + oy) for p in sbox],
