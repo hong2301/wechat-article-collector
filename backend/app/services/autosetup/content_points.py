@@ -203,36 +203,32 @@ def _flow_point34_comment(ctx):
 
 
 # ---------------------------------------------------------------------------
-# 点位 35/36: 评论区左上/右下 (同一流程, 一起设置)
-# 流程: 采集器窗口初始化->微信窗口初始化->搜一搜窗口初始化->查询文章链接
-#   -> 检测[30,31]稳定 -> 点34(评论按钮)打开评论区
-#   -> 左半屏右半屏稳定检测 -> 截图 -> 移区域中点向下滚500 -> 截图
-#   -> 对比变化区域外接矩形 = 评论区: 35=左上, 36=右下 双写
+# 点位 35/36: 评论区左上/右下 (共用前置打开评论区, 识别逻辑各自独立)
+# 前置: 采集器窗口初始化->微信窗口初始化->搜一搜窗口初始化->查询文章链接
+#   -> 检测[30,31]稳定 -> 点34(评论按钮)打开评论区 -> 等评论区区域稳定
+# 36(右下): 滚动对比变化区域外接矩形 右下角(原逻辑不变)
+# 35(左上): 截微信窗口上一半 -> OCR找"留言"(黑字白底) -> box左上角 = 目标点位
 # ---------------------------------------------------------------------------
-def _flow_comment_area_find(ctx):
-    """35/36 共同识别: 点34打开评论区后识别评论区矩形
-    依赖点位(与库 depend_points 同步): [11, 12, 9, 14, 30, 31, 34]"""
+def _comment_area_prep(ctx):
+    """35/36 共用前置: 打开评论区并等页面稳定; 返回 (wr, 评论区区域) 或 None"""
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
-
     ok_ap, txt_ap = tasks_svc.init_app_window()
     if not ok_ap:
-        log.warning(f"点位35/36 采集器窗口初始化失败: {txt_ap}")
+        log.warning("点位35/36 采集器窗口初始化失败: " + str(txt_ap))
         return None
     ok_wx, txt_wx = tasks_svc.init_wechat_window()
     if not ok_wx:
-        log.warning(f"点位35/36 微信窗口初始化失败: {txt_wx}")
+        log.warning("点位35/36 微信窗口初始化失败: " + str(txt_wx))
         return None
     ok_sw, txt_sw = tasks_svc.search_window_init()
     if not ok_sw:
-        log.warning(f"点位35/36 搜一搜窗口初始化失败: {txt_sw}")
+        log.warning("点位35/36 搜一搜窗口初始化失败: " + str(txt_sw))
         return None
     ok_q, txt_q = tasks_svc.search_query(ARTICLE_LINK_DEMO)
     if not ok_q:
-        log.warning(f"点位35/36 查询文章链接失败: {txt_q}")
+        log.warning("点位35/36 查询文章链接失败: " + str(txt_q))
         return None
-
-    # 检测[30,31]稳定
     p30 = tasks_svc._read_point(30)
     p31 = tasks_svc._read_point(31)
     if not p30 or not p31:
@@ -244,18 +240,15 @@ def _flow_comment_area_find(ctx):
         log.warning(f"点位35/36 4指标区域未稳定: {info_st}")
     else:
         log.info(f"点位35/36 4指标区域稳定: {info_st}")
-    # 点34评论按钮打开评论区
     p34 = tasks_svc._read_point(34)
     if not p34:
         log.warning("点位35/36 缺34")
         return None
     ctx.click(p34[0], p34[1], wait_after=1.0)
-
-    # 评论区区域: 基于微信窗口内缩1% (x∈[窗口内1/4, 窗口右缘], y∈[窗口顶, 窗口底])
     wr = _pc.wechat_rect()
     if not wr:
         log.warning("点位35/36 未找到微信窗口")
-        return None, None
+        return None
     _w36, _h36 = wr[2] - wr[0], wr[3] - wr[1]
     rx1, ry1, rx2, ry2 = wr[0] + _w36 // 4, wr[1], wr[2], wr[3]
     ok_st2, info_st2 = tasks_svc.wait_page_stable(rx1, ry1, rx2, ry2,
@@ -264,26 +257,63 @@ def _flow_comment_area_find(ctx):
         log.warning(f"点位35/36 评论区区域未稳定: {info_st2}")
     else:
         log.info(f"点位35/36 评论区区域稳定: {info_st2}")
+    return (wr, rx1, ry1, rx2, ry2)
+
+
+def _flow_comment_area_find(ctx):
+    """点位36专用: 点34打开评论区后滚动对比识别评论区矩形右下角(原逻辑不变)"""
+    from ...core import computer as _pc
+    prep = _comment_area_prep(ctx)
+    if not prep:
+        return None
+    wr, rx1, ry1, rx2, ry2 = prep
     _pc._u32().ShowCursor(False)
     img1 = np.array(ImageGrab.grab(bbox=(rx1, ry1, rx2, ry2)).convert("RGB"))
     _pc._u32().ShowCursor(True)
-    # 移动到区域中点向下滚500
     _pc.scroll((rx1 + rx2) // 2, (ry1 + ry2) // 2, 500, direction="down", wait_after=1.0)
     _pc._u32().ShowCursor(False)
     img2 = np.array(ImageGrab.grab(bbox=(rx1, ry1, rx2, ry2)).convert("RGB"))
     _pc._u32().ShowCursor(True)
-
     d = np.abs(img2.astype(int) - img1.astype(int)).sum(axis=2)
     mask = d > 40
     ys, xs = np.where(mask)
     if len(xs) < 50:
-        log.warning(f"点位35/36 变化区域过小({len(xs)}px)")
+        log.warning(f"点位36 变化区域过小({len(xs)}px)")
         return None
     gx1, gy1, gx2, gy2 = int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
     ax1, ay1 = rx1 + gx1, ry1 + gy1
     ax2, ay2 = rx1 + gx2, ry1 + gy2
-    log.info(f"点位35/36 评论区矩形: ({ax1},{ay1})-({ax2},{ay2})")
+    log.info(f"点位36 评论区矩形: ({ax1},{ay1})-({ax2},{ay2})")
     return ax1, ay1, ax2, ay2
+
+
+def _flow_comment_left_find(ctx):
+    """点位35专用: 截微信窗口上一半 -> OCR找"留言"(黑字白底) -> box左上角 = 目标点位"""
+    from ...core import computer as _pc
+    prep = _comment_area_prep(ctx)
+    if not prep:
+        return None
+    wr, _rx1, _ry1, _rx2, _ry2 = prep
+    _w, _h = wr[2] - wr[0], wr[3] - wr[1]
+    # 截微信窗口上一半
+    img = ImageGrab.grab(bbox=(wr[0], wr[1], wr[2], wr[1] + _h // 2)).convert("RGB")
+    for cx, cy, text, _score, sbox, _br in ctx.ocr_box(img):
+        if not text or "留言" not in text:
+            continue
+        # 颜色判据: 黑字白底(前两主色 含黑且含白)
+        cols = ocr_service.color_sort(img, region=(
+            min(p[0] for p in sbox), min(p[1] for p in sbox),
+            max(p[0] for p in sbox), max(p[1] for p in sbox)))
+        colset = {c for _, _, c in cols[:2]}
+        if not cols or not ({"黑", "白"}.issubset(colset)):
+            log.info(f"点位35 文本命中但颜色不符({cols}): {text}")
+            continue
+        # box 左上角 = 目标点位(截图起点为窗口左上, 加偏移)
+        bx, by = wr[0] + int(min(p[0] for p in sbox)), wr[1] + int(min(p[1] for p in sbox))
+        log.info(f"点位35 识别'留言'成功: ({bx},{by}) 颜色排序={[c for _,_,c in (cols or [])][:3]}")
+        return bx, by
+    log.warning("点位35 未识别到黑字白底的'留言'")
+    return None
 
 
 def _comment_area_entry(self_name):
@@ -291,22 +321,35 @@ def _comment_area_entry(self_name):
         res = _flow_comment_area_find(ctx)
         if res is None:
             return None, None
-        ax1, ay1, ax2, ay2 = res
+        _ax1, _ay1, ax2, ay2 = res
         # 点位36(评论区右下): x 改为微信窗口右缘
         _wr36 = pc.wechat_rect()
         ax2 = _wr36[2] if _wr36 else ax2
         conn = _get_conn()
         try:
-            conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (ax1, ay1, "评论区左上"))
             conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (ax2, ay2, "评论区右下"))
             conn.commit()
         finally:
             conn.close()
-        if self_name == "评论区左上":
-            return ax1, ay1
         return ax2, ay2
     return fn
 
 
-POINT_FLOWS["评论区左上"] = _comment_area_entry("评论区左上")
+def _comment_left_entry(self_name):
+    def fn(ctx):
+        res = _flow_comment_left_find(ctx)
+        if res is None:
+            return None, None
+        bx, by = res
+        conn = _get_conn()
+        try:
+            conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (bx, by, "评论区左上"))
+            conn.commit()
+        finally:
+            conn.close()
+        return bx, by
+    return fn
+
+
+POINT_FLOWS["评论区左上"] = _comment_left_entry("评论区左上")
 POINT_FLOWS["评论区右下"] = _comment_area_entry("评论区右下")
