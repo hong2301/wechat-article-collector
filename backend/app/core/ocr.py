@@ -271,7 +271,7 @@ def _name_color(rgb):
     """按常见色系把 (r,g,b) 归名(自然语言): 白/黑/灰/蓝/红/绿/黄/紫/彩"""
     r, g, b = rgb
     span = max(rgb) - min(rgb)
-    if span < 40:                       # 无彩色系
+    if span < 60:                       # 无彩色系 / 近白低饱和(如浅蓝紫(200,200,240)应视为白底)
         avg = (r + g + b) // 3
         if avg >= 205:
             return "白"
