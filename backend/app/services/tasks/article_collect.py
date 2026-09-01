@@ -590,13 +590,14 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
 
     # 1) 获取复制链接(2次机会): 点18(3点菜单) -> 点27(复制链接) -> 读剪贴板60次
     #    (不依赖点位28/29: 不再截图OCR检测'复制'字样, 点18后直接点27再读剪贴板验证)
+    COPY_TRIES = 2          # 复制链接最大尝试次数(想改 5 次只需改这里)
     p18 = _read_point(18)   # 文章右上角3点
     p27 = _read_point(27)   # 点击复制链接
     if not p18 or not p27:
         step("缺少点位18/27(3点/复制链接)")
         return _finish(logs, copy_seen, False, "缺少点位18/27(3点/复制链接)")
     link = None
-    for _try in range(1, 3):
+    for _try in range(1, COPY_TRIES + 1):
         step(f"--- 复制链接 第{_try}次 ---")
         copy_seen = True    # 已执行复制动作(供退出时 Ctrl+W 关文章页判定)
         pc.clear_clipboard()
@@ -622,7 +623,7 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         else:
             break   # 已拿到链接, 跳出
     if not link:
-        step("2次复制链接均未获取到, 本轮结束")
+        step(f"{COPY_TRIES}次复制链接均未获取到, 本轮结束")
         return _finish(logs, copy_seen, False, "未获取到链接")
 
     # art_biz 同步提取(供 4指标/阅读数 使用, 不依赖写表)
