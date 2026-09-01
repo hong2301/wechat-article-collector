@@ -866,12 +866,15 @@ def enable_snipping():
 
 
 def hide_taskbar():
-    """隐藏底部任务栏(采集/程序启动时屏幕全高): 仅用系统级自动隐藏(SHAppBarMessage),
-    等同手动"自动隐藏任务栏", 截图任务栏才真正不占画面; 不用 ShowWindow 式的窗口隐藏"""
+    """隐藏底部任务栏(采集/程序启动时屏幕全高); 系统级自动隐藏, 截图不占画面
+    ABM_SETSTATE 自动隐藏 + ShowWindow 双保险"""
     try:
         _taskbar_autohide(True)
     except Exception:
         pass
+    hwnd = _find_taskbar()
+    if hwnd:
+        _u32().ShowWindow(hwnd, SW_HIDE)
     disable_snipping()          # 同步禁用截图热键
     return True
 
@@ -955,11 +958,14 @@ def hide_taskbar():
 
 
 def show_taskbar():
-    """恢复显示任务栏(取消自动隐藏, 恢复固定显示); 仅用系统级(ABM_SETSTATE)"""
+    """恢复显示任务栏(取消自动隐藏, 恢复固定显示); 返回是否成功"""
     try:
         _taskbar_autohide(False)
     except Exception:
         pass
+    hwnd = _find_taskbar()
+    if hwnd:
+        _u32().ShowWindow(hwnd, SW_SHOW)
     enable_snipping()           # 同步恢复截图热键
     return True
 
