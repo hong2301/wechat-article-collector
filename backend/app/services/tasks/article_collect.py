@@ -588,38 +588,51 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         step("触发类型不确定, 无法采集")
         return _finish(logs, copy_seen, False, "触发类型不确定, 无法采集")
 
-    # 1) 获取复制链接(2次机会): 点18(3点菜单) -> 点27(复制链接) -> 读剪贴板60次
-    #    (已剔除点位28/29: 不再截图区域检测'复制'字样, 直接试复制+读剪贴板验证)
+    # 1) 获取复制链接(2次机会): 点18(3点菜单) -> OCR检测复制字样 -> 点27 -> 读剪贴板60次
     p18 = _read_point(18)   # 文章右上角3点
     p27 = _read_point(27)   # 点击复制链接
+    p28 = _read_point(28)   # 复制链接区域左上
+    p29 = _read_point(29)   # 复制链接区域右下
     if not p18 or not p27:
         step("缺少点位18/27(3点/复制链接)")
         return _finish(logs, copy_seen, False, "缺少点位18/27(3点/复制链接)")
     link = None
     for _try in range(1, 3):
         step(f"--- 复制链接 第{_try}次 ---")
-        copy_seen = True    # 已执行复制动作(剔除截图检测后置真, 供停止判定沿用)
+        copy_seen = False   # 每次循环重置, 避免沿用上次残留
         pc.clear_clipboard()
         step(f"点击点位18(3点)({p18[0]},{p18[1]})")
         pc.mouse_click(p18[0], p18[1])
-        time.sleep(0.5)   # 等菜单弹出
-        step(f"点击点位27(复制链接)({p27[0]},{p27[1]})")
-        pc.mouse_click(p27[0], p27[1])
-        # 读剪贴板60次(每0.1s): 拿到链接即成功
-        for _i in range(1, 60):
-            time.sleep(0.1)
-            v = pc.read_clipboard_text()
-            if v:
-                link = v
-                break
-        step(f"已复制链接: {link[:60]}" if link else "未读取到剪贴板链接")
-        if not link:
-            # 未读到: 重新点18弹菜单, 等0.5s, 清剪贴板后进入下一次尝试
-            step(f"再次点击点位18(3点)({p18[0]},{p18[1]}), 等0.5s")
+        time.sleep(0.5)   # 等菜单弹出, 否则截图时菜单未出现会误判无复制
+        # 截图点位28-29区域, OCR 检测是否有"复制"字样
+        if p28 and p29:
+            try:
+                shot_path, _b64 = pc.screenshot(p28[0], p28[1], p29[0], p29[1],
+                                                img_format="png")
+                if shot_path:
+                    ocr_items = ocr_service.ocr(Image.open(shot_path))
+                    copy_seen = any("复制" in (it[2] or "") for it in ocr_items)
+                    step("OCR检测到复制字样" if copy_seen else "OCR未检测到复制字样")
+            except Exception as e:
+                step(f"复制链接OCR检测失败: {e}")
+        if copy_seen:
+            # 检测到"复制": 点击复制链接(点位27), 读剪贴板60次
+            step(f"点击点位27(复制链接)({p27[0]},{p27[1]})")
+            pc.mouse_click(p27[0], p27[1])
+            for _i in range(1, 60):
+                time.sleep(0.1)
+                v = pc.read_clipboard_text()
+                if v:
+                    link = v
+                    break
+            step(f"已复制链接: {link[:60]}" if link else "未读取到剪贴板链接")
+        else:
+            # 未检测到"复制": 再点击点位18, 等0.2秒
+            step(f"再次点击点位18(3点)({p18[0]},{p18[1]}), 等0.2s")
             pc.mouse_click(p18[0], p18[1])
             time.sleep(0.5)
             pc.clear_clipboard()
-        else:
+        if link:
             break   # 已拿到链接, 跳出
     if not link:
         step("2次复制链接均未获取到, 本轮结束")
