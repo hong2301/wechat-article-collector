@@ -197,20 +197,23 @@ def classify_items(items, box=None):
         m_read = re.search(r"阅读\s*\d+", text or "")    # '阅读'+数字
         m_pay = "付费" in (text or "")                    # '付费'(可能无阅读)
         if has_time and not m_read:
-            # 时间点位颜色判据: 统一 color_sort(文字框前两主色), 判定外联=灰+浅色
-            try:
-                from PIL import ImageGrab
-                _full = ImageGrab.grab().convert("RGB")
-                _cols = color_sort(_full, region=(
-                    ox + min(p[0] for p in sbox), oy + min(p[1] for p in sbox),
-                    ox + max(p[0] for p in sbox), oy + max(p[1] for p in sbox)))
-                _colset = {c for _, _, c in _cols[:2]}
-                _okc = bool(_colset.issubset({"灰", "白"}) and _colset & {"灰"})
-            except Exception:
-                _okc = True                    # 取色失败不阻断(同原 None 语义)
-            if _okc is False:
-                log_time_reject(text, _cols)
-                continue                      # 非灰+浅色 -> 非时间点位
+            # 时间文本词(今天/昨天/前天等, 文本本身可信)直接走解析, 颜色框易混入相邻封面彩色不作判据
+            _is_time_word = (text or "").strip() in ("今天", "昨天", "前天", "明天", "时间")
+            if not _is_time_word:
+                # 标准日期: 颜色判据(统一 color_sort 文字框前两主色 = 灰+浅色)
+                try:
+                    from PIL import ImageGrab
+                    _full = ImageGrab.grab().convert("RGB")
+                    _cols = color_sort(_full, region=(
+                        ox + min(p[0] for p in sbox), oy + min(p[1] for p in sbox),
+                        ox + max(p[0] for p in sbox), oy + max(p[1] for p in sbox)))
+                    _colset = {c for _, _, c in _cols[:2]}
+                    _okc = bool(_colset.issubset({"灰", "白"}) and _colset & {"灰"})
+                except Exception:
+                    _okc = True                # 取色失败不阻断(同原 None 语义)
+                if _okc is False:
+                    log_time_reject(text, _cols)
+                    continue                  # 非灰+浅色 -> 非时间点位
             d = resolve_date(text)
             data = {"time": d.strftime("%Y/%m/%d") if d else None,
                     "reads": None, "likes": None}
