@@ -197,10 +197,19 @@ def classify_items(items, box=None):
         m_read = re.search(r"阅读\s*\d+", text or "")    # '阅读'+数字
         m_pay = "付费" in (text or "")                    # '付费'(可能无阅读)
         if has_time and not m_read:
-            # 时间点位: 仅颜色判据(前两主色 灰+浅色), 不带亮度阈值
-            cols = gray_on_gray(sbox, box)
-            if cols is False:
-                continue                      # 非灰字灰底 -> 非时间点位
+            # 时间点位颜色判据: 统一 color_sort(文字框前两主色), 判定外联=灰+浅色
+            try:
+                from PIL import ImageGrab
+                _full = ImageGrab.grab().convert("RGB")
+                _cols = color_sort(_full, region=(
+                    ox + min(p[0] for p in sbox), oy + min(p[1] for p in sbox),
+                    ox + max(p[0] for p in sbox), oy + max(p[1] for p in sbox)))
+                _colset = {c for _, _, c in _cols[:2]}
+                _okc = bool(_colset.issubset({"灰", "白"}) and _colset & {"灰"})
+            except Exception:
+                _okc = True                    # 取色失败不阻断(同原 None 语义)
+            if _okc is False:
+                continue                      # 非灰+浅色 -> 非时间点位
             d = resolve_date(text)
             data = {"time": d.strftime("%Y/%m/%d") if d else None,
                     "reads": None, "likes": None}
@@ -312,23 +321,3 @@ def color_sort(img, region=None, top=4, merge=True):
     return out[:top]
 
 
-def gray_on_gray(sbox, box=None):
-    """时间点位判定: 文字框前两主色应为【灰 + 浅色/白】(灰字浅底), 前两主色均在{灰,白}内且至少一个灰
-    兼容 灰字白底 / 白字灰底 / 灰字灰底; 黑字白底(文章点位特征)不误收
-    与 classify_items 配套; sbox 相对截图坐标 + box 区域左上角 -> 屏幕绝对区域
-    返回 True/False; 取色失败返回 None(不阻断, 语义同原 _region_grayish)
-    """
-    if not sbox or len(sbox) < 4 or box is None:
-        return None
-    try:
-        from PIL import ImageGrab
-        full = ImageGrab.grab().convert("RGB")
-        cols = color_sort(full, region=(
-            box[0] + min(p[0] for p in sbox), box[1] + min(p[1] for p in sbox),
-            box[0] + max(p[0] for p in sbox), box[1] + max(p[1] for p in sbox)))
-    except Exception:
-        return None
-    if not cols:
-        return None
-    colset = {c for _, _, c in cols[:2]}
-    return bool(colset.issubset({"灰", "白"}) and colset & {"灰"})
