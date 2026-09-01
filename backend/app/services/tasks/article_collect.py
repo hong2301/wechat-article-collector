@@ -70,7 +70,8 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
     # 稳定后: 截图点位15-16 => OCR => 识别"文章"标记(灰色系深色文字)并点击
     try:
         shot_path, _b64 = pc.screenshot(x1, y1, x2, y2, img_format="png")
-        items = ocr_service.ocr(Image.open(shot_path))
+        with Image.open(shot_path) as _im:
+            items = ocr_service.ocr(_im)
         clicked = False
         for cx, cy, text, score, sbox, brightness in items:
             if not text or not text.strip():
@@ -134,8 +135,9 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             echo(f"第{loop_n}轮截图失败")
             return False, f"第{loop_n}轮截图失败"
         try:
-            img = Image.open(shot_path)
-            items = ocr_service.ocr(img)
+            with Image.open(shot_path) as _im:
+                img = _im
+                items = ocr_service.ocr(img)
         except Exception as e:
             echo(f"第{loop_n}轮OCR失败: {e}")
             return False, f"第{loop_n}轮OCR失败: {e}"
@@ -165,7 +167,8 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
                 # 点击后: 重新截图+OCR(替换本轮items, 继续下面的分类)
                 shot_path2, _b64 = pc.screenshot(x1, y1, x2, y2, img_format="png")
                 if shot_path2:
-                    items = ocr_service.ocr(Image.open(shot_path2))
+                    with Image.open(shot_path2) as _im2:
+                        items = ocr_service.ocr(_im2)
                     echo("余下按钮点击后已重新截图OCR")
         except Exception as e:
             echo(f"第{loop_n}轮余下按钮检测失败: {e}")
@@ -507,7 +510,8 @@ def _bg_reads_ocr(png_path, box, biz, art):
     独立异步执行, 不阻塞主流程; 日志实时转发"""
     tag = f"阅读数#{art[:10]}"
     try:
-        img = Image.open(png_path).convert("RGB")
+        with Image.open(png_path) as _im:
+            img = _im.convert("RGB")
         items = ocr_service.ocr(img)
         reads = _extract_read_from_items(items, box, img=img)
         if reads is not None:
@@ -605,7 +609,8 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
                 shot_path, _b64 = pc.screenshot(p28[0], p28[1], p29[0], p29[1],
                                                 img_format="png")
                 if shot_path:
-                    ocr_items = ocr_service.ocr(Image.open(shot_path))
+                    with Image.open(shot_path) as _im:
+                        ocr_items = ocr_service.ocr(_im)
                     copy_seen = any("复制" in (it[2] or "") for it in ocr_items)
                     step("OCR检测到复制字样" if copy_seen else "OCR未检测到复制字样")
             except Exception as e:
