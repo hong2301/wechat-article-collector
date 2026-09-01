@@ -157,11 +157,8 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
                 echo(f"识别到'余下'加载更多按钮: {btn[2]!r} @({btn[0]},{btn[1]}), 点击后重新截图")
                 pc.mouse_click(btn[0], btn[1])
                 time.sleep(0.3)
-                # 点击后: 重新截图+OCR(替换本轮items, 继续下面的分类)
-                shot_path2, _b64 = pc.screenshot(x1, y1, x2, y2, img_format="png")
-                if shot_path2:
-                    items = ocr_service.ocr(Image.open(shot_path2))
-                    echo("余下按钮点击后已重新截图OCR")
+                echo("余下按钮已点击, 直接进入下一轮循环(跳过本轮分类/滚动)")
+                continue
         except Exception as e:
             echo(f"第{loop_n}轮余下按钮检测失败: {e}")
 
