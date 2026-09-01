@@ -879,8 +879,7 @@ def wechat_rect():
     """微信主窗口(Weixin.exe)外接矩形, 4 条边各内缩 5px
     返回 (x1, y1, x2, y2) 或 None; 点位自动设置基于窗口坐标使用(微信离屏幕边缘有缝隙)"""
     try:
-        from ...services.tasks.wx_window import WECHAT_MAIN
-        wins = find_windows(exe=WECHAT_MAIN, visible_only=True)
+        wins = find_windows(exe="Weixin.exe", visible_only=True)  # 直接进程名, 避免循环导入
         if not wins:
             return None
         r = ctypes.wintypes.RECT()
