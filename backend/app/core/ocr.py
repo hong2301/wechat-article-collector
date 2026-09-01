@@ -258,11 +258,11 @@ __all__ = ["init", "ocr", "classify_items",
 
 
 def log_time_reject(text, cols=None):
-    """诊断: 时间点位颜色判据拒绝时打日志(便于采集时定位原因)"""
+    """诊断: 时间点位颜色判据拒绝时打日志(含颜色排序明细: rgb,count,色系)"""
     import logging as _lg
     try:
-        _lg.getLogger("perf").log(20, "[time-reject] %r 主色=%s", text,
-                                  [c for _, _, c in (cols or [])][:4])
+        _detail = [f"{rgb}({cnt}){cn}" for rgb, cnt, cn in (cols or [])[:4]]
+        _lg.getLogger("perf").log(20, "[time-reject] %r 颜色排序=%s", text, _detail)
     except Exception:
         pass
 
