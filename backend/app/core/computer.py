@@ -866,15 +866,11 @@ def enable_snipping():
 
 
 def hide_taskbar():
-    """隐藏底部任务栏(采集/程序启动时屏幕全高); 系统级自动隐藏, 截图不占画面
-    ABM_SETSTATE 自动隐藏 + ShowWindow 双保险"""
-    try:
-        _taskbar_autohide(True)
-    except Exception:
-        pass
+    """隐藏底部任务栏(采集时屏幕全高); 返回是否成功"""
     hwnd = _find_taskbar()
-    if hwnd:
-        _u32().ShowWindow(hwnd, SW_HIDE)
+    if not hwnd:
+        return False
+    _u32().ShowWindow(hwnd, SW_HIDE)
     disable_snipping()          # 同步禁用截图热键
     return True
 
@@ -913,36 +909,6 @@ def wechat_rect():
         return None
 
 
-class _APPBARDATA(ctypes.Structure):
-    """SHAppBarMessage 的 APPBARDATA 结构"""
-    _fields_ = [
-        ("cbSize", ctypes.c_ulong),
-        ("hWnd", ctypes.c_void_p),
-        ("uCallbackMessage", ctypes.c_uint),
-        ("uEdge", ctypes.c_uint),
-        ("rc", ctypes.wintypes.RECT),
-        ("lParam", ctypes.c_long),
-    ]
-
-
-def _taskbar_autohide(on):
-    """系统级任务栏自动隐藏(等同手动设置"自动隐藏任务栏"): 截图不占画面
-    on=True 自动隐藏; on=False 恢复固定(始终显示)"""
-    _ABM_SETSTATE, _ABS_AUTOHIDE, _ABS_ALWAYSONTOP = 10, 1, 2
-    hwnd = _find_taskbar()
-    if not hwnd:
-        return False
-    try:
-        abd = _APPBARDATA()
-        abd.cbSize = ctypes.sizeof(_APPBARDATA)
-        abd.hWnd = hwnd
-        abd.lParam = _ABS_AUTOHIDE if on else _ABS_ALWAYSONTOP
-        _u32().SHAppBarMessage(_ABM_SETSTATE, ctypes.byref(abd))
-        return True
-    except Exception:
-        return False
-
-
 def _find_taskbar():
     """Windows 任务栏窗口句柄(Shell_TrayWnd)"""
     return _u32().FindWindowW("Shell_TrayWnd", None)
@@ -958,14 +924,11 @@ def hide_taskbar():
 
 
 def show_taskbar():
-    """恢复显示任务栏(取消自动隐藏, 恢复固定显示); 返回是否成功"""
-    try:
-        _taskbar_autohide(False)
-    except Exception:
-        pass
+    """恢复显示任务栏; 返回是否成功"""
     hwnd = _find_taskbar()
-    if hwnd:
-        _u32().ShowWindow(hwnd, SW_SHOW)
+    if not hwnd:
+        return False
+    _u32().ShowWindow(hwnd, SW_SHOW)
     enable_snipping()           # 同步恢复截图热键
     return True
 
