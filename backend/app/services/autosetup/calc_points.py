@@ -24,9 +24,11 @@ def _calc_reads_box(self_name):
             log.warning("点位21/22 缺少点位19")
             return None, None
         x19, y19 = int(float(p19["x"])), int(float(p19["y"]))
-        u32_ = _pc2._u32()
-        sh_ = u32_.GetSystemMetrics(_pc2.SM_CYSCREEN)
-        x21, y21 = 0, sh_ // 2       # 21: 微信最左边x=0, 屏幕中点y
+        wr = _pc2.wechat_rect()                     # 微信窗口(内缩1%)为基准
+        if not wr:
+            log.warning("点位32/33 未找到微信窗口")
+            return None, None
+        x21, y21 = wr[0], wr[1] + (wr[3] - wr[1]) // 2   # 阅读数左上: 窗口左缘, 窗口上1/2(原屏1/2语义)
         x22, y22 = x19, y19          # 22: 直接赋值点位19
         conn = _get_conn()
         try:

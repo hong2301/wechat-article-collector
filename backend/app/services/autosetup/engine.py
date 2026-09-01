@@ -148,15 +148,18 @@ def _flow_point18_three_dots(ctx):
         _pc._u32().GetWindowRect(appex[0][0], ctypes.byref(r_ap))
         x_left = r_ap.left                      # 搜一搜窗口左边
         x_right = r_ap.right - 1                # 搜一搜窗口最右边(探测原点)
-        u32_ = _pc._u32()
-        sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
-        half_w = sw_ // 2
+        wr = _pc.wechat_rect()                    # 微信窗口(内缩1%)为基准
+        if not wr:
+            log.warning("点位18 未找到微信窗口")
+            return None, None
+        _w18 = wr[2] - wr[0]
+        half_w = wr[2]                              # 探测右缘 = 窗口右缘(左半屏右缘)
         base_y = max(1, int(p14[1]) // 2)           # y = 点位14的y / 2(按钮高度一半处)
         raw_step = max(1, (int(p14[0]) - x_left) // 30)   # 搜索按钮到窗口左边 / 30
 
         def snap():
-            # 截图范围: 宽=左半屏中线(sw/4) 到 屏幕中线(sw/2); 高=搜一搜按钮y×2
-            _box = (half_w // 2, 0, half_w, base_y * 2)
+            # 截图范围: x=窗口内左1/4 到 窗口右缘; y=窗口顶 到 base_y×2
+            _box = (wr[0] + _w18 // 4, wr[1], half_w, base_y * 2)
             _p, _ = pc.screenshot(*_box)          # pc.screenshot 内含红框闪烁(0.2s)
             _im = (Image.open(_p).convert("RGB") if _p
                    else ImageGrab.grab(bbox=_box).convert("RGB"))
@@ -174,7 +177,7 @@ def _flow_point18_three_dots(ctx):
         prev = snap()
         changes = 0
         cx = x_right
-        while cx > half_w // 2:   # 扫过左半屏中线(sw/4)仍无目标 => 需完全重来
+        while cx > wr[0] + _w18 // 4:   # 扫过窗口内左1/4线仍无目标 => 需完全重来
             # 横向探测: 移动鼠标(不点击)触发 hover 变化
             _pc._u32().SetCursorPos(cx, base_y)
             # 每次移动后等 0.5s 让 hover 变化稳定
@@ -525,11 +528,13 @@ def _flow_point27_copy(ctx):
         log.warning("点位27 缺前置点位18")
         return None, None
 
-    # 截图范围: 参考值 = 左半屏右上(与原点位28/29设定一致, 不再读取28/29)
-    _u32 = _pc._u32()
-    _sw = _u32.GetSystemMetrics(_pc.SM_CXSCREEN)
-    _sh = _u32.GetSystemMetrics(_pc.SM_CYSCREEN)
-    _sx1, _sy1, _sx2, _sy2 = _sw // 4, 0, _sw // 2, _sh // 2
+    # 截图范围: 基于微信窗口内缩1% (参考原左半屏右上语义, 不再读取28/29)
+    wr = _pc.wechat_rect()
+    if not wr:
+        log.warning("点位27 未找到微信窗口")
+        return None, None
+    _w27, _h27 = wr[2] - wr[0], wr[3] - wr[1]
+    _sx1, _sy1, _sx2, _sy2 = wr[0] + _w27 // 4, wr[1], wr[2], wr[1] + _h27 // 2
 
     # 参考 tasks 文章采集的复制链接循环: 3次机会, 点18弹菜单 -> 截图右上区域OCR检"复制"
     for _try in range(1, 4):

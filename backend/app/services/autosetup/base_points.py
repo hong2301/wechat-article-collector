@@ -34,12 +34,16 @@ def _flow_point12_search_network(ctx):
     pc.key_press(pc.VK_DELETE)
     _time.sleep(0.8)
 
-    # 3) (采集此处点击点位12, 自动设置改为:) 截图左上1/16 -> OCR找"搜索网络结果"
-    sw = ctypes.windll.user32.GetSystemMetrics(0)
-    sh = ctypes.windll.user32.GetSystemMetrics(1)
+    # 3) (采集此处点击点位12, 自动设置改为:) 截图微信窗口左上1/4区域 -> OCR找"搜索网络结果"
+    wr = pc.wechat_rect()
+    if not wr:
+        log.warning("点位12 未找到微信窗口")
+        return None, None
+    _w, _h = wr[2] - wr[0], wr[3] - wr[1]
     for attempt in range(3):
-        img = Image.open(pc.screenshot(0, 0, sw // 4, sh // 4)[0]).convert("RGB")
+        img = Image.open(pc.screenshot(wr[0], wr[1], wr[0] + _w // 4, wr[1] + _h // 4)[0]).convert("RGB")
         for cx, cy, text, score, sbox, _bright in ctx.ocr_box(img):
+            _cx_abs, _cy_abs = wr[0] + int(cx), wr[1] + int(cy)
             if "网络结果" not in text:
                 continue
             # 校验: 文字框 RGB 频率排序, 前两主色应为"暗色字+白底"(黑/灰字白底, 不管顺序)
@@ -50,8 +54,8 @@ def _flow_point12_search_network(ctx):
             if not cols or "白" not in colset or not ({"黑", "灰"} & colset):
                 log.info(f"点位12 文本命中但颜色不符({cols}): {text}")
                 continue
-            log.info(f"点位12 识别成功: 文本={text} box=({cx},{cy}) 颜色排序={cols}")
-            return cx, cy
+            log.info(f"点位12 识别成功: 文本={text} box=({_cx_abs},{_cy_abs}) 颜色排序={cols}")
+            return _cx_abs, _cy_abs
         if attempt == 1:
             # 兜底: 重复点位11动作(下拉未弹出时)
             ctx.click(p11[0], p11[1], wait_after=0.2)
@@ -80,9 +84,12 @@ def _flow_point11_search_box(ctx):
     if not _ensure_wechat():
         return None, None
 
-    sw = ctypes.windll.user32.GetSystemMetrics(0)
-    sh = ctypes.windll.user32.GetSystemMetrics(1)
-    x1, y1, x2, y2 = 0, 0, sw // 4, sh // 4      # 屏幕左上 1/16(微信左半屏的左上角)
+    wr = pc.wechat_rect()                    # 微信窗口(4边各内缩1%): 基准用窗口而非屏幕
+    if not wr:
+        log.warning("点位11 未找到微信窗口")
+        return None, None
+    _w, _h = wr[2] - wr[0], wr[3] - wr[1]
+    x1, y1, x2, y2 = wr[0], wr[1], wr[0] + _w // 4, wr[1] + _h // 4   # 窗口内左上 1/4×1/4
     img = Image.open(pc.screenshot(x1, y1, x2, y2)[0]).convert("RGB")
 
     items = ctx.ocr_box(img)                       # [(cx,cy,text,score,sbox,brightness)]
@@ -97,9 +104,10 @@ def _flow_point11_search_box(ctx):
         if not cols or not {"灰", "白"}.issubset(colset):
             log.info(f"点位11 文本命中但颜色不符({cols}): {text}")
             continue
-        # 截图起点为 (0,0), 相对坐标即绝对坐标
-        log.info(f"点位11 识别成功: 文本={text} box=({cx},{cy}) 颜色排序={cols}")
-        return cx, cy
+        # 截图起点为窗口左上(x1,y1): 相对坐标转窗口内缩后绝对坐标
+        _ex, _ey = x1 + int(cx), y1 + int(cy)
+        log.info(f"点位11 识别成功: 文本={text} box=({_ex},{_ey}) 颜色排序={cols}")
+        return _ex, _ey
     log.warning("点位11 未识别到白底灰字的'搜索'输入框")
     return None, None
 
@@ -129,15 +137,17 @@ def _flow_point14_query_button(ctx):
             log.warning(f"点位14 搜一搜窗口初始化失败: {txt_sw}")
             return None, None
 
-        u32 = _pc._u32()
-        sw = u32.GetSystemMetrics(_pc.SM_CXSCREEN)
-        sh = u32.GetSystemMetrics(_pc.SM_CYSCREEN)
-        x2 = sw // 2
-        y_top = max(80, sh * 2 // 10)          # 最上 2/10(1/10 太窄OCR不出/不稳)
-        img0 = Image.open(pc.screenshot(0, 0, x2, sh)[0]).convert("RGB")
+        wr = _pc.wechat_rect()                    # 微信窗口(内缩1%)为基准
+        if not wr:
+            log.warning("点位14 未找到微信窗口")
+            return None, None
+        _w, _h = wr[2] - wr[0], wr[3] - wr[1]
+        x2 = wr[2]                                   # 窗口右缘(=左半屏右缘)
+        y_top = wr[1] + _h * 2 // 10                 # 最上 2/10
+        img0 = Image.open(pc.screenshot(wr[0], wr[1], wr[2], wr[3])[0]).convert("RGB")
         box = None
         for _cx, cy, text, _score, sbox, _br in ctx.ocr_box(img0):
-            if "搜一搜" in text and cy <= y_top:
+            if "搜一搜" in text and cy <= y_top - wr[1]:
                 box = sbox
                 break
         if not box:
@@ -145,11 +155,11 @@ def _flow_point14_query_button(ctx):
             return None, None
 
         xs = [p[0] for p in box]; ys = [p[1] for p in box]
-        ox = max(xs)                       # 原点 x = box 最右
-        oy = (min(ys) + max(ys)) // 2     # 原点 y = box 中点(探测线与截图高度覆盖到box中心)
-        mid_x = int(sum(xs) / len(xs))
-        limit_x = sw * 3 // 8              # 上限: 左半屏右半部分的中线 x
-        shot_box = (ox, 0, limit_x, oy)    # 截图范围: x∈[ox,limit_x], y∈[0,oy]
+        ox = wr[0] + max(xs)                       # 原点 x = box最右(绝对)
+        oy = wr[1] + (min(ys) + max(ys)) // 2      # 原点 y = box中点(绝对)
+        mid_x = wr[0] + int(sum(xs) / len(xs))     # box中心x(绝对)
+        limit_x = wr[0] + _w * 3 // 8              # 上限: 窗口内 x 3/8(原3sw/8语义)
+        shot_box = (ox, wr[1], limit_x, oy)        # 截图范围: x∈[ox,limit_x], y∈[窗口顶,oy]
 
         def snap():
             return np.array(Image.open(pc.screenshot(*shot_box)[0]).convert("RGB"))

@@ -875,6 +875,23 @@ def hide_taskbar():
     return True
 
 
+def wechat_rect():
+    """微信主窗口(Weixin.exe)外接矩形, 4 条边各内缩宽/高的 1%
+    返回 (x1, y1, x2, y2) 或 None; 点位自动设置基于窗口坐标使用(微信离屏幕边缘有缝隙)"""
+    try:
+        from ...services.tasks.wx_window import WECHAT_MAIN
+        wins = find_windows(exe=WECHAT_MAIN, visible_only=True)
+        if not wins:
+            return None
+        r = ctypes.wintypes.RECT()
+        _u32().GetWindowRect(wins[0][0], ctypes.byref(r))
+        w, h = r.right - r.left, r.bottom - r.top
+        pad_x, pad_y = w * 0.01, h * 0.01
+        return (r.left + pad_x, r.top + pad_y, r.right - pad_x, r.bottom - pad_y)
+    except Exception:
+        return None
+
+
 def _find_taskbar():
     """Windows 任务栏窗口句柄(Shell_TrayWnd)"""
     return _u32().FindWindowW("Shell_TrayWnd", None)
@@ -958,6 +975,7 @@ __all__ = [
     # 窗口
     "find_windows", "show_window", "close_window", "move_window",
     "hide_taskbar", "show_taskbar", "disable_snipping", "enable_snipping",
+    "wechat_rect",
     # 鼠标
     "mouse_click", "scroll", "preview_point", "capture_point",
     "get_latest_click", "clear_latest_click",

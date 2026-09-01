@@ -46,9 +46,11 @@ def _flow_articles_list_find(ctx):
     if not ok_sw:
         log.warning(f"点位15/16 搜一搜窗口初始化失败: {txt_sw}")
         return None
-    u32_ = _pc._u32()
-    sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
-    sh_ = u32_.GetSystemMetrics(_pc.SM_CYSCREEN)
+    wr = _pc.wechat_rect()                    # 微信窗口(内缩1%)为基准
+    if not wr:
+        log.warning("点位15/16 未找到微信窗口")
+        return None
+    _w, _h = wr[2] - wr[0], wr[3] - wr[1]
 
     # 搜一搜查询测试公众号
     ok_q, _txt = tasks_svc.search_query(TEST_BIZ_QUERY)
@@ -58,19 +60,20 @@ def _flow_articles_list_find(ctx):
     _time.sleep(5.0)                        # 等加载
 
     # 先下滚1000 -> 截图1; 再下滚1000 -> 截图2; 对比得出列表区
-    _pc.scroll(sw_ // 4, sh_ // 2, 1000, direction="down", wait_after=0.8)
-    img1 = np.array(ImageGrab.grab(bbox=(0, 0, sw_ // 2, sh_)).convert("RGB"))
-    _pc.scroll(sw_ // 4, sh_ // 2, 1000, direction="down", wait_after=0.8)
-    img2 = np.array(ImageGrab.grab(bbox=(0, 0, sw_ // 2, sh_)).convert("RGB"))
+    _pc.scroll(wr[0] + _w // 4, wr[1] + _h // 2, 1000, direction="down", wait_after=0.8)
+    img1 = np.array(ImageGrab.grab(bbox=(wr[0], wr[1], wr[2], wr[3])).convert("RGB"))
+    _pc.scroll(wr[0] + _w // 4, wr[1] + _h // 2, 1000, direction="down", wait_after=0.8)
+    img2 = np.array(ImageGrab.grab(bbox=(wr[0], wr[1], wr[2], wr[3])).convert("RGB"))
 
-    # 对比: 变化区域的外接矩形 = 文章列表区
+    # 对比: 变化区域的外接矩形 = 文章列表区(相对截图 -> 加窗口偏移为绝对)
     diff = np.abs(img2.astype(int) - img1.astype(int)).sum(axis=2)
     mask = diff > 40
     ys, xs = np.where(mask)
     if len(xs) < 50:
         log.warning(f"点位15/16 变化区域过小({len(xs)}px), 文章列表未加载?")
         return None
-    rx1, ry1, rx2, ry2 = int(xs.min()), int(ys.min()), int(xs.max()), int(ys.max())
+    rx1, ry1, rx2, ry2 = (wr[0] + int(xs.min()), wr[1] + int(ys.min()),
+                          wr[0] + int(xs.max()), wr[1] + int(ys.max()))
     log.info(f"点位15/16 文章列表矩形: ({rx1},{ry1})-({rx2},{ry2})")
 
     return rx1, ry1, rx2, ry2

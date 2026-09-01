@@ -36,24 +36,26 @@ def _flow_article_bar_find(ctx):
     if not ok_sw:
         log.warning(f"点位30/31 搜一搜窗口初始化失败: {txt_sw}")
         return None
-    u32_ = _pc._u32()
-    sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
-    sh_ = u32_.GetSystemMetrics(_pc.SM_CYSCREEN)
+    wr = _pc.wechat_rect()                    # 微信窗口(内缩1%)为基准
+    if not wr:
+        log.warning("点位30/31 未找到微信窗口")
+        return None
+    _w, _h = wr[2] - wr[0], wr[3] - wr[1]
 
     ok_q, _txt = tasks_svc.search_query(ARTICLE_LINK_DEMO_BAR)   # 仅30/31用新链接
     if not ok_q:
         return None
     _time.sleep(5.0)
 
-    # 截左半屏最下2/10, OCR找"关注"box(1/10窄条OCR不稳; 关注按钮在最底部)
-    y0_1, y1_1 = sh_ * 8 // 10, sh_
-    shot = ImageGrab.grab(bbox=(0, y0_1, sw_ // 2, y1_1)).convert("RGB")
+    # 截微信窗口最下2/10, OCR找"关注"box(1/10窄条OCR不稳; 关注按钮在最底部)
+    y0_1, y1_1 = wr[1] + _h * 8 // 10, wr[3]
+    shot = ImageGrab.grab(bbox=(wr[0], y0_1, wr[2], y1_1)).convert("RGB")
     hit = None
     for cx, cy, text, score, sbox, _br in ctx.ocr_box(shot):
         if "关注" in text:
             ys = [p[1] for p in sbox]
             h = max(ys) - min(ys)
-            hit = (int(cx), y0_1 + int(cy), h)
+            hit = (wr[0] + int(cx), y0_1 + int(cy), h)   # 截图起点为窗口: 加x偏移
             break
     if not hit:
         return None
@@ -63,8 +65,8 @@ def _flow_article_bar_find(ctx):
     H = box_h * 1.2
     y_top = int(cy_abs - H / 2)
     y_bot = int(cy_abs + H / 2)
-    x_left = sw_ // 4        # 左半屏 x 中点
-    x_right = sw_ // 2       # 屏幕中线
+    x_left = wr[0] + _w // 4        # 窗口内 x 1/4(原左半屏 x 中点语义)
+    x_right = wr[2]                 # 窗口右缘(原屏幕中线语义)
     return x_left, y_top, x_right, y_bot
 
 
@@ -144,9 +146,10 @@ def _flow_point34_comment(ctx):
     if not p30 or not p31:
         log.warning("点位34 缺30/31")
         return None, None
-    u32_ = _pc._u32()
-    sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
-    sh_ = u32_.GetSystemMetrics(_pc.SM_CYSCREEN)
+    wr = _pc.wechat_rect()                    # 微信窗口(内缩1%)为基准
+    if not wr:
+        log.warning("点位34 未找到微信窗口")
+        return None, None
     # [30,31]页面稳定检测(50次/连续30相同)后再截图基准
     ok_st, info_st = tasks_svc.wait_page_stable(p30[0], p30[1], p31[0], p31[1],
                                                 same_need=30, timeout=50, interval=0.1)
@@ -156,7 +159,7 @@ def _flow_point34_comment(ctx):
         log.info(f"点位34 [30,31]稳定: {info_st}")
 
     sy = (p30[1] + p31[1]) // 2
-    mid_x = sw_ // 2
+    mid_x = wr[2]
     raw_step = max(1, (mid_x - p30[0]) // 10)   # 步长=(屏幕中线-30.x)/10
     box = (p30[0], p30[1], p31[0], p31[1])
     _pc._u32().ShowCursor(False)                       # 隐藏光标(防光标入镜误判)
@@ -248,11 +251,13 @@ def _flow_comment_area_find(ctx):
         return None
     ctx.click(p34[0], p34[1], wait_after=1.0)
 
-    # 左半屏右半屏区域: x∈[sw/4, sw/2], y∈[0, sh]
-    u32_ = _pc._u32()
-    sw_ = u32_.GetSystemMetrics(_pc.SM_CXSCREEN)
-    sh_ = u32_.GetSystemMetrics(_pc.SM_CYSCREEN)
-    rx1, ry1, rx2, ry2 = sw_ // 4, 0, sw_ // 2, sh_
+    # 评论区区域: 基于微信窗口内缩1% (x∈[窗口内1/4, 窗口右缘], y∈[窗口顶, 窗口底])
+    wr = _pc.wechat_rect()
+    if not wr:
+        log.warning("点位35/36 未找到微信窗口")
+        return None, None
+    _w36, _h36 = wr[2] - wr[0], wr[3] - wr[1]
+    rx1, ry1, rx2, ry2 = wr[0] + _w36 // 4, wr[1], wr[2], wr[3]
     ok_st2, info_st2 = tasks_svc.wait_page_stable(rx1, ry1, rx2, ry2,
                                                   same_need=30, timeout=50, interval=0.1)
     if not ok_st2:
@@ -287,9 +292,9 @@ def _comment_area_entry(self_name):
         if res is None:
             return None, None
         ax1, ay1, ax2, ay2 = res
-        # 点位36(评论区右下): x 改为屏幕中线
-        sw = pc._u32().GetSystemMetrics(pc.SM_CXSCREEN)
-        ax2 = sw // 2
+        # 点位36(评论区右下): x 改为微信窗口右缘
+        _wr36 = pc.wechat_rect()
+        ax2 = _wr36[2] if _wr36 else ax2
         conn = _get_conn()
         try:
             conn.execute("UPDATE points SET x=?, y=? WHERE name=?", (ax1, ay1, "评论区左上"))
