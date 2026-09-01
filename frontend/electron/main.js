@@ -300,13 +300,6 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, 'out', 'index.html'))
   }
-  if (!isDev) {
-    // 页面加载完成后再隐藏任务栏(页面初始 useEffect 可能 show, 用 did-finish-load + 延迟覆盖)
-    win.webContents.on('did-finish-load', () => {
-      setTimeout(() => taskbar('hide'), 800)   // 等页面跑完初始 show 再隐藏
-      setTimeout(() => taskbar('hide'), 2500)  // 再补一次, 防时序抖动
-    })
-  }
 }
 
 app.whenReady().then(async () => {
