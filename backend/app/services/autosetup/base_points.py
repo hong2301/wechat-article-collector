@@ -170,7 +170,7 @@ def _flow_point14_query_button(ctx):
             cur = snap()
             if base1 is None:
                 # 首次变化判定: 与初始基准比
-                if changed(cur, base0) > 0:
+                if changed(cur, base0) > 0.001:
                     changes = 1
                     base1 = cur          # 保存变化后的图作为新基准
                     log.info(f"点位14 第{round_idx+1}轮 ({cx},{oy}) 第1次变化(已存基准)")
@@ -178,7 +178,7 @@ def _flow_point14_query_button(ctx):
                 # 已出现首次变化: 对比"初始基准"与"变化基准"两张
                 c0 = changed(cur, base0)
                 c1 = changed(cur, base1)
-                if c0 > 0 and c1 > 0:
+                if c0 > 0.001 and c1 > 0.001:
                     # 与两张都不同 -> 新的变化状态(非恢复初始, 非停留在原状态)
                     changes += 1
                     base1 = cur
