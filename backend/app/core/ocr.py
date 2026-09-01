@@ -218,6 +218,25 @@ def classify_items(items, box=None):
                             [(int(p[0]) + ox, int(p[1]) + oy) for p in sbox],
                             data))
     ordered.sort(key=lambda r: r[0])   # 按 y 排序(从上到下)
+    # 文章点位位置校验(不靠颜色): box 的 y / 高度 应与同屏其他点位"差不多"
+    # 参照=本屏全部点位的 y 分布范围 与 高度中位; 明显越界(如页面别处的"阅读xx")剔除
+    # 仅该屏 1 个点位(无参照)时保留, 避免误删
+    if len(ordered) > 1:
+        _ys = sorted(min(p[1] for p in b[3]) for b in ordered)
+        _hs = sorted(max(p[1] for p in b[3]) - min(p[1] for p in b[3]) for b in ordered)
+        _hm = _hs[len(_hs) // 2]
+        _tol = max(_hm * 2, 40)
+        _y_lo, _y_hi = _ys[0] - _tol, _ys[-1] + _tol
+        _kept = []
+        for _it in ordered:
+            _type = _it[1]; _bbox = _it[3]
+            if _type == "article":
+                _y = min(p[1] for p in _bbox)
+                _h = max(p[1] for p in _bbox) - min(p[1] for p in _bbox)
+                if not (_y_lo <= _y <= _y_hi and _hm * 0.5 <= _h <= _hm * 2.0):
+                    continue          # 位置/高度偏离列表布局 -> 非文章点位
+            _kept.append(_it)
+        ordered = _kept
     return [(i + 1, typ, text, sbox, data)
             for i, (_y, typ, text, sbox, data) in enumerate(ordered)]
 
