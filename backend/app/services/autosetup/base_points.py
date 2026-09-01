@@ -193,6 +193,8 @@ def _flow_point14_query_button(ctx):
                         log.warning(f"点位14 第{round_idx+1}轮 ({cx},{oy}) 点击后搜一搜被关闭, 步长过大重试")
                         break
                 # 与初始相同=恢复初始(不计); 与变化基准相同=仍在原状态(不计)
+            if (cx - ox) % (step * 5) < step:
+                log.info(f"点位14 第{round_idx+1}轮 进度 x={cx}/{limit_x}")
             cx += step
         else:
             log.warning("点位14 扫过上限x仍未达2次变化, 步长过大重试")
