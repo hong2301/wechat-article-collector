@@ -430,7 +430,7 @@ def mouse_click(x, y, button="left", wait_before=0, wait_after=0,
         time.sleep(hold_ms / 1000.0)    # 按住时长(模拟人手按压)
     u32.mouse_event(up, 0, 0, 0, None)
     if show_feedback:
-        _flash_red_dot(x, y)            # 点击完成后显示红点(不抢点击焦点, 仅作位置反馈)
+                flash_red_dot(x, y)            # 点击完成后显示红点(不抢点击焦点, 仅作位置反馈)
     if wait_after:
         time.sleep(wait_after)
     return x, y
@@ -444,7 +444,7 @@ def preview_point(x, y, duration=1):
       duration      红点显示时长(秒, 默认 1)
     返回: None
     """
-    _flash_red_dot(x, y, duration=duration)
+    flash_red_dot(x, y, duration=duration)
 
 
 def capture_point():
@@ -548,11 +548,11 @@ def clear_latest_click():
         _latest_click = None
 
 
-def _flash_red_dot(x, y, radius=10, duration=0.5):
-    """内部: 在屏幕坐标 (x,y) 显示一个红色圆点 duration 秒（后台线程, 不阻塞）。
-    用 tkinter 无边框置顶窗口; 显示后会有短暂焦点切换(预览用, 采集点击时由调用方关闭此反馈)。
-    实现: 每个任务一个临时线程, 显示完 win.quit 强制退出 mainloop 再 win.destroy,
-    线程自然结束用完即销毁(不残留, 不堆积)"""
+def flash_red_dot(x, y, radius=10, duration=0.5):
+    """【红点预览】独立工具: 在屏幕坐标 (x,y) 显示一个红色圆点 duration 秒(后台线程, 不阻塞)。
+    入口统一: mouse_click/scroll/preview_point 都经此触发。
+    实现(含用完即销毁修复): 每任务临时线程, 显示完 win.quit 强制退出 mainloop 再 win.destroy,
+    线程自然结束零残留(修复旧版每次滚动/点击创建 tkinter 线程且 mainloop 不退出导致的线程爆炸)"""
     def worker():
         win = None
         try:
@@ -608,7 +608,7 @@ def scroll(x, y, pixels, direction="down", wait_before=0, wait_after=0,
         if step:
             time.sleep(step)
     if show_feedback:
-        _flash_red_dot(x, y)            # 滚动完成后显示红点(不阻塞/不抢滚动焦点)
+        flash_red_dot(x, y)            # 滚动完成后显示红点(不阻塞/不抢滚动焦点)
     if wait_after:
         time.sleep(wait_after)
 
