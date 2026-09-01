@@ -209,8 +209,6 @@ def classify_items(items, box=None):
             except Exception:
                 _okc = True                    # 取色失败不阻断(同原 None 语义)
             if _okc is False:
-                _logger_ = logging.getLogger("classify.time")
-                _logger_.log(20, f"时间候选被颜色过滤: {text!r} 主色={[c for _, _, c in (_cols or [])][:3]}") if False else None
                 log_time_reject(text, _cols)
                 continue                      # 非灰+浅色 -> 非时间点位
             d = resolve_date(text)
