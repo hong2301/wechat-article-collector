@@ -876,7 +876,7 @@ def hide_taskbar():
 
 
 def wechat_rect():
-    """微信主窗口(Weixin.exe)外接矩形, 4 条边各内缩宽/高的 1%
+    """微信主窗口(Weixin.exe)外接矩形, 4 条边各内缩 5px
     返回 (x1, y1, x2, y2) 或 None; 点位自动设置基于窗口坐标使用(微信离屏幕边缘有缝隙)"""
     try:
         from ...services.tasks.wx_window import WECHAT_MAIN
@@ -885,9 +885,7 @@ def wechat_rect():
             return None
         r = ctypes.wintypes.RECT()
         _u32().GetWindowRect(wins[0][0], ctypes.byref(r))
-        w, h = r.right - r.left, r.bottom - r.top
-        pad_x, pad_y = w * 0.01, h * 0.01
-        return (r.left + pad_x, r.top + pad_y, r.right - pad_x, r.bottom - pad_y)
+        return (r.left + 5, r.top + 5, r.right - 5, r.bottom - 5)
     except Exception:
         return None
 
