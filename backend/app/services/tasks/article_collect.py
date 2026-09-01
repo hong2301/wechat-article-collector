@@ -445,7 +445,11 @@ def _bg_ai_metrics(shot_b64, api_key, model, biz, art):
             json=data, timeout=15,
         )
         if r.status_code == 200:
-            tasks_echo(f"[async:{tag}] 数据已更新")
+            try:
+                _upd = (r.json() or {}).get("updated", 0)
+            except Exception:
+                _upd = "?"
+            tasks_echo(f"[async:{tag}] 数据已更新(命中{_upd}行, art={art})")
         else:
             tasks_echo(f"[async:{tag}] 更新失败: HTTP {r.status_code}")
     except Exception as e:
