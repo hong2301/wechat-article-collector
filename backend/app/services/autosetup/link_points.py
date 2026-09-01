@@ -65,19 +65,26 @@ def _flow_articles_list_find(ctx):
         return None
     log.info(f"点位15/16 ④查询成功 ✓ {_txt[:60]}")
     _time.sleep(5.0)                        # 等加载
+    try:
+        # 先下滚1000 -> 截图1; 再下滚1000 -> 截图2; 对比得出列表区
+        log.info(f"点位15/16 ⑤第一次下滚(滚动点=({wr[0] + _w // 4},{wr[1] + _h // 2}))...")
+        _pc.scroll(wr[0] + _w // 4, wr[1] + _h // 2, 1000, direction="down", wait_after=0.8)
+        img1 = np.array(ImageGrab.grab(bbox=(wr[0], wr[1], wr[2], wr[3])).convert("RGB"))
+        log.info(f"点位15/16 ⑤截图1完成 尺寸={img1.shape[:2]}")
+        _pc.scroll(wr[0] + _w // 4, wr[1] + _h // 2, 1000, direction="down", wait_after=0.8)
+        img2 = np.array(ImageGrab.grab(bbox=(wr[0], wr[1], wr[2], wr[3])).convert("RGB"))
+        log.info(f"点位15/16 ⑤截图2完成 尺寸={img2.shape[:2]}")
 
-    # 先下滚1000 -> 截图1; 再下滚1000 -> 截图2; 对比得出列表区
-    _pc.scroll(wr[0] + _w // 4, wr[1] + _h // 2, 1000, direction="down", wait_after=0.8)
-    img1 = np.array(ImageGrab.grab(bbox=(wr[0], wr[1], wr[2], wr[3])).convert("RGB"))
-    _pc.scroll(wr[0] + _w // 4, wr[1] + _h // 2, 1000, direction="down", wait_after=0.8)
-    img2 = np.array(ImageGrab.grab(bbox=(wr[0], wr[1], wr[2], wr[3])).convert("RGB"))
-
-    # 对比: 变化区域的外接矩形 = 文章列表区(相对截图 -> 加窗口偏移为绝对)
-    diff = np.abs(img2.astype(int) - img1.astype(int)).sum(axis=2)
-    mask = diff > 40
-    ys, xs = np.where(mask)
-    if len(xs) < 50:
-        log.warning(f"点位15/16 变化区域过小({len(xs)}px), 文章列表未加载?")
+        # 对比: 变化区域的外接矩形 = 文章列表区(相对截图 -> 加窗口偏移为绝对)
+        diff = np.abs(img2.astype(int) - img1.astype(int)).sum(axis=2)
+        mask = diff > 40
+        ys, xs = np.where(mask)
+        log.info(f"点位15/16 ⑤对比: 变化像素={len(xs)}")
+        if len(xs) < 50:
+            log.warning(f"点位15/16 变化区域过小({len(xs)}px), 文章列表未加载?")
+            return None
+    except Exception as e:
+        log.warning(f"点位15/16 ⑤滚动对比异常: {type(e).__name__}: {e}")
         return None
     _img1 = Image.fromarray(img1)              # img1 已是 RGB ndarray(不需要 convert)
     bbox = (wr[0], wr[1], wr[2], wr[3])
