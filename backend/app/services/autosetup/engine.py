@@ -561,7 +561,7 @@ def _flow_point27_copy(ctx):
                 hit = (int(cx), int(cy))
                 break
         if hit:
-            ax, ay = _sx1 + hit[0], _sy1 + hit[1]
+            ax, ay = _pc.shot_abs(img, (_sx1, _sy1, _sx2, _sy2), hit[0], hit[1])
             log.info(f"点位27 第{_try}次 识别复制按钮: ({ax},{ay})")
             return ax, ay
         # 未检测到"复制": 再点一次18弹菜单, 等0.5s后进入下一次尝试

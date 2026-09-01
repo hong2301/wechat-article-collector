@@ -79,8 +79,12 @@ def _flow_articles_list_find(ctx):
     if len(xs) < 50:
         log.warning(f"点位15/16 变化区域过小({len(xs)}px), 文章列表未加载?")
         return None
-    rx1, ry1, rx2, ry2 = (wr[0] + int(xs.min()), wr[1] + int(ys.min()),
-                          wr[0] + int(xs.max()), wr[1] + int(ys.max()))
+    _img1 = Image.fromarray(img1.convert("RGB"))
+    bbox = (wr[0], wr[1], wr[2], wr[3])
+    rx1 = pc.shot_abs(_img1, bbox, int(xs.min()), int(ys.min()))[0]
+    ry1 = pc.shot_abs(_img1, bbox, int(xs.min()), int(ys.min()))[1]
+    rx2 = pc.shot_abs(_img1, bbox, int(xs.max()), int(ys.max()))[0]
+    ry2 = pc.shot_abs(_img1, bbox, int(xs.max()), int(ys.max()))[1]
     log.info(f"点位15/16 文章列表矩形: ({rx1},{ry1})-({rx2},{ry2})")
 
     return rx1, ry1, rx2, ry2

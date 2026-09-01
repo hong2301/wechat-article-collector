@@ -47,7 +47,8 @@ def _flow_point12_search_network(ctx):
         log.info(f"点位12 第{attempt+1}次截图OCR文本({len(_ocrt)}): {' | '.join(_ocrt[:15])}")
         _fail_cand = []
         for cx, cy, text, score, sbox, _bright in _items:
-            _cx_abs, _cy_abs = wr[0] + int(cx), wr[1] + int(cy)
+            _cx_abs, _cy_abs = pc.shot_abs(img, (wr[0], wr[1], wr[0] + _w // 2, wr[1] + _h // 2),
+                                           int(cx), int(cy))
             if "网络结果" not in text:
                 continue
             # 校验: 文字框 RGB 频率排序, 前两主色应为"暗色字+白底"(黑/灰字白底, 不管顺序)
@@ -117,7 +118,7 @@ def _flow_point11_search_box(ctx):
             log.info(f"点位11 文本命中但颜色不符({cols}): {text}")
             continue
         # 截图起点为窗口左上(x1,y1): 相对坐标转窗口内缩后绝对坐标
-        _ex, _ey = x1 + int(cx), y1 + int(cy)
+        _ex, _ey = pc.shot_abs(img, (x1, y1, x2, y2), int(cx), int(cy))
         log.info(f"点位11 识别成功: 文本={text} box=({_ex},{_ey}) 颜色排序={cols}")
         return _ex, _ey
     log.warning("点位11 未识别到白底灰字的'搜索': "
@@ -169,9 +170,9 @@ def _flow_point14_query_button(ctx):
             return None, None
 
         xs = [p[0] for p in box]; ys = [p[1] for p in box]
-        ox = wr[0] + max(xs)                       # 原点 x = box最右(绝对)
-        oy = wr[1] + (min(ys) + max(ys)) // 2      # 原点 y = box中点(绝对)
-        mid_x = wr[0] + int(sum(xs) / len(xs))     # box中心x(绝对)
+        ox = int(pc.shot_abs(img0, (wr[0], wr[1], wr[2], wr[3]), max(xs), 0)[0])   # box最右x(绝对)
+        oy = pc.shot_abs(img0, (wr[0], wr[1], wr[2], wr[3]), 0, (min(ys) + max(ys)) // 2)[1]  # box中点y(绝对)
+        mid_x = int(pc.shot_abs(img0, (wr[0], wr[1], wr[2], wr[3]), int(sum(xs) / len(xs)), 0)[0])  # box中心x(绝对)
         limit_x = wr[0] + _w * 6 // 8              # 上限: 窗口内 x 6/8
         shot_box = (ox, wr[1], limit_x, oy)        # 截图范围: x∈[ox,limit_x], y∈[窗口顶,oy]
 

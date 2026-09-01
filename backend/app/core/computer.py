@@ -875,6 +875,26 @@ def hide_taskbar():
     return True
 
 
+def shot_abs(shot, bbox, x, y, h=None):
+    """图像相对坐标 -> 屏幕绝对坐标(DPI按比例换算, 不写死1:1像素比)
+    参数:
+      shot PIL图(截图); bbox=(x1,y1,x2,y2) 该截图对应的屏幕区域
+      x, y 图中相对坐标(如OCR结果/矩形)
+      h    可选: 传入高度时同步按y比例换算
+    返回 (ax, ay) 或 h给出时 (ax, ay, ah)
+    背景: Windows 系统缩放(125%/150%)下 ImageGrab 返回图尺寸≠bbox像素,
+    直接"起点+相对"会偏; 此处按 图尺寸/bbox尺寸 比例换算, 缩放100%时比例=1无影响"""
+    x1, y1, x2, y2 = bbox
+    _w, _h2 = shot.width, shot.height
+    sx = (x2 - x1) / _w if _w else 1.0
+    sy = (y2 - y1) / _h2 if _h2 else 1.0
+    ax = x1 + int(x * sx)
+    ay = y1 + int(y * sy)
+    if h is None:
+        return ax, ay
+    return ax, ay, int(h * sy)
+
+
 def wechat_rect():
     """微信主窗口(Weixin.exe)外接矩形, 4 条边各内缩 5px
     返回 (x1, y1, x2, y2) 或 None; 点位自动设置基于窗口坐标使用(微信离屏幕边缘有缝隙)"""
@@ -972,6 +992,7 @@ __all__ = [
     # 窗口
     "find_windows", "show_window", "close_window", "move_window",
     "hide_taskbar", "show_taskbar", "disable_snipping", "enable_snipping",
+    "shot_abs",
     "wechat_rect",
     # 鼠标
     "mouse_click", "scroll", "preview_point", "capture_point",

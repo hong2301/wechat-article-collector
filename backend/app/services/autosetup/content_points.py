@@ -59,12 +59,7 @@ def _flow_article_bar_find(ctx):
     # 截微信窗口最下2/10, OCR找"香柠"锚点文本(1/10窄条OCR不稳; 锚点文本在窗口最下2/10)
     y0_1, y1_1 = wr[1] + _h * 8 // 10, wr[3]
     shot = ImageGrab.grab(bbox=(wr[0], y0_1, wr[2], y1_1)).convert("RGB")
-    # DPI适配: ImageGrab 返回图尺寸可能≠bbox像素(系统125%/150%缩放会缩放图像) ->
-    # 绝对坐标 = bbox起点 + OCR相对坐标 × (bbox尺寸/图像尺寸), 不写死像素比
-    _sw, _sh = shot.width, shot.height
-    _bw, _bh = (wr[2] - wr[0]), (y1_1 - y0_1)
-    _sx_scale, _sy_scale = (_bw / _sw), (_bh / _sh)
-    log.info(f"点位30/31 ⑤DPI比例: 图{(_sw, _sh)} bbox{(_bw, _bh)} 缩放=({_sx_scale:.3f},{_sy_scale:.3f})")
+    # 统一坐标换算(DPI按比例): shot_abs(shot, bbox, x, y, h)
     hit = None
     _it30 = ctx.ocr_box(shot)
     _t30 = [it[2] for it in _it30 if len(it) > 2 and it[2]]
@@ -72,11 +67,11 @@ def _flow_article_bar_find(ctx):
     for cx, cy, text, score, sbox, _br in _it30:
         if "香柠" in text:
             ys = [p[1] for p in sbox]
-            h = (max(ys) - min(ys)) * _sy_scale
-            _ax = wr[0] + int(int(cx) * _sx_scale)
-            _ay = y0_1 + int(int(cy) * _sy_scale)
-            log.info(f"点位30/31 ⑤命中'香柠': 相对({int(cx)},{int(cy)}) -> 绝对({_ax},{_ay}) h={h:.0f}")
-            hit = (_ax, _ay, h)
+            _h30 = max(ys) - min(ys)
+            _ax, _ay, _ah = pc.shot_abs(shot, (wr[0], y0_1, wr[2], y1_1),
+                                        int(cx), int(cy), _h30)
+            log.info(f"点位30/31 ⑤命中'香柠': 相对({int(cx)},{int(cy)}) -> 绝对({_ax},{_ay}) h={_ah:.0f}")
+            hit = (_ax, _ay, _ah)
             break
     if not hit:
         log.warning("点位30/31 ⑤未识别到'香柠'锚点文本(底部区域内容异于预期)")
@@ -353,8 +348,9 @@ def _flow_comment_left_find(ctx):
         if not cols or "白" not in colset or not ({"黑", "灰"} & colset):
             log.info(f"点位35 文本命中但颜色不符({cols}): {text}")
             continue
-        # box 左上角 = 目标点位(截图起点为窗口左上, 加偏移)
-        bx, by = wr[0] + int(min(p[0] for p in sbox)), wr[1] + int(min(p[1] for p in sbox))
+        # box 左上角 = 目标点位(统一shot_abs按DPI比例换算)
+        bx, by = pc.shot_abs(img, (wr[0], wr[1], wr[2], wr[1] + _h // 2),
+                             min(p[0] for p in sbox), min(p[1] for p in sbox))
         log.info(f"点位35 识别'留言'成功: ({bx},{by}) 颜色排序={[c for _,_,c in (cols or [])][:3]}")
         return bx, by
     log.warning("点位35 未识别到黑字白底的'留言'")
