@@ -866,77 +866,16 @@ def enable_snipping():
 
 
 def hide_taskbar():
-    """隐藏底部任务栏(采集时屏幕全高); 返回是否成功"""
-    hwnd = _find_taskbar()
-    if not hwnd:
-        return False
-    _u32().ShowWindow(hwnd, SW_HIDE)
-    disable_snipping()          # 同步禁用截图热键
+    """【机制已停用】不再隐藏任务栏(no-op)。
+    原因: 隐藏/恢复会改变 WorkArea 与窗口 RECT, 截图坐标与实际渲染不一致
+    (窗口报告高1039但渲染仍1080, OCR目标落在任务栏区)。彻底去除隐藏, 状态稳定自动校准。"""
     return True
 
-
-def shot_abs(shot, bbox, x, y, h=None):
-    """图像相对坐标 -> 屏幕绝对坐标(DPI按比例换算, 不写死1:1像素比)
-    参数:
-      shot PIL图(截图); bbox=(x1,y1,x2,y2) 该截图对应的屏幕区域
-      x, y 图中相对坐标(如OCR结果/矩形)
-      h    可选: 传入高度时同步按y比例换算
-    返回 (ax, ay) 或 h给出时 (ax, ay, ah)
-    背景: Windows 系统缩放(125%/150%)下 ImageGrab 返回图尺寸≠bbox像素,
-    直接"起点+相对"会偏; 此处按 图尺寸/bbox尺寸 比例换算, 缩放100%时比例=1无影响"""
-    x1, y1, x2, y2 = bbox
-    _w, _h2 = shot.width, shot.height
-    sx = (x2 - x1) / _w if _w else 1.0
-    sy = (y2 - y1) / _h2 if _h2 else 1.0
-    ax = x1 + int(x * sx)
-    ay = y1 + int(y * sy)
-    if h is None:
-        return ax, ay
-    return ax, ay, int(h * sy)
-
-
-def wechat_rect():
-    """微信主窗口(Weixin.exe)外接矩形, 4 条边各内缩 5px
-    返回 (x1, y1, x2, y2) 或 None; 点位自动设置基于窗口坐标使用(微信离屏幕边缘有缝隙)"""
-    try:
-        wins = find_windows(exe="Weixin.exe", visible_only=True)  # 直接进程名, 避免循环导入
-        if not wins:
-            return None
-        r = ctypes.wintypes.RECT()
-        _u32().GetWindowRect(wins[0][0], ctypes.byref(r))
-        return (r.left + 5, r.top + 5, r.right - 5, r.bottom - 5)
-    except Exception:
-        return None
-
-
-def _find_taskbar():
-    """Windows 任务栏窗口句柄(Shell_TrayWnd)"""
-    return _u32().FindWindowW("Shell_TrayWnd", None)
-
-
-def hide_taskbar():
-    """隐藏底部任务栏(采集时屏幕全高); 返回是否成功"""
-    hwnd = _find_taskbar()
-    if not hwnd:
-        return False
-    _u32().ShowWindow(hwnd, SW_HIDE)
-    return True
 
 
 def show_taskbar():
-    """恢复显示任务栏; 返回是否成功"""
-    hwnd = _find_taskbar()
-    if not hwnd:
-        return False
-    _u32().ShowWindow(hwnd, SW_SHOW)
-    enable_snipping()           # 同步恢复截图热键
+    """【机制已停用】与 hide_taskbar 对称的 no-op(见上)"""
     return True
-
-
-# ===========================================================================
-# 截图：屏幕区域截图（存文件 / 转 base64 / 5参数截图）
-# ===========================================================================
-@obs.timed("shot")
 def screenshot(x1, y1, x2, y2, img_format="png", as_base64=False):
     """【截图】截取屏幕区域，保存到系统缓存目录并返回文件路径。
     参数:
