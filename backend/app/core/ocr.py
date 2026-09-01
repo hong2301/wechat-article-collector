@@ -292,7 +292,8 @@ def color_sort(img, region=None, top=4, merge=True):
 
 
 def gray_on_gray(sbox, box=None):
-    """时间点位判定: 文字框前两主色均为灰系(灰字灰底)
+    """时间点位判定: 文字框前两主色应为【灰 + 浅色/白】(灰字浅底), 前两主色均在{灰,白}内且至少一个灰
+    兼容 灰字白底 / 白字灰底 / 灰字灰底; 黑字白底(文章点位特征)不误收
     与 classify_items 配套; sbox 相对截图坐标 + box 区域左上角 -> 屏幕绝对区域
     返回 True/False; 取色失败返回 None(不阻断, 语义同原 _region_grayish)
     """
@@ -308,4 +309,5 @@ def gray_on_gray(sbox, box=None):
         return None
     if not cols:
         return None
-    return {c for _, _, c in cols[:2]}.issubset({"灰"})
+    colset = {c for _, _, c in cols[:2]}
+    return bool(colset.issubset({"灰", "白"}) and colset & {"灰"})
