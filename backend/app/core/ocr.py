@@ -248,10 +248,10 @@ def classify_items(items, box=None):
                     # y"差不多"判定: 与其余最近点位的顶部y距离(列表常规间距内OK, 孤立远点剔除)
                     _near = min(abs(_y - min(p[1] for p in b[3]))
                                 for b in ordered if b is not _it)
-                    if _near > _hm * 8:               # 远离其他点位(如页面别处的"阅读xx")
+                    if _near > max(300, _hm * 24):    # 远离其他点位(≥300px或行高24x才算孤立误识别)
                         _keep = False
                         _logging.getLogger("perf").log(
-                            20, "[pos-drop] %r y=%d 最近邻=%d 行高中位=%d 原因=最近邻>行高8x",
+                            20, "[pos-drop] %r y=%d 最近邻=%d 行高中位=%d 原因=最近邻>max(300,行高24x)",
                             _it[2], _y, _near, _hm)
             if _keep:
                 _kept.append(_it)
