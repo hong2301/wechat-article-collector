@@ -21,9 +21,10 @@ def _calc_reads_box(self_name):
         finally:
             conn.close()
         if not p19 or not str(p19["x"] or "").strip() or not str(p19["y"] or "").strip():
-            log.warning("点位21/22 缺少点位19")
+            log.warning("点位32/33 缺少前置点位30(4指标左上)")
             return None, None
         x19, y19 = int(float(p19["x"])), int(float(p19["y"]))
+        log.info(f"点位32/33 ①读前置点位30: ({x19},{y19})")
         wr = _pc2.wechat_rect()                     # 微信窗口(内缩1%)为基准
         if not wr:
             log.warning("点位32/33 未找到微信窗口")
@@ -37,6 +38,7 @@ def _calc_reads_box(self_name):
             conn.commit()
         finally:
             conn.close()
+        log.info(f"点位32/33 纯计算: 左上=({x21},{y21}) 右下=({x22},{y22}) ✓")
         if self_name == "阅读数左上":
             return x21, y21
         return x22, y22

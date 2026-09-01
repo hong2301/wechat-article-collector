@@ -193,22 +193,29 @@ def _flow_point9_split_button(ctx):
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
 
-    # 1) 微信窗口初始化(无点位9点击, 防止点到库中脏坐标)
+    log.info("点位9 ①微信窗口初始化(无点位9)...")
     ok_wx, _t = _init_wechat_no_p9()
     if not ok_wx:
+        log.warning(f"点位9 微信窗口初始化失败: {_t}")
         return None, None
-    # 2) 采集器窗口初始化(search_window_init 前置: 微信左半屏+采集器右半屏)
+    log.info(f"点位9 ①微信窗口就位 ✓ ({_t[:40]})")
+    log.info("点位9 ②采集器窗口初始化...")
     ok_ap, _t = tasks_svc.init_app_window()
     if not ok_ap:
+        log.warning(f"点位9 采集器窗口初始化失败: {_t}")
         return None, None
-    # 3) 搜一搜窗口初始化(无点位9点击; 嵌入模式可能返回False, 不强制)
+    log.info(f"点位9 ②采集器就位 ✓ ({_t[:40]})")
+    log.info("点位9 ③搜一搜窗口初始化(无点位9)...")
     _ok_sw, _t = _search_window_init_no_p9()
+    log.info(f"点位9 ③搜一搜初始化: {'成功' if _ok_sw else '失败(嵌入模式可继续)'} | {_t[:60]}")
     _time.sleep(0.3)
-    # 4) 搜一搜已是独立窗口 => 无需分离按钮, 99999待定
+    log.info("点位9 ④检查搜一搜是否已独立...")
     weixin = _pc.find_windows(exe=tasks_svc.WECHAT_MAIN, visible_only=True)
     if not weixin:
+        log.warning("点位9 ④未找到微信主窗口")
         return None, None
     if _pc.find_windows(exe=tasks_svc.WECHAT_APPEX, visible_only=True):
+        log.info("点位9 ④搜一搜窗口已独立, 无需分离按钮(99999)")
         return (99999, 99999, "搜一搜窗口独立，无需此点位")
     # 5) 横向探测: 从微信最右边、y=点位11的y 向左点击
     res = _p9_probe(ctx, weixin[0][0])

@@ -24,19 +24,24 @@ def _flow_article_bar_find(ctx):
     from ...core import computer as _pc
 
     # 完整调用: 微信窗口初始化 + 搜一搜窗口初始化
+    log.info("点位30/31 ①微信窗口初始化...")
     ok_wx, txt_wx = tasks_svc.init_wechat_window()
     if not ok_wx:
         log.warning(f"点位30/31 微信窗口初始化失败: {txt_wx}")
         return None
+    log.info(f"点位30/31 ①微信就位 ✓ {txt_wx[:40]}")
+    log.info("点位30/31 ②采集器窗口初始化...")
     ok_ap, txt_ap = tasks_svc.init_app_window()
     if not ok_ap:
         log.warning(f"点位30/31 采集器窗口初始化失败: {txt_ap}")
         return None
-
+    log.info(f"点位30/31 ②采集器就位 ✓ {txt_ap[:40]}")
+    log.info("点位30/31 ③搜一搜窗口初始化...")
     ok_sw, txt_sw = tasks_svc.search_window_init()
     if not ok_sw:
         log.warning(f"点位30/31 搜一搜窗口初始化失败: {txt_sw}")
         return None
+    log.info(f"点位30/31 ③搜一搜就位 ✓ {txt_sw[:60]}")
     wr = _pc.wechat_rect()                    # 微信窗口(内缩1%)为基准
     if not wr:
         log.warning("点位30/31 未找到微信窗口")
@@ -124,23 +129,30 @@ def _flow_point34_comment(ctx):
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
 
+    log.info("点位34 ①微信窗口初始化...")
     ok_wx, txt_wx = tasks_svc.init_wechat_window()
     if not ok_wx:
         log.warning(f"点位34 微信窗口初始化失败: {txt_wx}")
         return None, None
+    log.info(f"点位34 ①微信就位 ✓ {txt_wx[:40]}")
+    log.info("点位34 ②采集器窗口初始化...")
     ok_ap, txt_ap = tasks_svc.init_app_window()
     if not ok_ap:
         log.warning(f"点位34 采集器窗口初始化失败: {txt_ap}")
         return None, None
-
+    log.info(f"点位34 ②采集器就位 ✓ {txt_ap[:40]}")
+    log.info("点位34 ③搜一搜窗口初始化...")
     ok_sw, txt_sw = tasks_svc.search_window_init()
     if not ok_sw:
         log.warning(f"点位34 搜一搜初始化失败: {txt_sw}")
         return None, None
+    log.info(f"点位34 ③搜一搜就位 ✓ {txt_sw[:60]}")
+    log.info("点位34 ④查询文章链接...")
     ok_q, txt_q = tasks_svc.search_query(ARTICLE_LINK_DEMO)
     if not ok_q:
         log.warning(f"点位34 查询文章链接失败: {txt_q}")
         return None, None
+    log.info(f"点位34 ④查询成功 ✓ {txt_q[:60]}")
 
     p30 = tasks_svc._read_point(30)
     p31 = tasks_svc._read_point(31)
@@ -214,22 +226,30 @@ def _comment_area_prep(ctx):
     """35/36 共用前置: 打开评论区并等页面稳定; 返回 (wr, 评论区区域) 或 None"""
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
+    log.info("点位35/36 ①采集器窗口初始化...")
     ok_ap, txt_ap = tasks_svc.init_app_window()
     if not ok_ap:
         log.warning("点位35/36 采集器窗口初始化失败: " + str(txt_ap))
         return None
+    log.info(f"点位35/36 ①采集器就位 ✓ {txt_ap[:40]}")
+    log.info("点位35/36 ②微信窗口初始化...")
     ok_wx, txt_wx = tasks_svc.init_wechat_window()
     if not ok_wx:
         log.warning("点位35/36 微信窗口初始化失败: " + str(txt_wx))
         return None
+    log.info(f"点位35/36 ②微信就位 ✓ {txt_wx[:40]}")
+    log.info("点位35/36 ③搜一搜窗口初始化...")
     ok_sw, txt_sw = tasks_svc.search_window_init()
     if not ok_sw:
         log.warning("点位35/36 搜一搜窗口初始化失败: " + str(txt_sw))
         return None
+    log.info(f"点位35/36 ③搜一搜就位 ✓ {txt_sw[:60]}")
+    log.info("点位35/36 ④查询文章链接...")
     ok_q, txt_q = tasks_svc.search_query(ARTICLE_LINK_DEMO)
     if not ok_q:
         log.warning("点位35/36 查询文章链接失败: " + str(txt_q))
         return None
+    log.info(f"点位35/36 ④查询成功 ✓ {txt_q[:60]}")
     p30 = tasks_svc._read_point(30)
     p31 = tasks_svc._read_point(31)
     if not p30 or not p31:

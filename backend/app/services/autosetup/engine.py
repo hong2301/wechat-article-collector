@@ -124,18 +124,24 @@ def _flow_point18_three_dots(ctx):
         """一次完整探测(初始化窗口+几何+横向扫描) -> (x,y) 命中; None 需完全重来"""
         snap_no = [0]
         # 完整调用: 微信窗口初始化 + 采集器 + 搜一搜窗口初始化
+        log.info("点位18 ①微信窗口初始化...")
         ok_wx, txt_wx = tasks_svc.init_wechat_window()
         if not ok_wx:
             log.warning(f"点位18 微信窗口初始化失败: {txt_wx}")
             return None
+        log.info(f"点位18 ①微信就位 ✓ {txt_wx[:40]}")
+        log.info("点位18 ②采集器窗口初始化...")
         ok_ap, txt_ap = tasks_svc.init_app_window()
         if not ok_ap:
             log.warning(f"点位18 采集器窗口初始化失败: {txt_ap}")
             return None
+        log.info(f"点位18 ②采集器就位 ✓ {txt_ap[:40]}")
+        log.info("点位18 ③搜一搜窗口初始化...")
         ok_sw, txt_sw = tasks_svc.search_window_init()
         if not ok_sw:
             log.warning(f"点位18 搜一搜窗口初始化失败: {txt_sw}")
             return None
+        log.info(f"点位18 ③搜一搜就位 ✓ {txt_sw[:60]}")
         p14 = tasks_svc._read_point(14)          # 搜一搜按钮(查询)
         if not p14:
             log.warning("点位18 无点位14, 需完全重来")
@@ -506,21 +512,30 @@ def _flow_point27_copy(ctx):
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
 
+    log.info("点位27 ①微信窗口初始化...")
     ok_wx, txt_wx = tasks_svc.init_wechat_window()
     if not ok_wx:
+        log.warning(f"点位27 微信窗口初始化失败: {txt_wx}")
         return None, None
+    log.info(f"点位27 ①微信就位 ✓ {txt_wx[:40]}")
+    log.info("点位27 ②采集器窗口初始化...")
     ok_ap, txt_ap = tasks_svc.init_app_window()
     if not ok_ap:
         log.warning(f"点位27 采集器窗口初始化失败: {txt_ap}")
         return None, None
-
+    log.info(f"点位27 ②采集器就位 ✓ {txt_ap[:40]}")
+    log.info("点位27 ③搜一搜窗口初始化...")
     ok_sw, txt_sw = tasks_svc.search_window_init()
     if not ok_sw:
+        log.warning(f"点位27 搜一搜窗口初始化失败: {txt_sw}")
         return None, None
+    log.info(f"点位27 ③搜一搜就位 ✓ {txt_sw[:60]}")
+    log.info("点位27 ④查询文章链接...")
     ok_q, txt_q = tasks_svc.search_query(ARTICLE_LINK_DEMO_27)
     if not ok_q:
         log.warning(f"点位27 查询文章链接失败: {txt_q}")
         return None, None
+    log.info(f"点位27 ④查询成功 ✓ {txt_q[:60]}")
     _time.sleep(3.0)                        # 等3秒加载(文章内容/菜单可用)
 
     p18 = tasks_svc._read_point(18)

@@ -33,19 +33,24 @@ def _flow_articles_list_find(ctx):
     from ...core import computer as _pc
 
     # 完整调用: 微信窗口初始化 + 搜一搜窗口初始化
+    log.info("点位15/16 ①微信窗口初始化...")
     ok_wx, txt_wx = tasks_svc.init_wechat_window()
     if not ok_wx:
         log.warning(f"点位15/16 微信窗口初始化失败: {txt_wx}")
         return None
+    log.info(f"点位15/16 ①微信就位 ✓ {txt_wx[:40]}")
+    log.info("点位15/16 ②采集器窗口初始化...")
     ok_ap, txt_ap = tasks_svc.init_app_window()
     if not ok_ap:
         log.warning(f"点位15/16 采集器窗口初始化失败: {txt_ap}")
         return None
-
+    log.info(f"点位15/16 ②采集器就位 ✓ {txt_ap[:40]}")
+    log.info("点位15/16 ③搜一搜窗口初始化...")
     ok_sw, txt_sw = tasks_svc.search_window_init()
     if not ok_sw:
         log.warning(f"点位15/16 搜一搜窗口初始化失败: {txt_sw}")
         return None
+    log.info(f"点位15/16 ③搜一搜就位 ✓ {txt_sw[:60]}")
     wr = _pc.wechat_rect()                    # 微信窗口(内缩1%)为基准
     if not wr:
         log.warning("点位15/16 未找到微信窗口")
