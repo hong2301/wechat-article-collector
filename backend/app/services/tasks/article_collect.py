@@ -145,17 +145,9 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
         try:
             btn = None
             for cx, cy, text, score, sbox, brightness in items:
-                # 格式: 必须是"余下[数字]篇"(如 余下3篇 / 余下1篇)
+                # 格式校验即可(余下N篇字样非常特异, 不需要颜色判定)
                 if not text or not re.search(r"余下\s*\d+\s*篇", text):
                     continue
-                # 颜色: 前两主色含灰且不含黑(灰系按钮样式; 余下俩字不可能是黑色, 排除黑字白底文章样式)
-                with Image.open(shot_path) as _im:
-                    cols = ocr_service.color_sort(_im, region=(
-                        min(p[0] for p in sbox), min(p[1] for p in sbox),
-                        max(p[0] for p in sbox), max(p[1] for p in sbox)))
-                colset = {c for _, _, c in cols[:2]}
-                if not cols or "灰" not in colset or "黑" in colset:
-                    continue   # 非灰系或黑字白底(颜色不符) -> 排除
                 xs = [p[0] + x1 for p in sbox]
                 ys = [p[1] + y1 for p in sbox]
                 btn = (int(sum(xs) / len(xs)), int(sum(ys) / len(ys)), text)
