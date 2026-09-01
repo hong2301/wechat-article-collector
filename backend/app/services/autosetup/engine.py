@@ -378,8 +378,8 @@ def run_all_points_stream(names: str = ""):
 
 
 def _is_pure_calc(name):
-    """纯计算点位(28/29等)不 attach 微信窗口"""
-    return name in ("复制链接左上", "复制链接右下")
+    """纯计算点位不 attach 微信窗口(当前无纯计算点位, 预留)"""
+    return False
 
 
 
@@ -499,7 +499,7 @@ ARTICLE_LINK_DEMO_27 = "https://mp.weixin.qq.com/s/X7fAdvvZ-Gq_2SW19OKfVw"  # �
 
 @flow_point("点击复制链接")
 def _flow_point27_copy(ctx):
-    # 依赖点位(与库 depend_points 同步): [11, 12, 9, 14, 18, 28, 29]
+    # 依赖点位(与库 depend_points 同步): [11, 12, 9, 14, 18]
     from ...services import tasks as tasks_svc
     from ...core import computer as _pc
 
@@ -521,23 +521,27 @@ def _flow_point27_copy(ctx):
     _time.sleep(3.0)                        # 等3秒加载(文章内容/菜单可用)
 
     p18 = tasks_svc._read_point(18)
-    p28 = tasks_svc._read_point(28)
-    p29 = tasks_svc._read_point(29)
-    if not p18 or not p28 or not p29:
-        log.warning(f"点位27 缺前置(18{bool(p18)} 28{bool(p28)} 29{bool(p29)})")
+    if not p18:
+        log.warning("点位27 缺前置点位18")
         return None, None
 
-    # 参考 tasks 文章采集的复制链接循环: 3次机会, 点18弹菜单 -> 截图[28,29]OCR检"复制"
+    # 截图范围: 参考值 = 左半屏右上(与原点位28/29设定一致, 不再读取28/29)
+    _u32 = _pc._u32()
+    _sw = _u32.GetSystemMetrics(_pc.SM_CXSCREEN)
+    _sh = _u32.GetSystemMetrics(_pc.SM_CYSCREEN)
+    _sx1, _sy1, _sx2, _sy2 = _sw // 4, 0, _sw // 2, _sh // 2
+
+    # 参考 tasks 文章采集的复制链接循环: 3次机会, 点18弹菜单 -> 截图右上区域OCR检"复制"
     for _try in range(1, 4):
         ctx.click(p18[0], p18[1], wait_after=0.5)      # 点18弹菜单, 等0.5s菜单弹出
-        img = ImageGrab.grab(bbox=(p28[0], p28[1], p29[0], p29[1])).convert("RGB")
+        img = ImageGrab.grab(bbox=(_sx1, _sy1, _sx2, _sy2)).convert("RGB")
         hit = None
         for cx, cy, text, score, sbox, _br in ctx.ocr_box(img):
             if "复制" in text:
                 hit = (int(cx), int(cy))
                 break
         if hit:
-            ax, ay = p28[0] + hit[0], p28[1] + hit[1]
+            ax, ay = _sx1 + hit[0], _sy1 + hit[1]
             log.info(f"点位27 第{_try}次 识别复制按钮: ({ax},{ay})")
             return ax, ay
         # 未检测到"复制": 再点一次18弹菜单, 等0.5s后进入下一次尝试

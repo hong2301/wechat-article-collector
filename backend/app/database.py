@@ -135,6 +135,17 @@ def init_db():
         except Exception:
             pass
         conn.commit()
+        # 迁移: 删除点位 28/29(复制链接左上/右下) - 采集与自动设置已不再依赖
+        try:
+            _del = conn.execute("DELETE FROM points WHERE name IN ('复制链接左上','复制链接右下')").rowcount
+            if _del:
+                print(f"migrate: 删除点位 28/29({_del} 行)")
+            conn.execute("DELETE FROM sort_config WHERE type='point' AND record_id IN (28,29)")
+            # 点位27 依赖更新: 移除 28/29
+            conn.execute("UPDATE points SET depend_points='[11,12,9,14,18]' WHERE name='点击复制链接'")
+            conn.commit()
+        except Exception as _e:
+            print(f"migrate: 删除点位28/29失败: {_e}")
         # 迁移: articles 补 biz 列
         _acols = [r[1] for r in conn.execute("PRAGMA table_info(articles)").fetchall()]
         if "biz" not in _acols:
