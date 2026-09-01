@@ -87,17 +87,16 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             colset = {c for _, _, c in cols[:2]}
             if not cols or "白" not in colset or not ({"黑", "灰"} & colset):
                 continue   # 非黑/灰字白底 -> 排除
-            if True:
-                # 点击坐标: sbox是截图内相对坐标, 加区域左上角(x1,y1)偏移成屏幕坐标, 取box中心
-                xs = [p[0] + x1 for p in sbox]
-                ys = [p[1] + y1 for p in sbox]
-                click_x = int(sum(xs) / len(xs))
-                click_y = int(sum(ys) / len(ys))
-                logs.append(f"识别文章标记: {text!r} @({click_x},{click_y})")
-                tasks_echo(f"识别文章标记: {text!r} @({click_x},{click_y})")
-                pc.mouse_click(click_x, click_y)
-                clicked = True
-                break
+            # 点击坐标: sbox是截图内相对坐标, 加区域左上角(x1,y1)偏移成屏幕坐标, 取box中心
+            xs = [p[0] + x1 for p in sbox]
+            ys = [p[1] + y1 for p in sbox]
+            click_x = int(sum(xs) / len(xs))
+            click_y = int(sum(ys) / len(ys))
+            logs.append(f"识别文章标记: {text!r} @({click_x},{click_y})")
+            tasks_echo(f"识别文章标记: {text!r} @({click_x},{click_y})")
+            pc.mouse_click(click_x, click_y)
+            clicked = True
+            break
         if not clicked:
             logs.append("未识别到文章标记(黑字白底), 跳过点击")
             tasks_echo("未识别到文章标记(黑字白底), 跳过点击")
@@ -156,10 +155,10 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
                 colset = {c for _, _, c in cols[:2]}
                 if not cols or not {"蓝", "灰"}.issubset(colset):
                     continue   # 非蓝字灰底(颜色不符) -> 排除
-                    xs = [p[0] + x1 for p in sbox]
-                    ys = [p[1] + y1 for p in sbox]
-                    btn = (int(sum(xs) / len(xs)), int(sum(ys) / len(ys)), text)
-                    break
+                xs = [p[0] + x1 for p in sbox]
+                ys = [p[1] + y1 for p in sbox]
+                btn = (int(sum(xs) / len(xs)), int(sum(ys) / len(ys)), text)
+                break
             if btn:
                 echo(f"识别到'余下'加载更多按钮: {btn[2]!r} @({btn[0]},{btn[1]}), 点击后重新截图")
                 pc.mouse_click(btn[0], btn[1])
