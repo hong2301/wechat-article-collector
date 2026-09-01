@@ -240,12 +240,18 @@ def classify_items(items, box=None):
                 _h = max(p[1] for p in _bbox) - min(p[1] for p in _bbox)
                 if not (_hm * 0.5 <= _h <= _hm * 2.0):
                     _keep = False                     # 高度明显偏离列表项布局
+                    _logging.getLogger("perf").log(
+                        20, "[pos-drop] %r y=%d h=%d 高度中位=%d 原因=高度偏离(0.5~2x不满足)",
+                        _it[2], _y, _h, _hm)
                 else:
                     # y"差不多"判定: 与其余最近点位的顶部y距离(列表常规间距内OK, 孤立远点剔除)
                     _near = min(abs(_y - min(p[1] for p in b[3]))
                                 for b in ordered if b is not _it)
                     if _near > _hm * 8:               # 远离其他点位(如页面别处的"阅读xx")
                         _keep = False
+                        _logging.getLogger("perf").log(
+                            20, "[pos-drop] %r y=%d 最近邻=%d 行高中位=%d 原因=最近邻>行高8x",
+                            _it[2], _y, _near, _hm)
             if _keep:
                 _kept.append(_it)
         ordered = _kept
