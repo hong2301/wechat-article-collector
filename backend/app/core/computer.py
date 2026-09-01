@@ -548,55 +548,38 @@ def clear_latest_click():
         _latest_click = None
 
 
-_flash_queue = queue.Queue()          # 红点显示任务队列(单线程消费, 防线程暴涨)
-_flash_started = [False]
-
-
 def _flash_red_dot(x, y, radius=10, duration=0.5):
     """内部: 在屏幕坐标 (x,y) 显示一个红色圆点 duration 秒（后台线程, 不阻塞）。
     用 tkinter 无边框置顶窗口; 显示后会有短暂焦点切换(预览用, 采集点击时由调用方关闭此反馈)。
-    实现: 单后台线程+任务队列(只保留最新任务), 避免每次滚动创建 tkinter 线程导致线程泄漏"""
-    if not _flash_started[0]:
-        _flash_started[0] = True
-        threading.Thread(target=_flash_worker, daemon=True).start()
-    # 只保留最新任务: 滚动密集时红点不积压(每任务显示 duration 秒)
-    while True:
+    实现: 每个任务一个临时线程, 显示完 win.quit 强制退出 mainloop 再 win.destroy,
+    线程自然结束用完即销毁(不残留, 不堆积)"""
+    def worker():
+        win = None
         try:
-            _flash_queue.get_nowait()
-        except queue.Empty:
-            break
-    _flash_queue.put((x, y, radius, duration))
-
-
-def _flash_worker():
-    """红点显示线程(单例): 逐个显示, 显示完强制 quit 退出 mainloop, 不残留线程"""
-    while True:
-        try:
-            x, y, radius, duration = _flash_queue.get()
+            import tkinter as tk
+            win = tk.Tk()
+            win.overrideredirect(True)          # 无边框
+            win.attributes("-topmost", True)    # 置顶
+            win.attributes("-alpha", 0.9)       # 略透明
+            win.geometry(f"+{int(x) - radius - 2}+{int(y) - radius - 2}")
+            c = tk.Canvas(win, width=radius * 2 + 4, height=radius * 2 + 4,
+                          highlightthickness=0, bg="white")
+            c.pack()
+            c.create_oval(2, 2, radius * 2 + 2, radius * 2 + 2,
+                          fill="#e53935", outline="#b71c1c", width=2)
+            win.update()
+            win.after(int(duration * 1000), win.destroy)        # 到时销毁窗口
+            win.after(int(duration * 1000) + 600, win.quit)     # 保险: 强制退出 mainloop
+            win.mainloop()
+        except Exception:
+            pass
+        finally:
             try:
-                import tkinter as tk
-                win = tk.Tk()
-                win.overrideredirect(True)          # 无边框
-                win.attributes("-topmost", True)    # 置顶
-                win.attributes("-alpha", 0.9)       # 略透明
-                win.geometry(f"+{int(x) - radius - 2}+{int(y) - radius - 2}")
-                c = tk.Canvas(win, width=radius * 2 + 4, height=radius * 2 + 4,
-                              highlightthickness=0, bg="white")
-                c.pack()
-                c.create_oval(2, 2, radius * 2 + 2, radius * 2 + 2,
-                              fill="#e53935", outline="#b71c1c", width=2)
-                win.update()
-                win.after(int(duration * 1000), win.quit)   # quit 先退出 mainloop(可靠)
-                win.mainloop()
-                try:
-                    win.destroy()
-                except Exception:
-                    pass
-                del win
+                if win is not None:
+                    win.destroy()               # 用完即销毁
             except Exception:
                 pass
-        except Exception:
-            break
+    threading.Thread(target=worker, daemon=True).start()
 
 
 def scroll(x, y, pixels, direction="down", wait_before=0, wait_after=0,
