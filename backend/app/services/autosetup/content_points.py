@@ -252,7 +252,7 @@ def _comment_area_prep(ctx):
     _w36, _h36 = wr[2] - wr[0], wr[3] - wr[1]
     rx1, ry1, rx2, ry2 = wr[0] + _w36 // 4, wr[1], wr[2], wr[3]
     ok_st2, info_st2 = tasks_svc.wait_page_stable(rx1, ry1, rx2, ry2,
-                                                  same_need=30, timeout=50, interval=0.1)
+                                                  same_need=15, timeout=30, interval=0.1)
     if not ok_st2:
         log.warning(f"点位35/36 评论区区域未稳定: {info_st2}")
     else:
@@ -290,13 +290,18 @@ def _flow_comment_area_find(ctx):
 def _flow_comment_left_find(ctx):
     """点位35专用: 截微信窗口上一半 -> OCR找"留言"(黑字白底) -> box左上角 = 目标点位"""
     from ...core import computer as _pc
-    prep = _comment_area_prep(ctx)
-    if not prep:
+    try:
+        prep = _comment_area_prep(ctx)
+        if not prep:
+            return None
+        wr, _rx1, _ry1, _rx2, _ry2 = prep
+        _w, _h = wr[2] - wr[0], wr[3] - wr[1]
+        log.info(f"点位35 开始识别: 截窗口上一半({wr[0]},{wr[1]})-({wr[2]},{wr[1]+_h//2})")
+        # 截微信窗口上一半
+        img = ImageGrab.grab(bbox=(wr[0], wr[1], wr[2], wr[1] + _h // 2)).convert("RGB")
+    except Exception as e:
+        log.warning(f"点位35 前置异常: {e}")
         return None
-    wr, _rx1, _ry1, _rx2, _ry2 = prep
-    _w, _h = wr[2] - wr[0], wr[3] - wr[1]
-    # 截微信窗口上一半
-    img = ImageGrab.grab(bbox=(wr[0], wr[1], wr[2], wr[1] + _h // 2)).convert("RGB")
     for cx, cy, text, _score, sbox, _br in ctx.ocr_box(img):
         if not text or "留言" not in text:
             continue
