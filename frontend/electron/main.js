@@ -3,8 +3,10 @@ const path = require('path')
 const fs = require('fs')
 const { spawn, execFileSync } = require('child_process')
 
+const APP_ENV = process.env.WECHAT_ENV || (app.isPackaged ? 'prod' : 'dev')  // 运行环境统一(后端 env.py 同源)
+const isDev = APP_ENV !== 'prod'
 
-const isDev = !app.isPackaged
+
 const BACKEND_PORT = 8001   // 生产后端端口(与开发 8000 区分); 环境变量 BACKEND_PORT 可覆盖
 let backendProc = null
 let mainWindow = null
@@ -82,6 +84,7 @@ async function startBackend() {
   backendProc = spawn(exe, [], {
     env: {
       ...process.env,
+      WECHAT_ENV: APP_ENV,                    // 运行环境统一(后端 env.py 读)
       WECHAT_COLLECTOR_DATA_DIR: dataDir(),
       WECHAT_PARENT_PID: String(process.pid),  // 看门狗: 主程序退出则后端自杀
     },

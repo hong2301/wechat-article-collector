@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 os.environ.setdefault("BACKEND_PORT", "8001")  # 端口单一来源: 供内部自调用/其它模块读取
+os.environ.setdefault("WECHAT_ENV", "prod")  # 运行环境统一标记(env.is_prod/is_dev 判定)
 """打包版后端启动入口(PyInstaller 使用)
 
 与 run.py 的区别:
