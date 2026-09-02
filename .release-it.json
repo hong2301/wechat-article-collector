@@ -9,8 +9,15 @@
     "commitMessage": "chore(release): v${version}",
     "requireCleanWorkingDir": false
   },
-  "github": { "release": true },
+  "github": {
+    "release": true,
+    "assets": [
+      "frontend/build-publish/*.zip",
+      "frontend/build-publish/latest.yml"
+    ]
+  },
   "hooks": {
-    "after:bump": "node scripts/sync-version.js"
+    "after:bump": "node scripts/sync-version.js",
+    "before:release": "node scripts/build-publish.js"
   }
 }

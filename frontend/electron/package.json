@@ -1,7 +1,9 @@
 {
   "name": "wechat-collector-electron",
   "version": "4.2.0",
-  "author": { "name": "honononong" },
+  "author": {
+    "name": "honononong"
+  },
   "main": "main.js",
   "scripts": {
     "dev": "concurrently -k -n next,electron -c blue,green \"npm run dev:next\" \"npm run dev:wait\"",
@@ -43,6 +45,15 @@
         "provider": "github",
         "owner": "hong2301",
         "repo": "wechat-article-collector"
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/dist/collector-backend",
+        "to": "backend",
+        "filter": [
+          "**/*"
+        ]
       }
     ]
   },
