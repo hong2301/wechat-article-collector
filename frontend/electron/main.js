@@ -3,34 +3,6 @@ const path = require('path')
 const fs = require('fs')
 const { spawn, execFileSync } = require('child_process')
 
-// ---------- 自动更新(electron-updater, 仅生产; 需 GitHub Token 发版才生效) ----------
-function setupAutoUpdater(win) {
-  if (isDev) return
-  try {
-    const { autoUpdater } = require('electron-updater')
-    autoUpdater.autoDownload = false     // 先询问用户再下载
-    autoUpdater.on('update-available', (info) => {
-      log(`发现新版本 ${info.version}`)
-      dialog.showMessageBox(win, {
-        type: 'info', title: '发现新版本',
-        message: `发现新版本 v${info.version}, 是否现在更新?`,
-        buttons: ['更新', '稍后'],
-      }).then((r) => { if (r.response === 0) autoUpdater.downloadUpdate() })
-    })
-    autoUpdater.on('update-downloaded', () => {
-      dialog.showMessageBox(win, {
-        type: 'info', title: '更新已就绪',
-        message: '新版本已下载, 重启应用以完成更新。',
-        buttons: ['立即重启', '稍后'],
-      }).then((r) => { if (r.response === 0) autoUpdater.quitAndInstall() })
-    })
-    autoUpdater.on('error', (err) => log(`自动更新失败: ${err.message}`))
-    autoUpdater.checkForUpdates().catch((e) => log(`更新检查未开始: ${e.message}`))
-    log('自动更新检查已启动')
-  } catch (e) {
-    log('electron-updater 不可用, 跳过自动更新: ' + e.message)
-  }
-}
 
 const isDev = !app.isPackaged
 const BACKEND_PORT = 8001   // 生产后端端口(与开发 8000 区分); 环境变量 BACKEND_PORT 可覆盖
@@ -290,7 +262,6 @@ app.whenReady().then(async () => {
   }
   createWindow()
   log('主窗口已创建')
-  setupAutoUpdater(mainWindow)   // 窗口创建后检查更新 (生产)
 })
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

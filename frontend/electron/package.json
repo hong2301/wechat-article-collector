@@ -1,7 +1,9 @@
 {
   "name": "wechat-collector-electron",
   "version": "4.2.0",
-  "author": { "name": "honononong" },
+  "author": {
+    "name": "honononong"
+  },
   "main": "main.js",
   "scripts": {
     "dev": "concurrently -k -n next,electron -c blue,green \"npm run dev:next\" \"npm run dev:wait\"",
@@ -37,16 +39,6 @@
       "icon": "icon.ico",
       "executableName": "WeChatCollector"
     },
-    "electronVersion": "31.7.7",
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "hong2301",
-        "repo": "wechat-article-collector"
-      }
-    ]
-  },
-  "dependencies": {
-    "electron-updater": "^6.8.9"
+    "electronVersion": "31.7.7"
   }
 }
