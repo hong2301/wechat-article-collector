@@ -29,7 +29,8 @@
     "files": [
       "main.js",
       "icon.png",
-      "out/**/*"
+      "out/**/*",
+      "preload.js"
     ],
     "win": {
       "target": [
