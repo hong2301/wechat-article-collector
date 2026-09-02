@@ -80,7 +80,7 @@ def _setup_logging():
 
 _setup_logging()
 
-app = FastAPI(title="微信公众号采集器后端", version="4.2.1")
+app = FastAPI(title="微信公众号采集器后端", version="4.2.2")
 
 # CORS: 允许前端(localhost:3000 / Electron)访问
 app.add_middleware(
