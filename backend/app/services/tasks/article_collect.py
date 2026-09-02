@@ -624,7 +624,7 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
             break   # 已拿到链接, 跳出
     if not link:
         step(f"{COPY_TRIES}次复制链接均未获取到, 本轮结束")
-        # copy_seen 保持 False(未点到复制按钮): 不 Ctrl+W(焦点可能在采集器, 避免误关)
+        pc.mouse_click(p18[0], p18[1])
         return _finish(logs, copy_seen, False, "未获取到链接")
 
     # art_biz 同步提取(供 4指标/阅读数 使用, 不依赖写表)
