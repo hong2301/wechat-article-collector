@@ -1,6 +1,6 @@
 {
   "name": "wechat-collector-frontend",
-  "version": "4.2.4",
+  "version": "4.2.5",
   "private": true,
   "scripts": {
     "dev": "npm --prefix electron run dev",
