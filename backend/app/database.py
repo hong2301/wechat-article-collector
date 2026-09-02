@@ -135,6 +135,24 @@ def init_db():
         except Exception:
             pass
         conn.commit()
+        # 迁移: 程序版本兜底(模板库打包已写, 现存运行库补写; 幂等)
+        try:
+            _cur = conn.execute("SELECT value FROM settings WHERE key='app_version'").fetchone()
+            if not _cur or not _cur[0]:
+                import json as _jv
+                _ver = ""
+                try:
+                    _pv = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "package.json")
+                    with open(_pv, encoding="utf-8") as _fv:
+                        _ver = _jv.load(_fv).get("version", "")
+                except Exception:
+                    _ver = ""
+                if _ver:
+                    conn.execute("INSERT INTO settings(key,value) VALUES('app_version',?) "
+                                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (_ver,))
+                    conn.commit()
+        except Exception:
+            pass
         # 迁移: 删除点位 28/29(复制链接左上/右下) - 采集与自动设置已不再依赖
         try:
             _del = conn.execute("DELETE FROM points WHERE name IN ('复制链接左上','复制链接右下')").rowcount
