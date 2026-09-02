@@ -66,7 +66,8 @@ function setupAutoUpdater(win) {
   }
 }
 
-const isDev = !app.isPackaged
+const APP_ENV = process.env.WECHAT_ENV || (app.isPackaged ? 'prod' : 'dev')  // 运行环境统一(与后端 env.py 一致)
+const isDev = APP_ENV !== 'prod'
 const BACKEND_PORT = 8001   // 生产后端端口(与开发 8000 区分); 环境变量 BACKEND_PORT 可覆盖
 let backendProc = null
 let mainWindow = null
