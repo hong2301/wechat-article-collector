@@ -49,7 +49,7 @@
     ],
     "extraResources": [
       {
-        "from": "../backend/dist/collector-backend",
+        "from": "../../backend/dist/collector-backend",
         "to": "backend",
         "filter": [
           "**/*"
