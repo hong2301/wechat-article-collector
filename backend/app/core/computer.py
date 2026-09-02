@@ -549,37 +549,10 @@ def clear_latest_click():
 
 
 def flash_red_dot(x, y, radius=10, duration=0.5):
-    """【红点预览】独立工具: 在屏幕坐标 (x,y) 显示一个红色圆点 duration 秒(后台线程, 不阻塞)。
-    入口统一: mouse_click/scroll/preview_point 都经此触发。
-    实现(含用完即销毁修复): 每任务临时线程, 显示完 win.quit 强制退出 mainloop 再 win.destroy,
-    线程自然结束零残留(修复旧版每次滚动/点击创建 tkinter 线程且 mainloop 不退出导致的线程爆炸)"""
-    def worker():
-        win = None
-        try:
-            import tkinter as tk
-            win = tk.Tk()
-            win.overrideredirect(True)          # 无边框
-            win.attributes("-topmost", True)    # 置顶
-            win.attributes("-alpha", 0.9)       # 略透明
-            win.geometry(f"+{int(x) - radius - 2}+{int(y) - radius - 2}")
-            c = tk.Canvas(win, width=radius * 2 + 4, height=radius * 2 + 4,
-                          highlightthickness=0, bg="white")
-            c.pack()
-            c.create_oval(2, 2, radius * 2 + 2, radius * 2 + 2,
-                          fill="#e53935", outline="#b71c1c", width=2)
-            win.update()
-            win.after(int(duration * 1000), win.destroy)        # 到时销毁窗口
-            win.after(int(duration * 1000) + 600, win.quit)     # 保险: 强制退出 mainloop
-            win.mainloop()
-        except Exception:
-            pass
-        finally:
-            try:
-                if win is not None:
-                    win.destroy()               # 用完即销毁
-            except Exception:
-                pass
-    threading.Thread(target=worker, daemon=True).start()
+    """【红点预览已停用】no-op: 不再显示红点(每滚动/点击创建 tkinter 线程,
+    密集采集下 mainloop 偶发不退出导致线程堆积, 600+ 篇后线程/句柄/内存爆炸崩溃)。
+    保留空实现, mouse_click/scroll/preview_point 入口统一经此, 采集零线程开销。"""
+    return
 
 
 def scroll(x, y, pixels, direction="down", wait_before=0, wait_after=0,
