@@ -142,22 +142,33 @@ async function startBackend() {
   } catch (e) { /* 端口未开, 正常拉起 */ }
   const exe = path.join(process.resourcesPath, 'backend', 'collector-backend.exe')
   log(`启动后端: ${exe}`)
-  backendProc = spawn(exe, [], {
-    env: {
-      ...process.env,
-      WECHAT_ENV: APP_ENV,                    // 运行环境统一(后端 env.py 读)
-      WECHAT_PARENT_PID: String(process.pid),  // 看门狗: 主程序退出则后端自杀
-      // 数据目录单一来源: 不注入 WECHAT_COLLECTOR_DATA_DIR, 后端 env.is_prod() 自行解析(D:/wechat-collector_data)
-    },
-    windowsHide: true,
-    // 后端 stdout/stderr 也写入日志文件, 便于排查
-    stdio: ['ignore', fs.openSync(logFile(), 'a'), fs.openSync(logFile(), 'a')],
-  })
-  backendProc.on('error', (err) => log(`后端启动失败: ${err.message}`))
-  backendProc.on('exit', (code, signal) =>
-    log(`后端进程退出 code=${code} signal=${signal}`)
-  )
-  log(`后端已拉起, pid = ${backendProc.pid}`)
+  // 预取日志 fd(避免 spawn 参数求值期异常被吞), 所有异常日志化
+  let outFd = -1
+  try {
+    outFd = fs.openSync(logFile(), 'a')
+  } catch (e) {
+    log(`后端日志文件打开失败: ${e.message}`)
+  }
+  try {
+    backendProc = spawn(exe, [], {
+      env: {
+        ...process.env,
+        WECHAT_ENV: APP_ENV,                    // 运行环境统一(后端 env.py 读)
+        WECHAT_PARENT_PID: String(process.pid),  // 看门狗: 主程序退出则后端自杀
+        // 数据目录单一来源: 不注入 WECHAT_COLLECTOR_DATA_DIR, 后端 env.is_prod() 自行解析(D:/wechat-collector_data)
+      },
+      windowsHide: true,
+      // 后端 stdout/stderr 也写入日志文件, 便于排查
+      stdio: ['ignore', outFd, outFd],
+    })
+    log(`后端已拉起, pid = ${backendProc.pid}`)
+    backendProc.on('error', (err) => log(`后端启动失败: ${err.message}`))
+    backendProc.on('exit', (code, signal) =>
+      log(`后端进程退出 code=${code} signal=${signal}`)
+    )
+  } catch (e) {
+    log(`后端启动异常: ${e.message}`)
+  }
 }
 
 // 轮询等待后端 /api/health 就绪(OCR引擎后台线程加载, health 秒回)
