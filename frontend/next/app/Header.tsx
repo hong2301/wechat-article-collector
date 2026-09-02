@@ -36,12 +36,18 @@ export default function Header() {
   const [qsOpen, setQsOpen] = useState(false);
   // 微信版本确认: db=数据库基准, local=本地实际, online=网络最新(有则返回); 页面加载即调用
   const [wxc, setWxc] = useState<{ db: string; local: string; online: string }>({ db: "", local: "", online: "" });
+  const [appVer, setAppVer] = useState("");
   useEffect(() => {
     (async () => {
       try {
         const d = await (await fetch(API_BASE + "/api/settings/wechat-check")).json();
         setWxc({ db: d.db || "", local: d.local || "", online: d.online || "" });
       } catch { /* 后端不可达 */ }
+      // 程序版本: 后端读根 package.json(单一来源, 不依赖环境变量)
+      try {
+        const r = await (await fetch(API_BASE + "/api/settings/app-version")).json();
+        setAppVer(r.version || "");
+      } catch { /* 忽略 */ }
     })();
   }, []);
   // 数据库基准 vs 本地实际不一致 -> 基于微信行变红+感叹号
@@ -63,10 +69,10 @@ export default function Header() {
             <span style={{ fontSize: 19, fontWeight: 700 }}>微信公众号采集器</span>
             {hasNew ? (
               <Tooltip title={`微信已有新版本 ${wxc.online}`}>
-                <span style={{ fontSize: 12, color: hasNew ? "#ff4d4f" : "#8b949e" }}>v{process.env.NEXT_PUBLIC_APP_VERSION || ""}</span>
+                <span style={{ fontSize: 12, color: hasNew ? "#ff4d4f" : "#8b949e" }}>v{appVer}</span>
               </Tooltip>
             ) : (
-              <span style={{ fontSize: 12, color: "#8b949e" }}>v{process.env.NEXT_PUBLIC_APP_VERSION || ""}</span>
+              <span style={{ fontSize: 12, color: "#8b949e" }}>v{appVer}</span>
             )}
           </div>
           <div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>

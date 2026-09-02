@@ -181,6 +181,23 @@ _wx_last_win_check = [0.0]
 _WX_WIN_CHECK_INTERVAL = 1.0      # 未确认登录时每1秒窗口移动+量宽; 确认后纯进程检测零打扰
 
 
+@router.get("/app-version")
+def app_version():
+    """程序版本: 直接读项目根目录 package.json 的 version(单一来源, 不依赖环境变量)"""
+    import json as _json, os as _os
+    try:
+        # 开发=项目根(backend 上两级); 打包版 build 会把根 package.json 拷入 resources
+        _root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+        for _cand in (_os.path.join(_root, "package.json"),
+                      _os.path.join(_root, "resources", "package.json")):
+            if _os.path.exists(_cand):
+                with open(_cand, encoding="utf-8") as _f:
+                    return {"version": _json.load(_f).get("version", "")}
+    except Exception:
+        pass
+    return {"version": ""}
+
+
 @router.get("/wechat-status")
 def wechat_status():
     """微信登录状态(前端1s轮询): 实时计算"""
