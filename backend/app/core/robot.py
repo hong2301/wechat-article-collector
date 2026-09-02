@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from datetime import datetime
 """backend.app.services.robot: 采集运行状态(停止信号/实时日志钩子)
 
 被 tasks 主函数与 collect 路由共用的全局状态, 独立成模块避免循环依赖。
@@ -36,9 +37,11 @@ def bind_tasks_echo(fn):
 
 
 def tasks_echo(msg):
-    """实时输出日志: 打印 + 转发到钩子(若有)"""
+    """实时输出日志: 打印 + 转发到钩子(若有); 自动加时间戳前缀(便于日志分段统计)"""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"{ts} {msg}"
     try:
-        print(msg, flush=True)
+        print(line, flush=True)
     except Exception:
         pass
     hook = _tasks_log_hook
