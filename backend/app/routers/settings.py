@@ -187,7 +187,7 @@ def app_version():
     import json as _json, os as _os
     try:
         # 开发=项目根(backend 上两级); 打包版 build 会把根 package.json 拷入 resources
-        _root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+        _root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))
         for _cand in (_os.path.join(_root, "package.json"),
                       _os.path.join(_root, "resources", "package.json")):
             if _os.path.exists(_cand):
