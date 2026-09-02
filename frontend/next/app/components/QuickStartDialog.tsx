@@ -55,6 +55,18 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
   }, [logs]);
 
   const { runWithGuard } = useConflictGate();
+
+  // 关闭弹窗 = 停止后台流程(避免旧进程残留, 重开才能触发新 start)
+  const closeDialog = () => {
+    stopRef.current = true;               // 停止标志: 后续步骤不再开始
+    abortRef.current?.abort();            // 断开当前 SSE 流
+    fetch(API_BASE + "/api/collect/stop", { method: "POST" }).catch(() => {});
+    fetch(API_BASE + "/api/auto-setup/unlock", { method: "POST" }).catch(() => {});
+    fetch(API_BASE + "/api/auto-setup/stop", { method: "POST" }).catch(() => {});
+    setRunning(false);
+    onClose();
+  };
+
   async function start() {
     await runWithGuard(async () => {
       await startInner();
@@ -200,7 +212,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
   }, [open]);
 
   return (
-    <Modal mask={{ closable: false }} open={open} onCancel={onClose} keyboard={false} footer={null} width={780} title="快速开始" destroyOnHidden>
+    <Modal mask={{ closable: false }} open={open} onCancel={closeDialog} keyboard={false} footer={null} width={780} title="快速开始" destroyOnHidden>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, height: 420 }}>
         {running && (
           <div style={{ padding: "8px 10px", borderRadius: 8, background: "#fff8e1", border: "1px solid #ffe082", fontSize: 13, color: "#b26a00" }}>
@@ -229,7 +241,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
             {running ? "流程执行中…" : (finished ? "🎉 全部完成" : (logs.length > 0 ? "流程已停止" : ""))}
           </div>
           {(finished || failed) && (
-            <Button type="primary" style={{ minWidth: 96 }} onClick={onClose}>{finished ? "完成" : "关闭"}</Button>
+            <Button type="primary" style={{ minWidth: 96 }} onClick={closeDialog}>{finished ? "完成" : "关闭"}</Button>
           )}
         </div>
       </div>
