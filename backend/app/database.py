@@ -5,6 +5,7 @@ import json
 import os
 import sqlite3
 import sys
+from . import env
 
 _BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # 打包版数据目录: 固定 D:/wechat-collector_data(安装目录外, 更新/重装不覆盖用户数据)
@@ -13,10 +14,10 @@ _PACKAGED_DATA = "D:/wechat-collector_data"
 
 
 def _data_dir():
-    env = os.environ.get("WECHAT_COLLECTOR_DATA_DIR")
-    if env:
-        return env
-    if getattr(sys, "frozen", False):
+    _dir_env = os.environ.get("WECHAT_COLLECTOR_DATA_DIR")
+    if _dir_env:
+        return _dir_env
+    if env.is_prod():
         try:
             os.makedirs(_PACKAGED_DATA, exist_ok=True)
         except Exception:
@@ -47,16 +48,9 @@ def get_conn():
     return conn
 
 
-def is_packaged():
-    """正式(打包)版判定: 环境变量 WECHAT_PACKAGED=1 显式设置(入口 run_packaged.py 设), 兼容 PyInstaller sys.frozen"""
-    if os.environ.get("WECHAT_PACKAGED") == "1":
-        return True
-    return bool(getattr(sys, "frozen", False))
-
-
 def _seed_path():
     """随包固化 seed 库: 打包版=安装目录 data/collector.db(build 时模板库复制所得, 用户库在 D:/xxx_data), 开发=scripts/template_collector.db"""
-    if is_packaged():
+    if env.is_prod():
         _exe_parent = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(sys.executable))))
         cand = os.path.join(_exe_parent, "data", "collector.db")
         return cand if os.path.exists(cand) else None

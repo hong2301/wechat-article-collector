@@ -144,6 +144,7 @@ async function startBackend() {
   backendProc = spawn(exe, [], {
     env: {
       ...process.env,
+      WECHAT_ENV: APP_ENV,                    // 运行环境统一(后端 env.py 读)
       WECHAT_COLLECTOR_DATA_DIR: dataDir(),
       WECHAT_PARENT_PID: String(process.pid),  // 看门狗: 主程序退出则后端自杀
     },
