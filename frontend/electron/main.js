@@ -3,14 +3,22 @@ const path = require('path')
 const fs = require('fs')
 const { spawn, execFileSync } = require('child_process')
 
-// ---------- 自动更新(electron-updater, 仅生产; 需 GitHub Token 发版才生效) ----------
+// ---------- 自动更新(electron-updater, 仅生产; 需 GitHub Releases 发版才生效) ----------
 function setupAutoUpdater(win) {
   if (isDev) return
   try {
     const { autoUpdater } = require('electron-updater')
     autoUpdater.autoDownload = false     // 先询问用户再下载
+
+    // 节流: 24h 内已检查过则跳过(无 release 期间避免每次开机都 404 刷屏)
+    const checkRec = path.join(app.getPath('userData'), 'update-check.json')
+    try {
+      const rec = JSON.parse(fs.readFileSync(checkRec, 'utf-8'))
+      if (Date.now() - (rec.last || 0) < 24 * 3600 * 1000) return
+    } catch (e) { /* 无记录, 正常检查 */ }
+
     autoUpdater.on('update-available', (info) => {
-      log(`发现新版本 ${info.version}`)
+      log(`[update] 发现新版本 v${info.version}`)
       dialog.showMessageBox(win, {
         type: 'info', title: '发现新版本',
         message: `发现新版本 v${info.version}, 是否现在更新?`,
@@ -24,11 +32,33 @@ function setupAutoUpdater(win) {
         buttons: ['立即重启', '稍后'],
       }).then((r) => { if (r.response === 0) autoUpdater.quitAndInstall() })
     })
-    autoUpdater.on('error', (err) => log(`自动更新失败: ${err.message}`))
-    autoUpdater.checkForUpdates().catch((e) => log(`更新检查未开始: ${e.message}`))
-    log('自动更新检查已启动')
+    autoUpdater.on('error', (err) => {
+      const msg = (err && (err.message || String(err))) || ''
+      // GitHub releases 未发布/无 latest.yml(404): 静默(仅首次 hint), 不刷错误栈
+      if (/latest\.yml|404|HttpError/i.test(msg)) {
+        log('[update] 暂无发布源(GitHub releases 未发布 latest.yml), 更新检查跳过')
+      } else {
+        log('[update] 检查失败(忽略): ' + msg.slice(0, 200))
+      }
+      try { fs.writeFileSync(checkRec, JSON.stringify({ last: Date.now(), fail: msg.slice(0, 120) })) } catch (e) {}
+    })
+    autoUpdater.checkForUpdates().catch((e) => {
+      const msg = (e && (e.message || String(e))) || ''
+      if (/latest\.yml|404|HttpError/i.test(msg)) {
+        log('[update] 暂无发布源(GitHub releases 未发布 latest.yml), 更新检查跳过')
+      } else {
+        log('[update] 检查未开始(忽略): ' + msg.slice(0, 200))
+      }
+      try { fs.writeFileSync(checkRec, JSON.stringify({ last: Date.now(), fail: msg.slice(0, 120) })) } catch (e) {}
+    })
+    // 检查完成(无论成败)都记录, 节流下次
+    autoUpdater.on('update-not-available', () => {
+      try { fs.writeFileSync(checkRec, JSON.stringify({ last: Date.now() })) } catch (e) {}
+      log('[update] 已是最新版本')
+    })
+    log('[update] 自动更新检查已启动')
   } catch (e) {
-    log('electron-updater 不可用, 跳过自动更新: ' + e.message)
+    log('[update] 组件不可用, 跳过: ' + (e && e.message || e))
   }
 }
 
