@@ -36,11 +36,11 @@ if (!fs.existsSync(path.join(ROOT, 'backend', 'dist', 'collector-backend'))) {
   process.exit(1)
 }
 
-// ② electron-builder zip(整包, 含后段; publish=never 只构建不上传)
+// ② electron-builder zip(整包, 含后段; publish=always 构建并上传 GitHub Release)
 fs.rmSync(OUT, { recursive: true, force: true })
 fs.mkdirSync(OUT, { recursive: true })
 const rel = path.relative(path.join(FRONT, 'electron'), OUT).replace(/\\/g, '/')
-run(`npx electron-builder --win zip --publish onTagOrDraft --config.directories.output="${rel}"`,
+run(`npx electron-builder --win zip --publish always --config.directories.output="${rel}"`,
     path.join(FRONT, 'electron'), { GH_TOKEN: TOKEN, GITHUB_TOKEN: TOKEN })
 
 const zip = fs.readdirSync(OUT).filter((f) => f.endsWith('.zip'))
