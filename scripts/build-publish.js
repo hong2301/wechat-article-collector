@@ -10,9 +10,23 @@ const ROOT = path.join(__dirname, '..')
 const FRONT = path.join(ROOT, 'frontend')
 const OUT = path.join(FRONT, 'build-publish')
 
-function run(cmd, cwd) {
-  console.log(`\n>>> ${cmd}`)
-  execSync(cmd, { stdio: 'inherit', cwd, shell: true })
+function getToken() {
+  // 发布需要 GH_TOKEN(env 或 gh CLI)
+  if (process.env.GH_TOKEN || process.env.GITHUB_TOKEN) return process.env.GH_TOKEN || process.env.GITHUB_TOKEN
+  try {
+    return execSync('gh auth token', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  } catch (e) { return '' }
+}
+
+function run(cmd, cwd, env) {
+  console.log("\n>>> " + cmd)
+  execSync(cmd, { stdio: 'inherit', cwd, shell: true, env: { ...process.env, ...(env || {}) } })
+}
+
+const TOKEN = getToken()
+if (!TOKEN) {
+  console.error('❌ 未找到 GH_TOKEN(设 GH_TOKEN 或 gh auth login)')
+  process.exit(1)
 }
 
 // ① 后段 PyInstaller(产出 backend/dist/collector-backend)
@@ -27,7 +41,7 @@ fs.rmSync(OUT, { recursive: true, force: true })
 fs.mkdirSync(OUT, { recursive: true })
 const rel = path.relative(path.join(FRONT, 'electron'), OUT).replace(/\\/g, '/')
 run(`npx electron-builder --win zip --publish onTagOrDraft --config.directories.output="${rel}"`,
-    path.join(FRONT, 'electron'))
+    path.join(FRONT, 'electron'), { GH_TOKEN: TOKEN, GITHUB_TOKEN: TOKEN })
 
 const zip = fs.readdirSync(OUT).filter((f) => f.endsWith('.zip'))
 const yml = fs.existsSync(path.join(OUT, 'latest.yml'))
