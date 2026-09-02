@@ -47,8 +47,104 @@ def get_conn():
     return conn
 
 
+def is_packaged():
+    """正式(打包)版判定: 环境变量 WECHAT_PACKAGED=1 显式设置(入口 run_packaged.py 设), 兼容 PyInstaller sys.frozen"""
+    if os.environ.get("WECHAT_PACKAGED") == "1":
+        return True
+    return bool(getattr(sys, "frozen", False))
+
+
+def _seed_path():
+    """随包固化 seed 库: 打包版=安装目录 data/collector.db(build 时模板库复制所得, 用户库在 D:/xxx_data), 开发=scripts/template_collector.db"""
+    if is_packaged():
+        _exe_parent = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(sys.executable))))
+        cand = os.path.join(_exe_parent, "data", "collector.db")
+        return cand if os.path.exists(cand) else None
+    cand = os.path.join(_BASE, "scripts", "template_collector.db")
+    return cand if os.path.exists(cand) else None
+
+
+def _backup_db():
+    """升级前自动备份用户库 -> <数据目录>/backup/collector_<ts>.db, 保留最近 5 份"""
+    try:
+        if not os.path.exists(DB_PATH):
+            return
+        import shutil, time
+        bdir = os.path.join(_DATA_DIR, "backup")
+        os.makedirs(bdir, exist_ok=True)
+        dst = os.path.join(bdir, "collector_" + time.strftime("%Y%m%d_%H%M%S") + ".db")
+        shutil.copy2(DB_PATH, dst)
+        olds = sorted([f for f in os.listdir(bdir) if f.startswith("collector_")])
+        for f in olds[:-5]:
+            try:
+                os.remove(os.path.join(bdir, f))
+            except Exception:
+                pass
+        print(f"[db] 已备份用户库 -> {dst}")
+    except Exception as e:
+        print(f"[db] 备份失败(忽略): {e}")
+
+
+def _merge_seed(conn):
+    """从随包 seed 合并固化表到用户库(幂等 INSERT OR IGNORE, 不动用户数据)"""
+    src = _seed_path()
+    if not src:
+        return 0
+    merged = 0
+    sc = None
+    try:
+        sc = sqlite3.connect(src)
+        sc.row_factory = sqlite3.Row
+        for table in ("points", "scrolls", "ai_model", "conflict_apps"):
+            try:
+                scur = sc.execute(f"SELECT * FROM {table}").fetchall()
+                ucols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+                cols = [r[1] for r in sc.execute(f"PRAGMA table_info({table})").fetchall()]
+                common = [c for c in ucols if c in cols]
+                if not common:
+                    continue
+                sel = ", ".join('"' + c + '"' for c in common)
+                ph = ", ".join("?" for _ in common)
+                for r in scur:
+                    try:
+                        cur = conn.execute(
+                            "INSERT OR IGNORE INTO " + table + "(" + sel + ") VALUES(" + ph + ")",
+                            [r[c] for c in common])
+                        merged += cur.rowcount
+                    except Exception:
+                        pass
+            except Exception as e:
+                print(f"[db] seed 合并 {table} 跳过: {e}")
+        # settings: 只补缺失 key, 不覆盖已有
+        try:
+            for r in sc.execute("SELECT key, value FROM settings"):
+                if conn.execute("SELECT 1 FROM settings WHERE key=?", (r["key"],)).fetchone() is None:
+                    conn.execute("INSERT INTO settings(key,value) VALUES(?,?)", (r["key"], r["value"]))
+                    merged += 1
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"[db] seed 合并失败(忽略): {e}")
+    finally:
+        if sc is not None:
+            try:
+                sc.close()
+            except Exception:
+                pass
+    return merged
+
+
 def init_db():
     conn = get_conn()
+    # 升级前自动备份(库已存在且迁移会变化时)
+    try:
+        if os.path.exists(DB_PATH):
+            _r = conn.execute("SELECT value FROM settings WHERE key='schema_version'").fetchone()
+            _prev = _r[0] if _r else None
+            if _prev != "4":
+                _backup_db()
+    except Exception:
+        pass
     try:
         conn.executescript("""
         CREATE TABLE IF NOT EXISTS accounts (
@@ -211,5 +307,15 @@ def init_db():
             conn.commit()
         except Exception as e:
             print("articles unique index:", e)
+        # 固化 seed 合并(幂等补齐, 不动用户数据) + 记录 schema 版本
+        try:
+            _m = _merge_seed(conn)
+            if _m:
+                print(f"[db] seed 合并完成: 补齐 {_m} 条固化数据")
+            conn.execute("INSERT INTO settings(key,value) VALUES('schema_version','4')"
+                         " ON CONFLICT(key) DO UPDATE SET value=excluded.value")
+            conn.commit()
+        except Exception as e:
+            print(f"[db] seed 合并/版本记录失败(忽略): {e}")
     finally:
         conn.close()

@@ -10,6 +10,7 @@
 """
 import os
 os.environ.setdefault("BACKEND_PORT", "8001")  # 端口单一来源: 供内部自调用/其它模块读取
+os.environ.setdefault("WECHAT_PACKAGED", "1")   # 正式打包版标记(is_packaged 统一入口)
 import threading
 import time
 
