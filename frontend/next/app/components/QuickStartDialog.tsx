@@ -33,6 +33,34 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
   const [finished, setFinished] = useState(false);
   const [failed, setFailed] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const [setupStatus, setSetupStatus] = useState<{ pts: string[]; scrs: string[] } | null>(null);
+  // 打开弹窗即检查 点位/滚动 完整性(用于 tip 直接显示)
+  useEffect(() => {
+    if (!open) return;
+    (async () => {
+      try {
+        const [pd, sd] = await Promise.all([
+          fetch(API_BASE + "/api/points").then((r) => r.json()),
+          fetch(API_BASE + "/api/scrolls").then((r) => r.json()),
+        ]);
+        const pl = Array.isArray(pd) ? pd : (pd.items || []);
+        const sl = Array.isArray(sd) ? sd : (sd.items || []);
+        const pts = pl
+          .filter((p: any) => {
+            const x = String(p.x ?? "").trim(), y = String(p.y ?? "").trim();
+            return !x || !y || isNaN(Number(x)) || isNaN(Number(y));
+          })
+          .map((p: any) => p.name || `#${p.id}`);
+        const scrs = sl
+          .filter((sc: any) => { const d = String(sc.distance ?? "").trim(); return !d || Number(d) === 0 || isNaN(Number(d)); })
+          .map((sc: any) => sc.name || `#${sc.id}`);
+        setSetupStatus({ pts, scrs });
+      } catch {
+        setSetupStatus(null);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
   const logRef = useRef<HTMLDivElement>(null);
   const runningRef = useRef(false);
   const stopRef = useRef(false);
@@ -214,6 +242,18 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
   return (
     <Modal mask={{ closable: false }} open={open} onCancel={closeDialog} keyboard={false} footer={null} width={780} title="快速开始" destroyOnHidden>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, height: 420 }}>
+        {setupStatus && (setupStatus.pts.length > 0 || setupStatus.scrs.length > 0) && (
+          <div style={{ padding: "8px 10px", borderRadius: 8, background: "#fff1f0", border: "1px solid #ffa39e", fontSize: 13, color: "#b26a00" }}>
+            ⚠ 点位设置{setupStatus.pts.length > 0 ? `(${setupStatus.pts.length}处未完整: ${setupStatus.pts.join("、").slice(0, 60)})` : "已完整"}
+            {setupStatus.scrs.length > 0 ? `，滚动设置(${setupStatus.scrs.length}处未设置)` : ""}
+            —— 快速开始会自动校准，请直接执行。
+          </div>
+        )}
+        {setupStatus && setupStatus.pts.length === 0 && setupStatus.scrs.length === 0 && !running && !finished && (
+          <div style={{ padding: "8px 10px", borderRadius: 8, background: "#f0fff4", border: "1px solid #95e1b8", fontSize: 13, color: "#16a34a" }}>
+            ✅ 点位设置与滚动设置均已就绪，可直接使用。
+          </div>
+        )}
         {running && (
           <div style={{ padding: "8px 10px", borderRadius: 8, background: "#fff8e1", border: "1px solid #ffe082", fontSize: 13, color: "#b26a00" }}>
             正在执行快速开始流程，请等待结束。如果是第一次使用该程序，快速开始流程很有必要，可以一键帮你校准参数。
