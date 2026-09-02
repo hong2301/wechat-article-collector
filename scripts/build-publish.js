@@ -40,8 +40,8 @@ if (!fs.existsSync(path.join(ROOT, 'backend', 'dist', 'collector-backend'))) {
 fs.rmSync(OUT, { recursive: true, force: true })
 fs.mkdirSync(OUT, { recursive: true })
 const rel = path.relative(path.join(FRONT, 'electron'), OUT).replace(/\\/g, '/')
-run(`npx electron-builder --win nsis --win zip --publish always --config.directories.output="${rel}"`,
-    path.join(FRONT, 'electron'), { GH_TOKEN: TOKEN, GITHUB_TOKEN: TOKEN })
+run(`npx electron-builder --win nsis --win zip --publish never --config.directories.output="${rel}"`,
+    path.join(FRONT, 'electron'))
 
 const zip = fs.readdirSync(OUT).filter((f) => f.endsWith('.exe') || f.endsWith('.zip'))
 const yml = fs.existsSync(path.join(OUT, 'latest.yml'))
