@@ -436,15 +436,58 @@ def mouse_click(x, y, button="left", wait_before=0, wait_after=0,
     return x, y
 
 
+_preview_queue = queue.Queue()        # 红点预览任务队列(单后台线程消费, 恒1线程, 不泄漏)
+_preview_started = [False]
+
+
+def _preview_worker():
+    """预览红点单后台线程: 逐个显示, mainloop 用 quit 保险退出; 线程永久仅1个"""
+    import tkinter as tk
+    while True:
+        try:
+            x, y, duration = _preview_queue.get()
+            win = None
+            try:
+                win = tk.Tk()
+                win.overrideredirect(True)          # 无边框
+                win.attributes("-topmost", True)    # 置顶
+                win.attributes("-alpha", 0.9)       # 略透明
+                win.geometry(f"+{int(x) - 12}+{int(y) - 12}")
+                c = tk.Canvas(win, width=24, height=24,
+                              highlightthickness=0, bg="white")
+                c.pack()
+                c.create_oval(2, 2, 22, 22, fill="#e53935", outline="#b71c1c", width=2)
+                win.update()
+                win.after(int(duration * 1000), win.destroy)        # 到时销毁窗口
+                win.after(int(duration * 1000) + 600, win.quit)     # 保险: 强制退出 mainloop
+                win.mainloop()
+            except Exception:
+                pass
+            finally:
+                try:
+                    if win is not None:
+                        win.destroy()
+                except Exception:
+                    pass
+                del win
+        except Exception:
+            break
+
+
 def preview_point(x, y, duration=1):
     """【点位预览】在指定屏幕坐标亮一个红点 duration 秒（默认 1 秒）。
-    用于确认点位位置；后台线程显示, 不阻塞调用。
-    参数:
-      x, y          屏幕坐标
-      duration      红点显示时长(秒, 默认 1)
-    返回: None
-    """
-    flash_red_dot(x, y, duration=duration)
+    用于确认点位位置；单后台线程显示(恒1线程, 不阻塞调用, 不与采集争线程)。
+    注意: 采集路径(mouse_click/scroll)已停用红点, 不影响吞吐"""
+    if not _preview_started[0]:
+        _preview_started[0] = True
+        threading.Thread(target=_preview_worker, daemon=True).start()
+    # 只保留最新任务(连点预览只显示最后一次)
+    while True:
+        try:
+            _preview_queue.get_nowait()
+        except queue.Empty:
+            break
+    _preview_queue.put((x, y, duration))
 
 
 def capture_point():
