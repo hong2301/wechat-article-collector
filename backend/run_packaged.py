@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
+os.environ.setdefault("BACKEND_PORT", "8001")  # 端口单一来源: 供内部自调用/其它模块读取
 """打包版后端启动入口(PyInstaller 使用)
 
 与 run.py 的区别:
   - 关闭 reload(避免打包后多进程/端口冲突)
   - 直接导入 app 对象(字符串导入 PyInstaller 无法静态追踪)
-  - 固定 127.0.0.1:8000, 由 Electron 负责拉起; 可用 BACKEND_PORT 覆盖(测试用)
+  - 监听 127.0.0.1, 默认端口 8001(生产); 可用 BACKEND_PORT 覆盖
   - 看门狗: 若环境变量 WECHAT_PARENT_PID(Electron 主进程PID) 存在,
     则监听父进程存活, 父进程消失后本进程自动退出(防孤儿残留)
 """

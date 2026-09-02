@@ -443,8 +443,9 @@ def _bg_ai_metrics(shot_b64, api_key, model, biz, art):
                 "likes": str(metrics[0]), "forwards": str(metrics[1]),
                 "favorites": str(metrics[2]), "comments": str(metrics[3]),
             })
+        _port = os.environ.get("BACKEND_PORT", "8000")   # dev=8000 / 打包=8001(入口 setdefault)
         r = _requests.put(
-            "http://127.0.0.1:8000/api/accounts/articles-by-biz/save",
+            f"http://127.0.0.1:{_port}/api/accounts/articles-by-biz/save",
             json=data, timeout=15,
         )
         if r.status_code == 200:
