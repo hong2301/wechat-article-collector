@@ -34,7 +34,8 @@
     ],
     "win": {
       "target": [
-        "nsis"
+        "nsis",
+        "zip"
       ],
       "icon": "icon.ico",
       "executableName": "WeChatCollector"

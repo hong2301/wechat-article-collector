@@ -4,10 +4,28 @@ import json
 单文件: data/collector.db; 后续多表(设置/文章/评论等)在这里扩展"""
 import os
 import sqlite3
+import sys
 
 _BASE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-# 数据目录: 优先环境变量(打包版由 Electron 指定 exe 旁 data/), 开发时回退项目根 data/
-_DATA_DIR = os.environ.get("WECHAT_COLLECTOR_DATA_DIR") or os.path.join(_BASE, "data")
+# 打包版数据目录: 固定 D:/wechat-collector_data(安装目录外, 更新/重装不覆盖用户数据)
+#   dev: 环境变量优先, 否则项目根 data/; 打包(PyInstaller sys.frozen): D:/wechat-collector_data(无D盘回退 exe 旁 data)
+_PACKAGED_DATA = "D:/wechat-collector_data"
+
+
+def _data_dir():
+    env = os.environ.get("WECHAT_COLLECTOR_DATA_DIR")
+    if env:
+        return env
+    if getattr(sys, "frozen", False):
+        try:
+            os.makedirs(_PACKAGED_DATA, exist_ok=True)
+        except Exception:
+            return os.path.join(os.path.dirname(sys.executable), "data")   # 无D盘回退 exe 旁 data
+        return _PACKAGED_DATA
+    return os.path.join(_BASE, "data")
+
+
+_DATA_DIR = _data_dir()
 DB_PATH = os.path.join(_DATA_DIR, "collector.db")
 
 

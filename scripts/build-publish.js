@@ -40,10 +40,10 @@ if (!fs.existsSync(path.join(ROOT, 'backend', 'dist', 'collector-backend'))) {
 fs.rmSync(OUT, { recursive: true, force: true })
 fs.mkdirSync(OUT, { recursive: true })
 const rel = path.relative(path.join(FRONT, 'electron'), OUT).replace(/\\/g, '/')
-run(`npx electron-builder --win nsis --publish always --config.directories.output="${rel}"`,
+run(`npx electron-builder --win nsis --win zip --publish always --config.directories.output="${rel}"`,
     path.join(FRONT, 'electron'), { GH_TOKEN: TOKEN, GITHUB_TOKEN: TOKEN })
 
-const zip = fs.readdirSync(OUT).filter((f) => f.endsWith('.exe'))
+const zip = fs.readdirSync(OUT).filter((f) => f.endsWith('.exe') || f.endsWith('.zip'))
 const yml = fs.existsSync(path.join(OUT, 'latest.yml'))
 if (!zip.length || !yml) {
   console.error('❌ 发布包不完整: 需要安装包exe + latest.yml', fs.readdirSync(OUT))
