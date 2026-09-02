@@ -117,11 +117,12 @@ function log(msg) {
   } catch (e) {}
 }
 
-// 生产模式: 数据目录 = exe 同级 data/ (与 release 目录布局一致)
+// 数据目录统一: 后端 env.is_prod 判定(D:/wechat-collector_data) 是唯一来源
+// dev: 项目根 data/ (与后端开发库一致); prod: 不用本地 env 覆盖, 后端自行解析 D 盘/回退
 function dataDir() {
-  // 生产: exe 同级 data/; dev: 项目根 data/(与后端开发库一致)
+  // dev: 项目根 data/; prod: D:/wechat-collector_data (与后端 env.py _PACKAGED_DATA 一致, 更新重装不覆盖)
   if (isDev) return path.join(__dirname, '..', '..', 'data')
-  return path.join(path.dirname(app.getPath('exe')), 'data')
+  return 'D:/wechat-collector_data'
 }
 
 // 生产模式: 拉起 PyInstaller 打包的 Python 后端(exe 旁的独立进程)
@@ -145,8 +146,8 @@ async function startBackend() {
     env: {
       ...process.env,
       WECHAT_ENV: APP_ENV,                    // 运行环境统一(后端 env.py 读)
-      WECHAT_COLLECTOR_DATA_DIR: dataDir(),
       WECHAT_PARENT_PID: String(process.pid),  // 看门狗: 主程序退出则后端自杀
+      // 数据目录单一来源: 不注入 WECHAT_COLLECTOR_DATA_DIR, 后端 env.is_prod() 自行解析(D:/wechat-collector_data)
     },
     windowsHide: true,
     // 后端 stdout/stderr 也写入日志文件, 便于排查
