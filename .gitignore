@@ -78,3 +78,4 @@ tests/.pytest_cache/
 tests/artifacts/
 tests/report/
 tests/.baseline
+build-publish
