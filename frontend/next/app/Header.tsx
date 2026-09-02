@@ -37,6 +37,15 @@ export default function Header() {
   // 微信版本确认: db=数据库基准, local=本地实际, online=网络最新(有则返回); 页面加载即调用
   const [wxc, setWxc] = useState<{ db: string; local: string; online: string }>({ db: "", local: "", online: "" });
   const [appVer, setAppVer] = useState("");
+  const [dl, setDl] = useState<{ percent: number } | null>(null);   // 更新下载进度(打包版)
+  useEffect(() => {
+    // 打包版: 自动更新下载进度(electron-updater 经 preload 桥)
+    const off = (window as any).updateBridge?.onProgress?.((p: { percent: number }) => {
+      setDl({ percent: Math.round(p.percent || 0) });
+      if ((p.percent || 0) >= 100) setTimeout(() => setDl(null), 1500);
+    });
+    return () => off?.();
+  }, []);
   useEffect(() => {
     (async () => {
       try {
@@ -73,6 +82,14 @@ export default function Header() {
               </Tooltip>
             ) : (
               <span style={{ fontSize: 12, color: "#8b949e" }}>v{appVer}</span>
+            )}
+            {dl && (
+              <span style={{ fontSize: 12, color: "#1677ff", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                更新下载中 {dl.percent}%
+                <span style={{ display: "inline-block", width: 56, height: 8, borderRadius: 4, background: "#e6f4ff", overflow: "hidden" }}>
+                  <span style={{ display: "block", width: `${dl.percent}%`, height: "100%", background: "#1677ff", transition: ".3s" }} />
+                </span>
+              </span>
             )}
           </div>
           <div style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 4 }}>

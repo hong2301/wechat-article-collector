@@ -25,6 +25,10 @@ function setupAutoUpdater(win) {
         buttons: ['更新', '稍后'],
       }).then((r) => { if (r.response === 0) autoUpdater.downloadUpdate() })
     })
+    autoUpdater.on('download-progress', (p) => {
+      // 下载进度 -> 渲染进程(前端进度条)
+      try { win.webContents.send('update-progress', { percent: p.percent, transferred: p.transferred, total: p.total, bytesPerSecond: p.bytesPerSecond }) } catch (e) {}
+    })
     autoUpdater.on('update-downloaded', () => {
       dialog.showMessageBox(win, {
         type: 'info', title: '更新已就绪',
@@ -219,7 +223,11 @@ function createWindow() {
     ...state,
     autoHideMenuBar: true,
     icon,
-    webContents: { contextIsolation: true, nodeIntegration: false },
+    webContents: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.js'),   // 更新进度桥(updateBridge)
+    },
   })
   mainWindow = win
 
