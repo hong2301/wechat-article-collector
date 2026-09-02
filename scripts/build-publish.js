@@ -26,7 +26,7 @@ if (!fs.existsSync(path.join(ROOT, 'backend', 'dist', 'collector-backend'))) {
 fs.rmSync(OUT, { recursive: true, force: true })
 fs.mkdirSync(OUT, { recursive: true })
 const rel = path.relative(path.join(FRONT, 'electron'), OUT).replace(/\\/g, '/')
-run(`npx electron-builder --win zip --publish never --config.directories.output="${rel}"`,
+run(`npx electron-builder --win zip --publish onTagOrDraft --config.directories.output="${rel}"`,
     path.join(FRONT, 'electron'))
 
 const zip = fs.readdirSync(OUT).filter((f) => f.endsWith('.zip'))
