@@ -15,7 +15,26 @@ import sys
 BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 DIST = os.path.join(BACKEND_DIR, "dist", "collector-backend")
 
+def _gen_version():
+    """构建时: 读根 package.json version -> 生成 app/version.py(打包进 exe, 版本单一来源)"""
+    import json
+    try:
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        with open(os.path.join(root, "package.json"), encoding="utf-8") as f:
+            ver = json.load(f).get("version", "")
+        lines = ["# -*- coding: utf-8 -*-",
+                 '"""程序版本(构建时由根 package.json 生成, 打包进 exe)"""',
+                 "VERSION = %r" % ver]
+        vp = os.path.join(BACKEND_DIR, "app", "version.py")
+        with open(vp, "w", encoding="utf-8") as f:
+            f.write(chr(10).join(lines))
+        print("  版本注入:", ver)
+    except Exception as e:
+        print("警告: 版本注入失败", e)
+
+
 def main():
+    _gen_version()
     # 清理旧产物
     for p in (DIST, os.path.join(BACKEND_DIR, "build"), os.path.join(BACKEND_DIR, "collector-backend.spec")):
         if os.path.exists(p):

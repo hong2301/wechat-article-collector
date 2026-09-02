@@ -195,10 +195,6 @@ try {
     fs.renameSync(path.join(WIN_UNPACKED, entry), path.join(RELEASE, entry))
   }
   // 2.2 后端移入 resources/backend(与 main.js process.resourcesPath 一致)
-  fs.mkdirSync(path.join(RELEASE, 'resources'), { recursive: true })
-  // 2.1a 根 package.json -> release/resources(打包版 app-version 版本读取来源)
-  fs.copyFileSync(path.join(ROOT, 'package.json'), path.join(RELEASE, 'resources', 'package.json'))
-  console.log('   package.json -> release/resources/package.json')
   move(BACKEND_DIST, path.join(RELEASE, 'resources', 'backend'))
   // 2.3 模板库 -> release/data(先同步微信版本号: dev库 -> 模板库, 保证打包版版本号最新)
   run('python scripts/sync-template-wx.py')
