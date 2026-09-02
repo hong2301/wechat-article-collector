@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-os.environ.setdefault("BACKEND_PORT", "8001")  # 端口单一来源: 供内部自调用/其它模块读取
 """打包版后端启动入口(PyInstaller 使用)
 
 与 run.py 的区别:
@@ -10,6 +9,7 @@ os.environ.setdefault("BACKEND_PORT", "8001")  # 端口单一来源: 供内部�
     则监听父进程存活, 父进程消失后本进程自动退出(防孤儿残留)
 """
 import os
+os.environ.setdefault("BACKEND_PORT", "8001")  # 端口单一来源: 供内部自调用/其它模块读取
 import threading
 import time
 
