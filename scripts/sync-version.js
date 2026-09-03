@@ -22,4 +22,14 @@ let s = fs.readFileSync(py, 'utf8')
 s = s.replace(/version="[^"]*"/, `version="${ver}"`)
 fs.writeFileSync(py, s)
 console.log(`  sync backend/app/main.py -> ${ver}`)
+// 3) 根 .env 的 APP_VERSION(版本硬编码来源, 构建时注入 version_info.py)
+const envp = path.join(ROOT, '.env')
+try {
+  let e = fs.readFileSync(envp, 'utf8')
+  if (/^APP_VERSION\s*=/.test(e)) e = e.replace(/^APP_VERSION\s*=.*$/m, `APP_VERSION=${ver}`)
+  else e += `
+APP_VERSION=${ver}`
+  fs.writeFileSync(envp, e)
+  console.log(`  sync .env APP_VERSION -> ${ver}`)
+} catch (err) { console.log('  (跳过 .env: ' + err.message + ')') }
 console.log(`✅ 版本已统一为 ${ver}`)
