@@ -176,7 +176,7 @@ async function main() {
 const t0 = Date.now()
 try {
   // ---- 0. 预检: release 是否被占用(提前失败, 避免白打包) ----
-  preflightCheck()
+  preflightCheck();
 
   // ---- 0.5 生成内置版本文件 version_info.py: 读根 .env(APP_VERSION/WECHAT_VERSION), 缺失回退根 package.json
   (() => {
