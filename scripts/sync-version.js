@@ -1,4 +1,4 @@
-// 版本同步: release-it 升根 package.json 版本后, 同步其余 4 处版本号
+// 版本同步: release-it 升根 package.json 版本后, 同步其余版本位置
 // 用法: node scripts/sync-version.js
 const fs = require('fs')
 const path = require('path')
@@ -22,14 +22,18 @@ let s = fs.readFileSync(py, 'utf8')
 s = s.replace(/version="[^"]*"/, `version="${ver}"`)
 fs.writeFileSync(py, s)
 console.log(`  sync backend/app/main.py -> ${ver}`)
+
 // 3) 根 .env 的 APP_VERSION(版本硬编码来源, 构建时注入 version_info.py)
 const envp = path.join(ROOT, '.env')
 try {
   let e = fs.readFileSync(envp, 'utf8')
-  if (/^APP_VERSION\s*=/.test(e)) e = e.replace(/^APP_VERSION\s*=.*$/m, `APP_VERSION=${ver}`)
-  else e += `
-APP_VERSION=${ver}`
-  fs.writeFileSync(envp, e)
+  const lines = e.split(/\r?\n/)
+  let hitIdx = -1
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].split('=')[0].trim() === 'APP_VERSION') { lines[i] = `APP_VERSION=${ver}`; hitIdx = i; break }
+  }
+  if (hitIdx === -1) lines.push(`APP_VERSION=${ver}`)
+  fs.writeFileSync(envp, lines.join('\n'))
   console.log(`  sync .env APP_VERSION -> ${ver}`)
 } catch (err) { console.log('  (跳过 .env: ' + err.message + ')') }
 console.log(`✅ 版本已统一为 ${ver}`)
