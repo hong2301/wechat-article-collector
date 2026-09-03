@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from ..database import default_html_dir
 from ..core import computer as pc
+from ..version_info import APP_VERSION, WECHAT_VERSION  # 硬编码版本(构建时由 .env 注入)
 from ..services import wechat_check as wx_check
 from ..repositories import settings_repo
 
@@ -22,31 +23,17 @@ class AiSettings(BaseModel):
     models: list[str] = []            # 多个模型id
 
 
-class WechatVersion(BaseModel):
-    version: str = ""                 # 微信基准版本号
-
-
 @router.get("/wechat-version")
 def get_wechat_version():
-    """读微信基准版本(数据库存储值); 未设置返回空"""
-    return {"version": settings_repo.get_setting("wechat_version")}
+    """读微信基准版本(硬编码内置, 不再存数据库)"""
+    return {"version": WECHAT_VERSION}
 
 
 @router.get("/wechat-check")
 def wechat_check_api():
-    """微信版本确认: 读本地版本 + 网络试探更高版本(数据库版本为准)
+    """微信版本确认: 读本地版本 + 网络试探更高版本(内置硬编码基准)
     返回 {db, local, online}"""
-    return wx_check.check(settings_repo.get_setting("wechat_version"))
-
-
-@router.post("/wechat-version")
-def save_wechat_version(p: WechatVersion):
-    """保存微信基准版本"""
-    v = (p.version or "").strip()
-    if not v:
-        return {"ok": False, "error": "版本号不能为空"}
-    settings_repo.set_setting("wechat_version", v)
-    return {"ok": True, "version": v}
+    return wx_check.check(WECHAT_VERSION)
 
 
 @router.get("/ai")
@@ -183,19 +170,8 @@ _WX_WIN_CHECK_INTERVAL = 1.0      # 未确认登录时每1秒窗口移动+量宽
 
 @router.get("/app-version")
 def app_version():
-    """程序版本: 直接读项目根目录 package.json 的 version(单一来源, 不依赖环境变量)"""
-    import json as _json, os as _os
-    try:
-        # 开发=项目根(backend 上两级); 打包版 build 会把根 package.json 拷入 resources
-        _root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))))
-        for _cand in (_os.path.join(_root, "package.json"),
-                      _os.path.join(_root, "resources", "package.json")):
-            if _os.path.exists(_cand):
-                with open(_cand, encoding="utf-8") as _f:
-                    return {"version": _json.load(_f).get("version", "")}
-    except Exception:
-        pass
-    return {"version": ""}
+    """程序版本: 硬编码内置常量(构建时由根 .env APP_VERSION 注入, 打包/开发一致)"""
+    return {"version": APP_VERSION}
 
 
 @router.get("/wechat-status")

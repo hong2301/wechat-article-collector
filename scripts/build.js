@@ -178,6 +178,34 @@ try {
   // ---- 0. 预检: release 是否被占用(提前失败, 避免白打包) ----
   preflightCheck()
 
+  // ---- 0.5 生成内置版本文件 version_info.py: 读根 .env(APP_VERSION/WECHAT_VERSION), 缺失回退根 package.json
+  (() => {
+    const envPath = path.join(ROOT, '.env')
+    let appVer = '', wxVer = ''
+    try {
+      const envTxt = fs.readFileSync(envPath, 'utf-8')
+      const mApp = envTxt.match(/^APP_VERSION\s*=\s*(.+)$/m)
+      const mWx = envTxt.match(/^WECHAT_VERSION\s*=\s*(.+)$/m)
+      if (mApp) appVer = mApp[1].trim()
+      if (mWx) wxVer = mWx[1].trim()
+    } catch (e) { /* .env 不存在, 用回退 */ }
+    if (!appVer) {
+      try { appVer = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8')).version || '' } catch (e) { appVer = '' }
+    }
+    const vi = `# -*- coding: utf-8 -*-
+"""版本硬编码(构建时生成/覆盖): 由根目录 .env 的 APP_VERSION / WECHAT_VERSION 注入
+- 构建: build.js 组装前读 .env(缺失回退根 package.json/TEMPLATE) 重写本文件, PyInstaller 打进 exe
+- dev : 直接读本文件(提交的当前版本), 与打包版一致
+- 数据库/接口不再存版本(从 settings 表剔除, 同步脚本删除)
+"""
+APP_VERSION = "${appVer}"       # 程序版本(单一来源: 根 .env APP_VERSION → 构建时写入)
+WECHAT_VERSION = "${wxVer}"  # 微信基准版本(单一来源: 根 .env WECHAT_VERSION → 构建时写入)
+`
+    fs.writeFileSync(path.join(ROOT, 'backend', 'app', 'version_info.py'), vi)
+    console.log(`
+>>> 生成内置版本: APP_VERSION=${appVer} WECHAT_VERSION=${wxVer}`)
+  })()
+
   // ---- 1. 并行: 前端链(next->electron) 与 后端(PyInstaller) 同时打包 ----
   await Promise.all([
     (async () => {
@@ -197,7 +225,6 @@ try {
   // 2.2 后端移入 resources/backend(与 main.js process.resourcesPath 一致)
   move(BACKEND_DIST, path.join(RELEASE, 'resources', 'backend'))
   // 2.3 模板库 -> release/data(先同步微信版本号: dev库 -> 模板库, 保证打包版版本号最新)
-  run('python scripts/sync-template-wx.py')
   console.log('\n>>> 复制模板数据库 -> release/data')
   fs.mkdirSync(path.join(RELEASE, 'data'), { recursive: true })
   fs.copyFileSync(TPL_DB, path.join(RELEASE, 'data', 'collector.db'))

@@ -30,12 +30,13 @@ def test_create_dup_biz_400(client):
 
 
 def test_update(client):
-    d = client.get("/api/accounts?page=1&page_size=10").json()
-    aid = d["items"][0]["id"]
-    r = client.put(f"/api/accounts/{aid}", json={"remark": "e2e备注"})
+    # 不依赖模板库账号种子: 先建两个账号再测更新/重复biz
+    a = client.post("/api/accounts", json={"name": "测试号A", "biz": "test_biz_a", "status": "pending", "remark": ""}).json()
+    b = client.post("/api/accounts", json={"name": "测试号B", "biz": "test_biz_b", "status": "pending", "remark": ""}).json()
+    r = client.put(f"/api/accounts/{a['id']}", json={"remark": "e2e备注"})
     assert r.status_code == 200 and r.json()["remark"] == "e2e备注"
-    # 改成模板库已有 biz 应 400(若有第二条)
-    dup = client.put(f"/api/accounts/{aid}", json={"biz": "MzA4OTQ5NTk2Mw=="})
+    # 改成已存在的其他账号 biz 应 400(biz 唯一)
+    dup = client.put(f"/api/accounts/{a['id']}", json={"biz": b["biz"]})
     assert dup.status_code == 400
 
 

@@ -13,15 +13,14 @@ def test_ai_settings_roundtrip(client):
     assert again["api_key"] == "k-e2e-123"
 
 
-def test_wechat_version_roundtrip(client):
+def test_wechat_version_builtin(client):
+    """微信基准版本 = 内置硬编码常量(version_info), 不再存库/无写接口"""
     g = client.get("/api/settings/wechat-version").json()
-    assert "version" in g
+    assert g["version"], "应返回内置微信基准版本"
+    # 写接口已删除(硬编码, 数据库剔除)
     r = client.post("/api/settings/wechat-version", json={"version": "4.1.13.12"})
-    assert r.status_code == 200 and r.json()["ok"] is True
-    assert client.get("/api/settings/wechat-version").json()["version"] == "4.1.13.12"
-    # 空版本拒绝
-    bad = client.post("/api/settings/wechat-version", json={"version": "  "})
-    assert bad.json()["ok"] is False
+    assert r.status_code == 405
+    assert client.get("/api/settings/wechat-version").json()["version"] == g["version"]
 
 
 @pytest.mark.manual
