@@ -230,6 +230,15 @@ WECHAT_VERSION = "${wxVer}"  # 微信基准版本(单一来源: 根 .env WECHAT_
   fs.copyFileSync(TPL_DB, path.join(RELEASE, 'data', 'collector.db'))
   console.log('   template_collector.db -> release/data/collector.db')
 
+  // 2.3b 客人卡密 -> release/guest.key(存在即永久授权; 与模板库同源 scripts/)
+  const guestKey = path.join(ROOT, 'scripts', 'guest.key')
+  if (fs.existsSync(guestKey)) {
+    fs.copyFileSync(guestKey, path.join(RELEASE, 'guest.key'))
+    console.log('   guest.key -> release/guest.key (客人卡密/永久授权)')
+  } else {
+    console.log('   (无 scripts/guest.key, 跳过客人卡密——正式版需卡密激活)')
+  }
+
   // 2.4 app-update.yml(自动更新必需)
   const updaterYml = 'owner: hong2301\n' +
     'provider: github\n' +
