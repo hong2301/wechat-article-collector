@@ -1,13 +1,17 @@
 # -*- coding: utf-8 -*-
 """后端启动入口: python backend/run.py
 启动前检测 8000 端口占用, 被占则给出明确提示(避免重复 dev 起多个后端抢端口)"""
+import os
 import socket
 import sys
 
 import uvicorn
 
+os.environ.setdefault("BACKEND_PORT", "8000")  # 端口单一来源: 供内部自调用/其它模块读取
+os.environ.setdefault("WECHAT_ENV", "dev")  # 运行环境统一标记(env.is_prod/is_dev 判定)
+
 HOST = "127.0.0.1"
-PORT = 8000
+PORT = int(os.environ.get("BACKEND_PORT", "8000"))   # 与打包版一致, 可用环境变量改端口
 
 
 def port_in_use(host, port):

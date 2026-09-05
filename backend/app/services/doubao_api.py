@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import json as _json
 """backend.app.services.doubao_api: 豆包识图(4指标识别)
 
 识别文章底部互动栏截图: 点赞/转发/喜欢/留言
@@ -142,7 +143,6 @@ def doubao_extract_comments(shot_b64s, api_key, timeout=30):
         m = re.search(r"\[.*\]", text, re.S)
         if not m:
             return []
-        import json as _json
         result = _json.loads(m.group(0))
         if not isinstance(result, list):
             return []
@@ -170,3 +170,47 @@ def doubao_extract_comments(shot_b64s, api_key, timeout=30):
         return cleaned
     except Exception:
         return []
+
+
+LOCATE_PROMPT = (
+    "这是一个程序界面的截图。我有一个目标元素需要定位: 「{desc}」。\n"
+    "请在该截图中找到这个元素(按钮/文本框/区域), 并给出它的中心像素坐标。\n"
+    "严格只输出一行: <x>,<y>  (整数像素, 相对截图左上角)。\n"
+    "如果截图中找不到该元素, 只输出: notfound"
+)
+
+
+def doubao_locate(shot_b64, desc, api_key, model, timeout=30):
+    """豆包视觉: 在截图中定位指定元素 -> (x, y) 或 None
+    入参: shot_b64(区域截图), desc(目标描述, 如"搜一搜窗口的查询按钮")
+    返回: (x, y) 相对截图左上角 或 None(找不到/失败)"""
+    try:
+        import requests
+        b64 = shot_b64
+        if "," in b64:
+            b64 = b64.split(",", 1)[1]
+        payload = {
+            "model": model,
+            "input": [{"role": "user", "content": [
+                {"type": "input_image", "image_url": "data:image/webp;base64," + b64},
+                {"type": "input_text", "text": LOCATE_PROMPT.format(desc=desc)},
+            ]}],
+        }
+        headers = {"Authorization": "Bearer " + api_key,
+                   "Content-Type": "application/json"}
+        resp = requests.post(DOUBAO_URL, headers=headers, json=payload, timeout=timeout)
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        text = ""
+        for out in data.get("output", []):
+            for c in out.get("content", []):
+                if c.get("type") == "output_text":
+                    text += (c.get("text") or "")
+        text = (text or "").strip().replace("<", "").replace(">", "")
+        if not text or text.lower() == "notfound" or "," not in text:
+            return None
+        x, y = text.split(",", 1)
+        return int(float(x.strip())), int(float(y.strip()))
+    except Exception:
+        return None

@@ -1,17 +1,20 @@
 # -*- coding: utf-8 -*-
-"""AI 模型设置路由: 读写数据库 ai_model 表(厂商+一个key+多个模型id)
-+ 系统控制: 任务栏隐藏/恢复(采集时隐藏, 全部结束恢复)"""
+"""设置/系统控制路由: AI 模型、微信版本确认、任务栏、微信启动/登录检测"""
+import os
+import subprocess
+import ctypes.wintypes as wt
+import time as _time
+import ctypes
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from ..database import get_conn, default_html_dir
-from ..services import computer as pc
+from ..database import default_html_dir
+from ..core import computer as pc
+from ..version_info import APP_VERSION, WECHAT_VERSION  # 硬编码版本(构建时由 .env 注入)
+from ..services import wechat_check as wx_check
+from ..repositories import settings_repo
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
-
-# 默认可用配置(用户未设置时前端使用)
-DEFAULT_API_KEY = "802ffe3f-4bc9-4030-a3f4-cc00409a4d4e"
-DEFAULT_MODEL = "doubao-seed-2-0-mini-260428"
 
 
 class AiSettings(BaseModel):
@@ -20,47 +23,35 @@ class AiSettings(BaseModel):
     models: list[str] = []            # 多个模型id
 
 
+@router.get("/wechat-version")
+def get_wechat_version():
+    """读微信基准版本(硬编码内置, 不再存数据库)"""
+    return {"version": WECHAT_VERSION}
+
+
+@router.get("/wechat-check")
+def wechat_check_api():
+    """微信版本确认: 读本地版本 + 网络试探更高版本(内置硬编码基准)
+    返回 {db, local, online}"""
+    return wx_check.check(WECHAT_VERSION)
+
+
 @router.get("/ai")
 def get_ai_settings():
-    """返回 {provider, api_key, models:[...]}; 无数据则空"""
-    conn = get_conn()
-    try:
-        rows = conn.execute(
-            "SELECT provider, api_key, model_id FROM ai_model ORDER BY id").fetchall()
-    finally:
-        conn.close()
-    if not rows:
-        return {"provider": "doubao", "api_key": "", "models": []}
-    first = dict(rows[0])
-    models = [dict(r)["model_id"] for r in rows]
-    return {"provider": first["provider"], "api_key": first["api_key"],
-            "models": models}
+    return settings_repo.get_ai()
 
 
 @router.post("/ai")
 def save_ai_settings(payload: AiSettings):
     """保存: 清空旧记录, 写入 (provider, api_key, 每个model_id) 一行一条"""
-    conn = get_conn()
-    try:
-        conn.execute("DELETE FROM ai_model")
-        api_key = payload.api_key or ""
-        provider = payload.provider or "doubao"
-        models = payload.models or []
-        for m in models:
-            conn.execute(
-                "INSERT INTO ai_model(provider, api_key, model_id) VALUES(?,?,?)",
-                (provider, api_key, m))
-        conn.commit()
-        return {"ok": True, "count": len(models)}
-    finally:
-        conn.close()
+    n = settings_repo.save_ai(payload.provider, payload.api_key, payload.models)
+    return {"ok": True, "count": n}
 
 
 @router.post("/open-downloads")
 def open_downloads(sub: str = ""):
     """打开文章下载文件夹(默认 <数据目录>/article_data), sub给定公众号名则打开对应子文件夹
     不存在则创建"""
-    import os
     d = default_html_dir()
     if sub:
         d = os.path.join(d, sub)
@@ -75,7 +66,6 @@ def open_downloads(sub: str = ""):
 @router.post("/pick-dir")
 def pick_dir(current: str = ""):
     """弹系统文件夹选择器(initialdir=当前保存路径), 返回选中的目录; 取消返回空"""
-    import os
     import tkinter as tk
     from tkinter import filedialog
     if not current or not os.path.isdir(current):
@@ -105,15 +95,86 @@ def save_article_html_api(payload: dict = None):
     return {"ok": False, "error": info}
 
 
-class TaskbarAction(BaseModel):
-    action: str = "hide"   # hide / show
 
 
-@router.post("/taskbar")
-def taskbar_control(p: TaskbarAction):
-    """隐藏/恢复 Windows 任务栏(采集开始隐藏, 全部任务结束恢复); 幂等"""
-    if p.action == "hide":
-        return {"ok": pc.hide_taskbar()}
-    if p.action == "show":
-        return {"ok": pc.show_taskbar()}
-    return {"ok": False, "error": "action 只能是 hide/show"}
+
+
+@router.post("/launch-wechat")
+def launch_wechat():
+    """未登录时点击微信图标: 启动微信程序(登录窗口)"""
+    candidates = [
+        r"D:\Weixin\Weixin.exe",
+        r"C:\Program Files\Tencent\WeChat\Weixin.exe",
+        r"C:\Program Files (x86)\Tencent\WeChat\Weixin.exe",
+        r"D:\Program Files\Tencent\WeChat\Weixin.exe",
+    ]
+    for p in candidates:
+        if os.path.isfile(p):
+            try:
+                subprocess.Popen([p], close_fds=True)
+                return {"ok": True, "path": p}
+            except Exception as e:
+                return {"ok": False, "error": f"启动失败: {e}"}
+    return {"ok": False, "error": "未找到微信安装路径"}
+
+
+
+
+def _wx_win_width_check():
+    """窗口宽度判定: 找可见的微信主窗口(进程 weixin.exe 且标题含'微信')移到左半屏,
+    量宽(≥半屏90%=已登录主窗, 登录窗被微信限小)"""
+    from ..services import tasks as tasks_svc
+    u32 = pc._u32()
+    sw = u32.GetSystemMetrics(pc.SM_CXSCREEN)
+    sh = u32.GetSystemMetrics(pc.SM_CYSCREEN)
+    half = sw // 2
+    logged = False
+    # 只认微信主窗口: weixin.exe 且标题含"微信"(排除设置/聊天窗等)
+    wins = pc.find_windows(exe=tasks_svc.WECHAT_MAIN, visible_only=True)
+    wins = [w for w in wins if (w[1] or "").strip() == "微信" or "微信" in (w[1] or "")]
+    print(f"[wxcheck] 可见微信窗口数={len(wins)} 半屏宽={half}", flush=True)
+    for hwnd, _t, _p, _vis in wins:
+        pc.move_window(hwnd, 0, 0, half, sh)
+        _time.sleep(0.3)
+        r = wt.RECT()
+        u32.GetWindowRect(hwnd, ctypes.byref(r))
+        print(f"[wxcheck] 移动后宽={r.right - r.left} (需>={half * 0.9:.0f})", flush=True)
+        if r.right - r.left >= half * 0.9:
+            logged = True
+    print(f"[wxcheck] 判定 logged={logged}", flush=True)
+    return logged
+
+
+
+
+def _detect_wx_status():
+    from ..services import tasks as tasks_svc
+    main = pc._pids_by_exe([tasks_svc.WECHAT_MAIN])
+    if not main:
+        _wx_confirm[0] = False
+        return {"running": False, "logged_in": False}
+    if _wx_confirm[0]:
+        return {"running": True, "logged_in": True}
+    now = _time.time()
+    if _wx_last_win_check[0] == 0 or now - _wx_last_win_check[0] >= _WX_WIN_CHECK_INTERVAL:
+        _wx_last_win_check[0] = now
+        _wx_confirm[0] = _wx_win_width_check()
+    return {"running": True, "logged_in": _wx_confirm[0]}
+
+
+# ---- 微信登录状态: GET 实时计算(前端1s轮询; 无长连接, Ctrl+C 秒退优雅) ----
+_wx_confirm = [False]
+_wx_last_win_check = [0.0]
+_WX_WIN_CHECK_INTERVAL = 1.0      # 未确认登录时每1秒窗口移动+量宽; 确认后纯进程检测零打扰
+
+
+@router.get("/app-version")
+def app_version():
+    """程序版本: 硬编码内置常量(构建时由根 .env APP_VERSION 注入, 打包/开发一致)"""
+    return {"version": APP_VERSION}
+
+
+@router.get("/wechat-status")
+def wechat_status():
+    """微信登录状态(前端1s轮询): 实时计算"""
+    return _detect_wx_status()

@@ -104,3 +104,16 @@ tr.drag-source { opacity: 0.35; outline: 1px dashed #1677ff; outline-offset: -1p
 tr.drop-before td { box-shadow: inset 0 3px 0 0 #1677ff !important; }
 tr.drop-after td { box-shadow: inset 0 -3px 0 0 #1677ff !important; }
 tr[class*="drop-"] { cursor: grabbing; }
+
+/* 文章列表: 表头吸顶(CSS sticky, 替代 antd sticky 避免双横向滚动条) */
+.articles-table .ant-table-thead > tr > th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #fafafa;
+}
+/* 横向滚动条只保留一条: 固定列(操作列)区域不再出现滚动条 */
+.articles-table .ant-table-ping-right .ant-table-cell-fix-right,
+.articles-table .ant-table-cell-fix-right {
+  overflow: hidden;
+}

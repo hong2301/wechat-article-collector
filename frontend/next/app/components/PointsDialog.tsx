@@ -1,16 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { API_BASE } from "../lib/api";
 import { createPortal } from "react-dom";
 import {
-  Modal, Table, Button, Input, Space, message, Checkbox, Empty,
+  Modal, Table, Button, Input, Space, message, Progress, Checkbox, Empty, Tooltip,
 } from "antd";
 import {
   PlusOutlined, ImportOutlined, DeleteOutlined, EyeOutlined,
-  EditOutlined, ScanOutlined,
+  EditOutlined, ScanOutlined, ExclamationCircleOutlined, BulbOutlined,
 } from "@ant-design/icons";
+import { useWechatStatus } from "./useWechatStatus";
+import { hideTaskbar, showTaskbar } from "./taskbar";
+import { useConflictGate } from "./ConflictGate";
 
-const API = "http://127.0.0.1:8000/api/points";
+const API = API_BASE + "/api/points";
 
 interface Point {
   id: number;
@@ -109,7 +113,7 @@ export default function PointsDialog({
   function pickByClick() {
     setCapturing(true);
     setCapInfo({ id: edit.id, name: edit.name || "" });
-    const BASE = "http://127.0.0.1:8000/api/points";
+    const BASE = API_BASE + "/api/points";
     // 轮询: 实时把后端最近的单击坐标预览到 x/y 输入框
     const pollTimer = window.setInterval(async () => {
       try {
@@ -137,6 +141,115 @@ export default function PointsDialog({
   }
 
   // ---------- 删除 ----------
+  // ---------- 自动设置(调用后端 auto-setup: 人工预设流程+OCR+AI识别) ----------
+  const wxLogged = useWechatStatus();   // 未登录微信时自动设置不可用
+  // 前置依赖: 某些点位自动设置需先有其它点位坐标(前端基于 rows 数据判断)
+  const POINT_DEPS: Record<string, string[]> = {
+    "微信左上角搜索网络": ["点击微信左上角搜索输入框"],
+    "微信窗口初始化不合法时窗口分离按钮": ["点击微信左上角搜索输入框", "微信左上角搜索网络"],
+    "搜一搜窗口查询按钮": ["点击微信左上角搜索输入框", "微信左上角搜索网络", "微信窗口初始化不合法时窗口分离按钮"],
+    "文章列表左上角": ["点击微信左上角搜索输入框", "微信左上角搜索网络", "微信窗口初始化不合法时窗口分离按钮", "搜一搜窗口查询按钮"],
+    "文章列表右下角": ["点击微信左上角搜索输入框", "微信左上角搜索网络", "微信窗口初始化不合法时窗口分离按钮", "搜一搜窗口查询按钮"],
+    "文章右上角3点": ["搜一搜窗口查询按钮"],
+    "点击复制链接": ["文章右上角3点"],
+    "4指标区域左上": ["点击微信左上角搜索输入框", "微信左上角搜索网络", "微信窗口初始化不合法时窗口分离按钮", "搜一搜窗口查询按钮"],
+    "4指标区域右下": ["点击微信左上角搜索输入框", "微信左上角搜索网络", "微信窗口初始化不合法时窗口分离按钮", "搜一搜窗口查询按钮"],
+    "阅读数左上": ["4指标区域左上"],
+    "阅读数右下": ["4指标区域左上"],
+    "评论按钮": ["4指标区域左上", "4指标区域右下", "搜一搜窗口查询按钮"],
+    "评论区左上": ["评论按钮", "4指标区域左上", "4指标区域右下", "搜一搜窗口查询按钮"],
+    "评论区右下": ["评论按钮", "4指标区域左上", "4指标区域右下", "搜一搜窗口查询按钮"],
+  };
+  const [autoLoading, setAutoLoading] = useState<number | null>(null);
+  const [runProg, setRunProg] = useState<{ done: number; total: number } | null>(null);
+  const [runCur, setRunCur] = useState<string>("");   // 当前正在设置的点位名(实时)
+  function missingDeps(p: Point): string[] {
+    const deps = POINT_DEPS[p.name] || [];
+    return deps.filter((d) => {
+      const r = rows.find((x) => x.name === d);
+      return !r || !String(r.x ?? "").trim() || !String(r.y ?? "").trim();
+    });
+  }
+  useEffect(() => { if (open) load(); /* eslint-disable-next-line */ }, [open]);
+  // 通用自动设置执行(点位一键/单点位共用): 锁+任务栏+进度+日志文本+流式
+  // 一键设置/单点自动设置: 统一经冲突检测(冲突弹窗)后放行
+  const { runWithGuard } = useConflictGate();
+  async function runAutoSetup(names: string[], loadingId?: number) {
+    if (names.length === 0) return;
+    await runWithGuard(async () => {
+      await runAutoSetupInner(names, loadingId);
+    }, "自动设置");
+  }
+  async function runAutoSetupInner(names: string[], loadingId?: number) {
+    if (names.length === 0) return;
+    if (loadingId != null) setAutoLoading(loadingId);
+    setRunProg({ done: 0, total: names.length });
+    setRunCur("正在准备…");
+    hideTaskbar();
+    // 开启输入锁; 失败(采集进行中)则不执行
+    let locked = true;
+    try {
+      const l = await (await fetch(API_BASE + "/api/auto-setup/lock", { method: "POST" })).json();
+      if (!l.ok) { message.warning(l.error || "无法开始自动设置"); locked = false; }
+    } catch { /* 后端不可达, 继续尝试 */ }
+    if (!locked) { showTaskbar(); if (loadingId != null) setAutoLoading(null); return; }
+    const q = names.length > 0 ? `?names=${encodeURIComponent(names.join(","))}` : "";
+    try {
+      const resp = await fetch(`${API_BASE}/api/auto-setup/run-all${q}`, { method: "POST" });
+      if (!resp.ok || !resp.body) throw new Error("接口失败");
+      const reader = resp.body.getReader();
+      const dec = new TextDecoder();
+      let buf = "";
+      for (; ;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        let i2;
+        while ((i2 = buf.indexOf("\n\n")) !== -1) {
+          const block = buf.slice(0, i2); buf = buf.slice(i2 + 2);
+          const dm = block.match(/^data: (.+)$/m);
+          if (dm) {
+            try {
+              const ev = JSON.parse(dm[1]);
+              const m: string = ev.msg || "";
+              if (m.startsWith("[progress] ")) {
+                const mm = m.match(/(\d+)\/(\d+)/);   // 消息格式: [progress] 3/18 (数字无方括号)
+                if (mm) setRunProg({ done: Number(mm[1]), total: Number(mm[2]) });
+              } else if (m.startsWith("[step]")) {
+                setRunCur(m.replace(/^\[step\] ⏳ /, ""));   // 实时显示正在设置的点位
+              } else if (m.startsWith("[done]")) {
+                message.success(m.replace(/^\[done\] /, ""), 5);
+              } else if (m.startsWith("[warn]") && !m.includes("禁用鼠标和键盘")) {
+                message.warning(m.replace(/^\[warn\] /, ""), 4);   // 拦截提示不弹, 仅"已请求停止"等
+              }
+            } catch { /* 忽略 */ }
+          }
+        }
+      }
+    } catch {
+      message.error("自动设置失败(后端不可达)");
+    } finally {
+      fetch(API_BASE + "/api/auto-setup/unlock", { method: "POST" }).catch(() => { });   // 结束输入锁
+      showTaskbar();
+      setTimeout(() => { setRunProg(null); setRunCur(""); }, 1500);
+      load();
+      if (loadingId != null) setAutoLoading(null);
+    }
+  }
+
+  // 单点位自动设置: 同机制跑一个点位(锁+任务栏+进度+日志)
+  async function autoSetRow(p: Point) {
+    const missing = missingDeps(p);
+    if (missing.length > 0) { message.warning(`需先设置: ${missing.join("、")}`); return; }
+    runAutoSetup([p.name], p.id);
+  }
+
+  // 一键设置: 全部点位
+  function autoSetSelected() {
+    if (rows.length === 0) { message.warning("点位列表为空"); return; }
+    runAutoSetup(rows.map((r) => r.name));
+  }
+
   async function delRow(p: Point) {
     Modal.confirm({
       title: "删除确认", content: `确定删除点位 [${p.id}] ${p.name}？`, okText: "确认", cancelText: "取消",
@@ -223,27 +336,49 @@ export default function PointsDialog({
           onChange={(e) => toggleOne(r.id, e.target.checked)} />
       ),
     },
-    ...(compact ? [] : [{ title: "id", dataIndex: "id", width: 80, align: "center" as const }]),
-    { title: "名称", dataIndex: "name", render: (_: unknown, p: Point) => p.name },
-    { title: "x", dataIndex: "x", width: 90, align: "center" as const, render: (_: unknown, p: Point) => p.x || "—" },
-    { title: "y", dataIndex: "y", width: 90, align: "center" as const, render: (_: unknown, p: Point) => p.y || "—" },
-    { title: "备注", dataIndex: "remark", render: (_: unknown, p: Point) => p.remark || "" },
+    ...(compact ? [] : [{ title: "id", dataIndex: "id", width: 60, align: "center" as const }]),
     {
-      title: "操作", dataIndex: "op", width: 90, align: "center" as const,
+      title: "名称", dataIndex: "name", width: 220, render: (_: unknown, p: Point) => (
+        <>{p.remark ? (
+          <Tooltip title={p.remark} placement="bottom">
+            <ExclamationCircleOutlined style={{ color: "#faad14", marginRight: 4 }} />
+          </Tooltip>
+        ) : null}{p.name}</>
+      ),
+    },
+    {
+      title: "x", dataIndex: "x", width: 60, align: "center" as const, render: (_: unknown, p: Point) =>
+        <span style={{ color: !String(p.x ?? "").trim() ? "#ff4d4f" : undefined, fontWeight: !String(p.x ?? "").trim() ? 600 : undefined }}>{p.x || "—"}</span>
+    },
+    {
+      title: "y", dataIndex: "y", width: 60, align: "center" as const, render: (_: unknown, p: Point) =>
+        <span style={{ color: !String(p.y ?? "").trim() ? "#ff4d4f" : undefined, fontWeight: !String(p.y ?? "").trim() ? 600 : undefined }}>{p.y || "—"}</span>
+    },
+    {
+      title: "操作", dataIndex: "op", width: 76, align: "center" as const,
       render: (_: unknown, p: Point) => (
-        <Space style={{ display: "flex", justifyContent: "center" }}>
-          {!compact && <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => previewPoint(p)}>预览</Button>}
-          <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(p)}>修改</Button>
-          {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(p)}>删除</Button>}
+        <Space orientation="vertical" size={0} style={{ gap: 0, alignItems: "center" }}>
+          <Space size={2}>
+            <Button size="small" type="link" icon={<EyeOutlined />} onClick={() => previewPoint(p)}>预览</Button>
+            <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(p)}>修改</Button>
+          </Space>
+          <Space size={2}>
+            <Tooltip title={missingDeps(p).length > 0 ? `需先设置: ${missingDeps(p).join("、")}` : wxLogged === false ? "请先登录微信后再自动设置" : undefined}>
+              <Button size="small" type="link" icon={<BulbOutlined />} disabled={missingDeps(p).length > 0 || wxLogged === false}
+                loading={autoLoading === p.id} onClick={() => autoSetRow(p)}>自动设置</Button>
+            </Tooltip>
+            {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(p)}>删除</Button>}
+          </Space>
         </Space>
       ),
     },
   ];
 
   return (
-    <Modal
+    <Modal mask={{ closable: false }}
       title="点位设置" open={open}
       onCancel={onClose}
+      keyboard={false}
       footer={<Button onClick={onClose}>关闭</Button>}
       width={860}
       style={{ maxHeight: "80vh" }}
@@ -260,9 +395,12 @@ export default function PointsDialog({
       >
         {/* 顶部操作栏 */}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {!compact && (
+          {compact ? (
+            <Button icon={<BulbOutlined />} onClick={autoSetSelected}>一键设置</Button>
+          ) : (
             <>
               <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>
+              <Button icon={<BulbOutlined />} onClick={autoSetSelected}>一键设置</Button>
               <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>
               <Button danger icon={<DeleteOutlined />} onClick={delSelected}>删除选中</Button>
             </>
@@ -271,19 +409,35 @@ export default function PointsDialog({
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }} onChange={onPick} />
         </div>
 
+        {/* 一键设置进度条(实时) */}
+        {runProg && (
+          <div style={{ padding: "4px 2px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Progress percent={Math.round((runProg.done / runProg.total) * 100)} size="small" style={{ flex: 1 }} />
+              <span style={{ fontSize: 12, color: "#888", whiteSpace: "nowrap" }}>{runProg.done}/{runProg.total}</span>
+            </div>
+            <div style={{ fontSize: 12, color: "#1677ff", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {runCur ? `正在设置: ${runCur}` : "正在准备…"}
+            </div>
+            <div style={{ fontSize: 12, color: "#f5222d", marginTop: 2 }}>
+              ⚠ 设置期间已禁用鼠标和键盘，请勿操作！如需停止请按 ESC，等待数秒即刻停止
+            </div>
+          </div>
+        )}
+
         {/* 点位表 */}
         <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
-        <Table
-          rowKey="id" size="small" bordered loading={loading}
-          dataSource={rows} pagination={false} columns={columns}
-          locale={{ emptyText: <Empty description="暂无点位" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
-          sticky scroll={{ x: true }}
-        />
+          <Table
+            rowKey="id" size="small" bordered loading={loading}
+            dataSource={rows} pagination={false} columns={columns}
+            locale={{ emptyText: <Empty description="暂无点位" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
+            sticky scroll={{ x: true }}
+          />
         </div>
       </div>
 
       {/* 新增/修改弹窗 */}
-      <Modal
+      <Modal mask={{ closable: false }}
         title={edit.isNew ? "新增点位" : "修改点位"} open={edit.open}
         onOk={saveEdit} okText="保存" confirmLoading={saving}
         onCancel={() => setEdit({ open: false, isNew: false, id: null, name: "", x: "", y: "", remark: "" })}

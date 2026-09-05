@@ -4,11 +4,13 @@
 与 run.py 的区别:
   - 关闭 reload(避免打包后多进程/端口冲突)
   - 直接导入 app 对象(字符串导入 PyInstaller 无法静态追踪)
-  - 固定 127.0.0.1:8000, 由 Electron 负责拉起; 可用 BACKEND_PORT 覆盖(测试用)
+  - 监听 127.0.0.1, 默认端口 8001(生产); 可用 BACKEND_PORT 覆盖
   - 看门狗: 若环境变量 WECHAT_PARENT_PID(Electron 主进程PID) 存在,
     则监听父进程存活, 父进程消失后本进程自动退出(防孤儿残留)
 """
 import os
+os.environ.setdefault("BACKEND_PORT", "8001")  # 端口单一来源: 供内部自调用/其它模块读取
+os.environ.setdefault("WECHAT_ENV", "prod")  # 运行环境统一标记(env.is_prod/is_dev 判定)
 import threading
 import time
 
@@ -44,7 +46,8 @@ def start_watchdog(parent_pid):
         while True:
             time.sleep(3)
             if not _is_parent_alive(parent_pid):
-                print(f"[watchdog] 主程序(pid={parent_pid})已退出, 本进程自动关闭")
+                print(f"[watchdog] 主程序(pid={parent_pid})已退出, 先恢复任务栏再自动关闭")
+
                 os._exit(0)
     threading.Thread(target=loop, daemon=True).start()
     print(f"[watchdog] 已启用: 监听主程序 pid={parent_pid}")
@@ -54,5 +57,5 @@ if __name__ == "__main__":
     parent = os.environ.get("WECHAT_PARENT_PID")
     if parent and parent.isdigit():
         start_watchdog(int(parent))
-    port = int(os.environ.get("BACKEND_PORT", "8000"))
+    port = int(os.environ.get("BACKEND_PORT", "8001"))   # 生产端口与开发(8000)区分
     uvicorn.run(app, host="127.0.0.1", port=port, reload=False)

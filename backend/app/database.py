@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import json
 """SQLite 数据库连接 + 建表
 单文件: data/collector.db; 后续多表(设置/文章/评论等)在这里扩展"""
 import os
@@ -42,7 +43,8 @@ def init_db():
         CREATE TABLE IF NOT EXISTS sort_config (
             record_id   INTEGER PRIMARY KEY,
             sort_order  INTEGER NOT NULL,
-            UNIQUE(sort_order)
+            type        TEXT DEFAULT 'account',
+            UNIQUE(type, sort_order)
         );
         CREATE TABLE IF NOT EXISTS articles (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -80,11 +82,12 @@ def init_db():
             level            INTEGER DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS points (
-            id      INTEGER PRIMARY KEY AUTOINCREMENT,
-            name    TEXT DEFAULT '',
-            x       TEXT DEFAULT '',
-            y       TEXT DEFAULT '',
-            remark  TEXT DEFAULT ''
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            name          TEXT DEFAULT '',
+            x             TEXT DEFAULT '',
+            y             TEXT DEFAULT '',
+            remark        TEXT DEFAULT '',
+            depend_points TEXT DEFAULT '[]'
         );
         CREATE TABLE IF NOT EXISTS scrolls (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,7 +103,31 @@ def init_db():
             api_key     TEXT DEFAULT '',
             model_id    TEXT DEFAULT ''
         );
+        CREATE TABLE IF NOT EXISTS settings (
+            key   TEXT PRIMARY KEY,
+            value TEXT DEFAULT ''
+        );
         """)
+        # 冲突软件表: 采集/自动设置期间可能干扰屏幕的其他软件(窗口标题/进程名称均可多个)
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS conflict_apps (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            name          TEXT NOT NULL,
+            window_titles TEXT DEFAULT '[]',     -- JSON 数组: 窗口标题(子串匹配)
+            process_names TEXT DEFAULT '[]'      -- JSON 数组: 进程名(不区分大小写)
+        );
+        """)
+        # 种子: 已知可能干扰采集的软件(幂等, 用户可改)
+        _seed_conflicts = [
+            ("有道翻译", ["有道翻译", "有道词典", "有道", "youdao"], ["youdao-dict.exe", "youdao-dictangel.exe", "youdaodict.exe"]),
+            ("企业微信", ["企业微信", "WeCom"], ["WXWork.exe"]),
+        ]
+        for _nm, _titles, _procs in _seed_conflicts:
+            _cnt = conn.execute("SELECT COUNT(*) FROM conflict_apps WHERE name=?", (_nm,)).fetchone()[0]
+            if _cnt == 0:
+                conn.execute("INSERT INTO conflict_apps(name, window_titles, process_names) VALUES(?,?,?)",
+                             (_nm, json.dumps(_titles, ensure_ascii=False), json.dumps(_procs, ensure_ascii=False)))
+        conn.commit()
         # biz 唯一(同 biz 不允许重复公众号)
         try:
             conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_biz ON accounts(biz)")
@@ -108,6 +135,17 @@ def init_db():
         except Exception:
             pass
         conn.commit()
+        # 迁移: 删除点位 28/29(复制链接左上/右下) - 采集与自动设置已不再依赖
+        try:
+            _del = conn.execute("DELETE FROM points WHERE name IN ('复制链接左上','复制链接右下')").rowcount
+            if _del:
+                print(f"migrate: 删除点位 28/29({_del} 行)")
+            conn.execute("DELETE FROM sort_config WHERE type='point' AND record_id IN (28,29)")
+            # 点位27 依赖更新: 移除 28/29
+            conn.execute("UPDATE points SET depend_points='[11,12,9,14,18]' WHERE name='点击复制链接'")
+            conn.commit()
+        except Exception as _e:
+            print(f"migrate: 删除点位28/29失败: {_e}")
         # 迁移: articles 补 biz 列
         _acols = [r[1] for r in conn.execute("PRAGMA table_info(articles)").fetchall()]
         if "biz" not in _acols:
@@ -134,6 +172,20 @@ def init_db():
         _ccols = [r[1] for r in conn.execute("PRAGMA table_info(comments)").fetchall()]
         if _ccols and "is_first" not in _ccols:
             conn.execute("ALTER TABLE comments ADD COLUMN is_first INTEGER DEFAULT 0")
+            conn.commit()
+        # 迁移: points 补 depend_points 列(依赖点位数组, 前端不展示)
+        _pcols = [r[1] for r in conn.execute("PRAGMA table_info(points)").fetchall()]
+        if _pcols and "depend_points" not in _pcols:
+            conn.execute("ALTER TABLE points ADD COLUMN depend_points TEXT DEFAULT '[]'")
+            conn.commit()
+            print("migrate: points.depend_points")
+        # 迁移: sort_config 加 type 列(account/point 共用排序表, 唯一(type, sort_order))
+        _scols = [r[1] for r in conn.execute("PRAGMA table_info(sort_config)").fetchall()]
+        if _scols and "type" not in _scols:
+            conn.execute("CREATE TABLE sort_config_new (record_id INTEGER PRIMARY KEY, sort_order INTEGER NOT NULL, type TEXT DEFAULT 'account', UNIQUE(type, sort_order))")
+            conn.execute("INSERT INTO sort_config_new (record_id, sort_order, type) SELECT record_id, sort_order, 'account' FROM sort_config")
+            conn.execute("DROP TABLE sort_config")
+            conn.execute("ALTER TABLE sort_config_new RENAME TO sort_config")
             conn.commit()
         # 文章唯一: 同biz下 art_biz(文章id) 唯一
         try:

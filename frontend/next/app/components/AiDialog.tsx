@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { API_BASE } from "../lib/api";
 import {
   Modal, Button, Input, Select, Space, message, Typography, Form,
 } from "antd";
 
-const API = "http://127.0.0.1:8000/api/settings/ai";
+const API = API_BASE + "/api/settings/ai";
 
 // AI 厂商(目前只支持豆包)
 const PROVIDERS = [{ value: "doubao", label: "豆包" }];
@@ -15,8 +16,7 @@ const MODEL_OPTIONS = [
   { value: "doubao-1-5-vision-pro-32k-250115", label: "doubao-1-5-vision-pro-32k-250115" },
   { value: "doubao-1-5-vision-lite-32k-250115", label: "doubao-1-5-vision-lite-32k-250115" },
 ];
-// 默认可用配置
-const DEFAULT_API_KEY = "802ffe3f-4bc9-4030-a3f4-cc00409a4d4e";
+// 默认可用配置(仅默认选中模型; key 必须由用户填写, 不硬编码)
 const DEFAULT_MODELS = ["doubao-seed-2-0-mini-260428"];
 
 export default function AiDialog({
@@ -35,11 +35,11 @@ export default function AiDialog({
       const r = await fetch(API);
       const d = await r.json();
       setProvider(d.provider || "doubao");
-      setApiKey(d.api_key || DEFAULT_API_KEY);
+      setApiKey(d.api_key || "");
       setModels(d.models && d.models.length ? d.models : DEFAULT_MODELS);
     } catch {
       message.error("AI设置加载失败");
-      setApiKey(DEFAULT_API_KEY);
+      setApiKey("");
       setModels(DEFAULT_MODELS);
     }
   }
@@ -68,7 +68,7 @@ export default function AiDialog({
   }
 
   return (
-    <Modal
+    <Modal mask={{ closable: false }}
       title="AI模型设置" open={open}
       onOk={save} okText="保存" confirmLoading={saving}
       onCancel={onClose} cancelText="取消"
@@ -107,6 +107,9 @@ export default function AiDialog({
             onChange={(v) => setProvider(v)}
           />
         </Space>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          目前支持豆包视觉模型，后续会支持更多
+        </Typography.Text>
       </Space>
     </Modal>
   );

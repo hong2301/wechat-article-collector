@@ -2,75 +2,38 @@
 """滚动(scrolls) CRUD 路由 + 执行滚动"""
 import io
 import csv
-import sqlite3
 from typing import List
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
-from ..database import get_conn
 from ..models import Scroll, ScrollCreate, ScrollUpdate
+from ..repositories import scrolls_repo
 
 router = APIRouter(prefix="/api/scrolls", tags=["scrolls"])
 
 
-def _row_to_dict(row):
-    return dict(row)
-
-
 @router.get("", response_model=list[Scroll])
 def list_scrolls():
-    conn = get_conn()
-    try:
-        rows = conn.execute("SELECT * FROM scrolls ORDER BY id ASC").fetchall()
-        return [_row_to_dict(r) for r in rows]
-    finally:
-        conn.close()
+    return scrolls_repo.list_all()
 
 
 @router.post("", response_model=Scroll, status_code=201)
 def create_scroll(payload: ScrollCreate):
-    conn = get_conn()
-    try:
-        cur = conn.execute(
-            "INSERT INTO scrolls(name, distance, point_id, direction, remark) VALUES(?,?,?,?,?)",
-            (payload.name, payload.distance, payload.point_id,
-             payload.direction, payload.remark))
-        new_id = cur.lastrowid
-        conn.commit()
-        row = conn.execute("SELECT * FROM scrolls WHERE id=?", (new_id,)).fetchone()
-        return dict(row)
-    finally:
-        conn.close()
+    return scrolls_repo.create(payload.name, payload.distance, payload.point_id,
+                               payload.direction, payload.remark)
 
 
 @router.put("/{sid}", response_model=Scroll)
 def update_scroll(sid: int, payload: ScrollUpdate):
-    conn = get_conn()
-    try:
-        row = conn.execute("SELECT * FROM scrolls WHERE id=?", (sid,)).fetchone()
-        if not row:
-            raise HTTPException(404, "滚动配置不存在")
-        fields = payload.model_dump(exclude_unset=True)
-        if fields:
-            sets = ", ".join(f"{k}=?" for k in fields)
-            conn.execute(f"UPDATE scrolls SET {sets} WHERE id=?", (*fields.values(), sid))
-            conn.commit()
-        row = conn.execute("SELECT * FROM scrolls WHERE id=?", (sid,)).fetchone()
-        return dict(row)
-    finally:
-        conn.close()
+    if not scrolls_repo.get(sid):
+        raise HTTPException(404, "滚动配置不存在")
+    return scrolls_repo.update(sid, payload.model_dump(exclude_unset=True))
 
 
 @router.delete("/{sid}", status_code=204)
 def delete_scroll(sid: int):
-    conn = get_conn()
-    try:
-        cur = conn.execute("DELETE FROM scrolls WHERE id=?", (sid,))
-        conn.commit()
-        if cur.rowcount == 0:
-            raise HTTPException(404, "滚动配置不存在")
-    finally:
-        conn.close()
+    if not scrolls_repo.delete(sid):
+        raise HTTPException(404, "滚动配置不存在")
 
 
 # ---------- 导入（CSV/XLSX） ----------
@@ -146,62 +109,18 @@ def import_scrolls(file: UploadFile = File(...)):
     rows = _parse_scroll_file(file.filename or "", raw)
     if not rows:
         raise HTTPException(400, "文件为空或无法解析")
-    added = 0
-    updated = 0
-    conn = get_conn()
-    try:
-        for d in rows:
-            name = str(d.get("name") or "").strip()
-            distance = str(d.get("distance") or "").strip()
-            direction = str(d.get("direction") or "").strip() or "down"
-            if direction not in ("up", "down"):
-                direction = "down"
-            remark = str(d.get("remark") or "").strip()
-            pid_raw = str(d.get("point_id") or "")
-            point_id = 0
-            if pid_raw.isdigit():
-                point_id = int(pid_raw)
-            sid = d.get("id")
-            if sid is not None and str(sid).strip().isdigit():
-                exists = conn.execute("SELECT id FROM scrolls WHERE id=?", (int(sid),)).fetchone()
-                if exists:
-                    conn.execute("UPDATE scrolls SET name=?, distance=?, point_id=?, direction=?, remark=? WHERE id=?",
-                                 (name, distance, point_id, direction, remark, int(sid)))
-                    updated += 1
-                else:
-                    conn.execute("INSERT INTO scrolls(name, distance, point_id, direction, remark) VALUES(?,?,?,?,?)",
-                                 (name, distance, point_id, direction, remark))
-                    added += 1
-            elif name:
-                exists = conn.execute("SELECT id FROM scrolls WHERE name=?", (name,)).fetchone()
-                if exists:
-                    conn.execute("UPDATE scrolls SET distance=?, point_id=?, direction=?, remark=? WHERE id=?",
-                                 (distance, point_id, direction, remark, exists["id"]))
-                    updated += 1
-                else:
-                    conn.execute("INSERT INTO scrolls(name, distance, point_id, direction, remark) VALUES(?,?,?,?,?)",
-                                 (name, distance, point_id, direction, remark))
-                    added += 1
-        conn.commit()
-        return {"ok": True, "added": added, "updated": updated, "total": len(rows)}
-    finally:
-        conn.close()
+    added, updated = scrolls_repo.import_upsert(rows)
+    return {"ok": True, "added": added, "updated": updated, "total": len(rows)}
 
 
 @router.post("/{sid}/run")
 def run_scroll(sid: int):
     """执行滚动: 把鼠标移到滚动点位所在坐标, 按配置方向/距离滚动"""
-    from ..services import computer as pc
-    conn = get_conn()
-    try:
-        row = conn.execute("SELECT * FROM scrolls WHERE id=?", (sid,)).fetchone()
-        if not row:
-            raise HTTPException(404, "滚动配置不存在")
-        s = dict(row)
-        # 取滚动点位坐标
-        pt = conn.execute("SELECT x, y FROM points WHERE id=?", (s.get("point_id") or 0,)).fetchone()
-    finally:
-        conn.close()
+    from ..core import computer as pc
+    s = scrolls_repo.get(sid)
+    if not s:
+        raise HTTPException(404, "滚动配置不存在")
+    pt = scrolls_repo.get_point_xy(s.get("point_id") or 0)
     if not pt:
         return {"ok": False, "reason": "滚动点位不存在或未配置坐标"}
 

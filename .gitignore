@@ -57,3 +57,27 @@ backend/__pycache__/
 node_modules/
 package-lock.json
 rel_test.log
+backend/_dbg_*.png
+backend/_debug_*.png
+backend/_wx_state_*.json
+
+test_empty_points.db
+auto_setup_dbg.log
+backend_dev.log
+
+# E2E 测试产物
+test-results/
+playwright-report/
+tests/.baseline
+.tmp-tests/
+data/logs/
+
+# 测试产物(全部在 tests/ 内)
+tests/.tmp-tests/
+tests/.pytest_cache/
+tests/artifacts/
+tests/report/
+tests/.baseline
+
+build-publish
+/guest.key

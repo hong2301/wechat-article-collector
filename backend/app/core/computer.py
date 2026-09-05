@@ -1,4 +1,11 @@
 # -*- coding: utf-8 -*-
+from . import obs
+import queue as _queue
+import base64
+import io
+import os
+import tempfile
+from PIL import Image, ImageGrab
 """backend.app.services.computer: 电脑交互原语模块
 
 把 main.py / core.win32util / core.image_ocr 中分散的"电脑交互"方法统一整理，
@@ -423,21 +430,64 @@ def mouse_click(x, y, button="left", wait_before=0, wait_after=0,
         time.sleep(hold_ms / 1000.0)    # 按住时长(模拟人手按压)
     u32.mouse_event(up, 0, 0, 0, None)
     if show_feedback:
-        _flash_red_dot(x, y)            # 点击完成后显示红点(不抢点击焦点, 仅作位置反馈)
+                flash_red_dot(x, y)            # 点击完成后显示红点(不抢点击焦点, 仅作位置反馈)
     if wait_after:
         time.sleep(wait_after)
     return x, y
 
 
+_preview_queue = queue.Queue()        # 红点预览任务队列(单后台线程消费, 恒1线程, 不泄漏)
+_preview_started = [False]
+
+
+def _preview_worker():
+    """预览红点单后台线程: 逐个显示, mainloop 用 quit 保险退出; 线程永久仅1个"""
+    import tkinter as tk
+    while True:
+        try:
+            x, y, duration = _preview_queue.get()
+            win = None
+            try:
+                win = tk.Tk()
+                win.overrideredirect(True)          # 无边框
+                win.attributes("-topmost", True)    # 置顶
+                win.attributes("-alpha", 0.9)       # 略透明
+                win.geometry(f"+{int(x) - 12}+{int(y) - 12}")
+                c = tk.Canvas(win, width=24, height=24,
+                              highlightthickness=0, bg="white")
+                c.pack()
+                c.create_oval(2, 2, 22, 22, fill="#e53935", outline="#b71c1c", width=2)
+                win.update()
+                win.after(int(duration * 1000), win.destroy)        # 到时销毁窗口
+                win.after(int(duration * 1000) + 600, win.quit)     # 保险: 强制退出 mainloop
+                win.mainloop()
+            except Exception:
+                pass
+            finally:
+                try:
+                    if win is not None:
+                        win.destroy()
+                except Exception:
+                    pass
+                del win
+        except Exception:
+            break
+
+
 def preview_point(x, y, duration=1):
     """【点位预览】在指定屏幕坐标亮一个红点 duration 秒（默认 1 秒）。
-    用于确认点位位置；后台线程显示, 不阻塞调用。
-    参数:
-      x, y          屏幕坐标
-      duration      红点显示时长(秒, 默认 1)
-    返回: None
-    """
-    _flash_red_dot(x, y, duration=duration)
+    用于确认点位位置；单后台线程显示(恒1线程, 不阻塞调用, 不与采集争线程)。
+    注意: 采集路径(mouse_click/scroll)已停用红点, 不影响吞吐"""
+    if not _preview_started[0]:
+        _preview_started[0] = True
+        threading.Thread(target=_preview_worker, daemon=True).start()
+    # 只保留最新任务(连点预览只显示最后一次)
+    while True:
+        try:
+            _preview_queue.get_nowait()
+        except queue.Empty:
+            break
+    _preview_queue.put((x, y, duration))
 
 
 def capture_point():
@@ -446,7 +496,6 @@ def capture_point():
     返回: (x, y) 确认坐标, 或 None(右键退出/失败)。
     注意: 阻塞当前线程直到用户双击或右键。
     """
-    import queue as _queue
     u32 = _u32()
     q = _queue.Queue()
     hook_ready = threading.Event()
@@ -542,28 +591,11 @@ def clear_latest_click():
         _latest_click = None
 
 
-def _flash_red_dot(x, y, radius=10, duration=0.5):
-    """内部: 在屏幕坐标 (x,y) 显示一个红色圆点 duration 秒（后台线程, 不阻塞）。
-    用 tkinter 无边框置顶窗口; 显示后会有短暂焦点切换(预览用, 采集点击时由调用方关闭此反馈)。"""
-    def worker():
-        try:
-            import tkinter as tk
-            win = tk.Tk()
-            win.overrideredirect(True)          # 无边框
-            win.attributes("-topmost", True)    # 置顶
-            win.attributes("-alpha", 0.9)       # 略透明
-            win.geometry(f"+{int(x) - radius - 2}+{int(y) - radius - 2}")
-            c = tk.Canvas(win, width=radius * 2 + 4, height=radius * 2 + 4,
-                          highlightthickness=0, bg="white")
-            c.pack()
-            c.create_oval(2, 2, radius * 2 + 2, radius * 2 + 2,
-                          fill="#e53935", outline="#b71c1c", width=2)
-            win.update()
-            win.after(int(duration * 1000), win.destroy)
-            win.mainloop()
-        except Exception:
-            pass
-    threading.Thread(target=worker, daemon=True).start()
+def flash_red_dot(x, y, radius=10, duration=0.5):
+    """【红点预览已停用】no-op: 不再显示红点(每滚动/点击创建 tkinter 线程,
+    密集采集下 mainloop 偶发不退出导致线程堆积, 600+ 篇后线程/句柄/内存爆炸崩溃)。
+    保留空实现, mouse_click/scroll/preview_point 入口统一经此, 采集零线程开销。"""
+    return
 
 
 def scroll(x, y, pixels, direction="down", wait_before=0, wait_after=0,
@@ -592,7 +624,7 @@ def scroll(x, y, pixels, direction="down", wait_before=0, wait_after=0,
         if step:
             time.sleep(step)
     if show_feedback:
-        _flash_red_dot(x, y)            # 滚动完成后显示红点(不阻塞/不抢滚动焦点)
+        flash_red_dot(x, y)            # 滚动完成后显示红点(不阻塞/不抢滚动焦点)
     if wait_after:
         time.sleep(wait_after)
 
@@ -677,6 +709,7 @@ def key_press(vk):
 # ===========================================================================
 # 剪贴板：读 / 写 / 清空
 # ===========================================================================
+@obs.timed("clip_read")
 def read_clipboard_text():
     """读取剪贴板文本，失败返回 None（Win32，线程安全）"""
     u32 = _u32()
@@ -701,6 +734,7 @@ def read_clipboard_text():
         u32.CloseClipboard()
 
 
+@obs.timed("clip_write")
 def set_clipboard_text(text):
     """把文本写入剪贴板（Win32，线程安全）；成功返回 True"""
     u32 = _u32()
@@ -740,32 +774,159 @@ def clear_clipboard():
         u32.CloseClipboard()
 
 
-def _find_taskbar():
-    """Windows 任务栏窗口句柄(Shell_TrayWnd)"""
-    return _u32().FindWindowW("Shell_TrayWnd", None)
-
-
-def hide_taskbar():
-    """隐藏底部任务栏(采集时屏幕全高); 返回是否成功"""
-    hwnd = _find_taskbar()
-    if not hwnd:
-        return False
-    _u32().ShowWindow(hwnd, SW_HIDE)
-    return True
-
-
-def show_taskbar():
-    """恢复显示任务栏; 返回是否成功"""
-    hwnd = _find_taskbar()
-    if not hwnd:
-        return False
-    _u32().ShowWindow(hwnd, SW_SHOW)
-    return True
-
-
 # ===========================================================================
-# 截图：屏幕区域截图（存文件 / 转 base64 / 5参数截图）
+# 系统截图热键防护: 采集期间禁用 Win+Shift+S / PrintScreen(与任务栏隐藏同步)
 # ===========================================================================
+_snip_hook = None            # 低层键盘钩子句柄
+_snip_ready = False          # 钩子线程已就绪(消息循环在跑)
+_VK_SNAPSHOT = 0x2C          # PrintScreen
+_VK_LWIN, _VK_RWIN = 0x5B, 0x5C
+_VK_SHIFT = 0x10
+_WM_KEYDOWN = 0x0100
+_WH_KEYBOARD_LL = 13
+_HOOKPROC = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_int, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM)
+_kbd_lock = threading.Lock()
+
+
+@_HOOKPROC
+def _ll_kbd_proc(nCode, wParam, lParam):
+    """低层键盘钩子: 吞掉 PrintScreen 与 Win(+Shift)+S 截图热键"""
+    if nCode == 0 and wParam in (_WM_KEYDOWN, 0x0104):   # WM_KEYDOWN / WM_SYSKEYDOWN
+        try:
+            class _KBDLL(ctypes.Structure):
+                _fields_ = [("vkCode", ctypes.c_ulong), ("scanCode", ctypes.c_ulong),
+                            ("flags", ctypes.c_ulong), ("time", ctypes.c_ulong),
+                            ("dwExtraInfo", ctypes.c_ulong)]
+            kb = _KBDLL.from_address(lParam)
+            vk = kb.vkCode
+            if vk == _VK_SNAPSHOT:
+                return 1                                # 吞 PrintScreen(含 Alt+PrtSc)
+            if vk in (ord('S'), ord('W'), ord('K')) and (
+                    _u32().GetAsyncKeyState(_VK_LWIN) & 0x8000 or
+                    _u32().GetAsyncKeyState(_VK_RWIN) & 0x8000):
+                return 1                                # 吞 Win+S / Win+Shift+S / Win+K
+            _alt = _u32().GetAsyncKeyState(VK_MENU) & 0x8000
+            _ctl = _u32().GetAsyncKeyState(VK_CONTROL) & 0x8000
+            if _alt and _ctl and vk in (ord('D'), ord('Y'), ord('O'),
+                                        ord('S'), ord('X'), ord('Z')):
+                return 1                                # 吞 Ctrl+Alt+D/Y/O/S/X/Z(有道词典/翻译截图翻译取词等)
+            if _alt and vk in (ord('A'), ord('X'), ord('D'), ord('Z'), ord('S')):
+                return 1                                # 吞 Alt+A/X/D/Z/S(微信/有道等全局截图热键)
+        except Exception:
+            pass
+    return _u32().CallNextHookEx(_snip_hook, nCode, wParam, lParam)
+
+
+def _snip_hook_thread():
+    """钩子线程: 跑消息循环保持钩子存活(daemon, 进程退出自动结束)"""
+    global _snip_ready
+    _snip_ready = True
+    msg = ctypes.wintypes.MSG()
+    while _u32().GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+        _u32().TranslateMessage(ctypes.byref(msg))
+        _u32().DispatchMessageW(ctypes.byref(msg))
+
+
+def disable_snipping():
+    """禁用系统截图热键(PrintScreen / Win+Shift+S), 返回是否成功; 幂等"""
+    global _snip_hook, _snip_ready
+    with _kbd_lock:
+        if _snip_hook:                       # 已禁用, 幂等
+            return True
+        try:
+            import winreg
+            k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Control Panel\Keyboard",
+                               0, winreg.KEY_SET_VALUE)
+            try:
+                winreg.SetValueEx(k, "PrintScreenKeyForSnippingEnabled", 0,
+                                  winreg.REG_SZ, "0")   # PrtScn 直开截图关闭(新Win)
+            finally:
+                winreg.CloseKey(k)
+        except Exception:
+            pass
+        try:
+            _hook = _u32().SetWindowsHookExW(_WH_KEYBOARD_LL, _ll_kbd_proc,
+                                             None, 0)   # 全局钩子, 回调在当前线程
+        except Exception:
+            _hook = None
+        if not _hook:
+            return False
+        _snip_hook = _hook
+        threading.Thread(target=_snip_hook_thread, daemon=True).start()
+        return True
+
+
+def enable_snipping():
+    """恢复系统截图热键; 幂等"""
+    global _snip_hook
+    with _kbd_lock:
+        if _snip_hook:
+            try:
+                _u32().UnhookWindowsHookEx(_snip_hook)
+            except Exception:
+                pass
+            _snip_hook = None
+        try:
+            import winreg
+            k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Control Panel\Keyboard",
+                               0, winreg.KEY_SET_VALUE)
+            try:
+                winreg.DeleteValue(k, "PrintScreenKeyForSnippingEnabled")
+            except FileNotFoundError:
+                pass
+            finally:
+                winreg.CloseKey(k)
+        except Exception:
+            pass
+        return True
+
+
+def shot_abs(shot, bbox, x, y, h=None):
+    """图像相对坐标 -> 屏幕绝对坐标(DPI按比例换算, 不写死1:1像素比)
+    参数:
+      shot PIL图(截图); bbox=(x1,y1,x2,y2) 该截图对应的屏幕区域
+      x, y 图中相对坐标(如OCR结果/矩形)
+      h    可选: 传入高度时同步按y比例换算
+    返回 (ax, ay) 或 h给出时 (ax, ay, ah)
+    背景: Windows 系统缩放(125%/150%)下 ImageGrab 返回图尺寸≠bbox像素,
+    直接"起点+相对"会偏; 此处按 图尺寸/bbox尺寸 比例换算, 缩放100%时比例=1无影响"""
+    x1, y1, x2, y2 = bbox
+    _w, _h2 = shot.width, shot.height
+    sx = (x2 - x1) / _w if _w else 1.0
+    sy = (y2 - y1) / _h2 if _h2 else 1.0
+    ax = x1 + int(x * sx)
+    ay = y1 + int(y * sy)
+    if h is None:
+        return ax, ay
+    return ax, ay, int(h * sy)
+
+
+def wechat_rect():
+    """微信主窗口(Weixin.exe)外接矩形, 4 条边各内缩 5px
+    返回 (x1, y1, x2, y2) 或 None; 点位自动设置基于窗口坐标使用(微信离屏幕边缘有缝隙)"""
+    try:
+        wins = find_windows(exe="Weixin.exe", visible_only=True)  # 直接进程名, 避免循环导入
+        if not wins:
+            return None
+        r = ctypes.wintypes.RECT()
+        _u32().GetWindowRect(wins[0][0], ctypes.byref(r))
+        return (r.left + 5, r.top + 5, r.right - 5, r.bottom - 5)
+    except Exception:
+        return None
+
+
+def work_area():
+    """系统工作区(不含任务栏)矩形: (x1,y1,x2,y2); 任务栏在底时 bottom=任务栏上沿
+    移动窗口用工作区高度, 避免窗口盖住任务栏"""
+    try:
+        r = ctypes.wintypes.RECT()
+        _u32().SystemParametersInfoW(0x0030, 0, ctypes.byref(r), 0)  # SPI_GETWORKAREA
+        return (r.left, r.top, r.right, r.bottom)
+    except Exception:
+        return None
+
+
+
 def screenshot(x1, y1, x2, y2, img_format="png", as_base64=False):
     """【截图】截取屏幕区域，保存到系统缓存目录并返回文件路径。
     参数:
@@ -776,10 +937,6 @@ def screenshot(x1, y1, x2, y2, img_format="png", as_base64=False):
       base64 形如 'data:image/png;base64,xxxx'；
       截图或转码失败时路径为 None
     """
-    import io
-    import os
-    import tempfile
-    from PIL import Image, ImageGrab
     try:
         # 截图前隐藏鼠标(可靠: 光标从屏幕消失, 避免入镜), 完成后恢复
         try:
@@ -811,7 +968,6 @@ def screenshot(x1, y1, x2, y2, img_format="png", as_base64=False):
         # 读取图片并转带前缀的 base64
         with open(path, "rb") as f:
             raw = f.read()
-        import base64
         b64 = "data:image/%s;base64,%s" % (fmt, base64.b64encode(raw).decode("ascii"))
         return path, b64
     except Exception:
@@ -825,7 +981,9 @@ __all__ = [
     "enable_dpi_awareness",
     # 窗口
     "find_windows", "show_window", "close_window", "move_window",
-    "hide_taskbar", "show_taskbar",
+    "disable_snipping", "enable_snipping",
+    "shot_abs",
+    "wechat_rect",
     # 鼠标
     "mouse_click", "scroll", "preview_point", "capture_point",
     "get_latest_click", "clear_latest_click",
@@ -836,3 +994,31 @@ __all__ = [
     # 截图
     "screenshot",
 ]
+
+def process_working_set(pid):
+    """进程工作集内存(字节), 用于找微信主窗口(内存最大者); 失败返回 0"""
+    import ctypes
+    from ctypes import wintypes as _wt
+    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    h = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not h:
+        return 0
+
+    class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+        _fields_ = [("cb", _wt.DWORD),
+                    ("PageFaultCount", _wt.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t)]
+    try:
+        pmc = PROCESS_MEMORY_COUNTERS()
+        pmc.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+        ok = ctypes.windll.psapi.GetProcessMemoryInfo(h, ctypes.byref(pmc), pmc.cb)
+        return pmc.WorkingSetSize if ok else 0
+    finally:
+        ctypes.windll.kernel32.CloseHandle(h)

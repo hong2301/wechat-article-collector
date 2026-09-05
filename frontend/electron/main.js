@@ -3,37 +3,11 @@ const path = require('path')
 const fs = require('fs')
 const { spawn, execFileSync } = require('child_process')
 
-// ---------- 自动更新(electron-updater, 仅生产; 需 GitHub Token 发版才生效) ----------
-function setupAutoUpdater(win) {
-  if (isDev) return
-  try {
-    const { autoUpdater } = require('electron-updater')
-    autoUpdater.autoDownload = false     // 先询问用户再下载
-    autoUpdater.on('update-available', (info) => {
-      log(`发现新版本 ${info.version}`)
-      dialog.showMessageBox(win, {
-        type: 'info', title: '发现新版本',
-        message: `发现新版本 v${info.version}, 是否现在更新?`,
-        buttons: ['更新', '稍后'],
-      }).then((r) => { if (r.response === 0) autoUpdater.downloadUpdate() })
-    })
-    autoUpdater.on('update-downloaded', () => {
-      dialog.showMessageBox(win, {
-        type: 'info', title: '更新已就绪',
-        message: '新版本已下载, 重启应用以完成更新。',
-        buttons: ['立即重启', '稍后'],
-      }).then((r) => { if (r.response === 0) autoUpdater.quitAndInstall() })
-    })
-    autoUpdater.on('error', (err) => log(`自动更新失败: ${err.message}`))
-    autoUpdater.checkForUpdates().catch((e) => log(`更新检查未开始: ${e.message}`))
-    log('自动更新检查已启动')
-  } catch (e) {
-    log('electron-updater 不可用, 跳过自动更新: ' + e.message)
-  }
-}
+const APP_ENV = process.env.WECHAT_ENV || (app.isPackaged ? 'prod' : 'dev')  // 运行环境统一(后端 env.py 同源)
+const isDev = APP_ENV !== 'prod'
 
-const isDev = !app.isPackaged
-const BACKEND_PORT = 8000
+
+const BACKEND_PORT = 8001   // 生产后端端口(与开发 8000 区分); 环境变量 BACKEND_PORT 可覆盖
 let backendProc = null
 let mainWindow = null
 
@@ -52,17 +26,32 @@ if (!gotLock) {
 }
 
 // 日志落盘: %APPDATA%/WeChatCollector/main.log (便于排查双击启动问题)
-const LOG_MAX = 5 * 1024 * 1024   // 日志超 5MB 重命名轮转
+const LOG_MAX = 10 * 1024 * 1024   // 日志单文件上限 10MB
+const LOG_TRIM_RATIO = 0.7         // 超限保留末尾 70%(删除最旧 30%)
 function logFile() {
-  const dir = app.getPath('userData')
+  // 前端主进程日志 -> <数据目录>/logs/main.log(与后端 backend.log 同在 data/logs 下)
+  const dir = path.join(dataDir(), 'logs')
   try { fs.mkdirSync(dir, { recursive: true }) } catch (e) {}
   return path.join(dir, 'main.log')
 }
 function log(msg) {
   try {
     const f = logFile()
-    if (fs.existsSync(f) && fs.statSync(f).size > LOG_MAX) {
-      fs.renameSync(f, f + '.old')   // 轮转: main.log -> main.log.old
+    // 超上限: 删最旧 30%(保留最新 70%)再追加
+    if (fs.existsSync(f)) {
+      const st = fs.statSync(f)
+      if (st.size > LOG_MAX) {
+        const keep = Math.floor(st.size * LOG_TRIM_RATIO)
+        const fd = fs.openSync(f, 'r+')
+        try {
+          const buf = Buffer.alloc(keep)
+          fs.readSync(fd, buf, 0, keep, st.size - keep)
+          fs.truncateSync(f, 0)
+          fs.writeSync(fd, buf, 0, keep, 0)
+        } finally {
+          fs.closeSync(fd)
+        }
+      }
     }
     fs.appendFileSync(f, `[${new Date().toISOString()}] ${msg}\n`)
   } catch (e) {}
@@ -70,6 +59,8 @@ function log(msg) {
 
 // 生产模式: 数据目录 = exe 同级 data/ (与 release 目录布局一致)
 function dataDir() {
+  // 生产: exe 同级 data/; dev: 项目根 data/(与后端开发库一致)
+  if (isDev) return path.join(__dirname, '..', '..', 'data')
   return path.join(path.dirname(app.getPath('exe')), 'data')
 }
 
@@ -93,6 +84,7 @@ async function startBackend() {
   backendProc = spawn(exe, [], {
     env: {
       ...process.env,
+      WECHAT_ENV: APP_ENV,                    // 运行环境统一(后端 env.py 读)
       WECHAT_COLLECTOR_DATA_DIR: dataDir(),
       WECHAT_PARENT_PID: String(process.pid),  // 看门狗: 主程序退出则后端自杀
     },
@@ -226,14 +218,19 @@ function createWindow() {
       try {
         const u = new URL(urlStr)
         let page = u.pathname.replace(/^\//, '')
+        // 情形A: Next 客户端导航产物 file:///C:/articles(带盘符无扩展名) -> out/articles.html
+        let m = page.match(/^[a-zA-Z]:\/([a-z0-9_-]+)$/)
+        // 情形B: out 目录内完整路径 file:///C:/.../out/articles.html -> 取文件名重载
+        if (!m) m = page.match(/[\/]([a-z0-9_-]+\.html?)$/i)
+        if (m) {
+          const base = /^[a-z0-9_-]+\.html?$/i.test(m[1]) ? m[1] : m[1] + '.html'
+          event.preventDefault()
+          win.loadFile(path.join(__dirname, 'out', base), { search: u.search.slice(1) })
+          return
+        }
         if (page === 'index.html' || page === '') {
           event.preventDefault()
           win.loadFile(path.join(__dirname, 'out', 'index.html'), { search: u.search.slice(1) })
-          return
-        }
-        if (/^[a-z0-9_-]+\.html?$/i.test(page)) {
-          event.preventDefault()
-          win.loadFile(path.join(__dirname, 'out', page), { search: u.search.slice(1) })
           return
         }
         // 其他未知 file 路径: 阻止, 忽略
@@ -268,7 +265,6 @@ app.whenReady().then(async () => {
   }
   createWindow()
   log('主窗口已创建')
-  setupAutoUpdater(mainWindow)   // 窗口创建后检查更新 (生产)
 })
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

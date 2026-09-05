@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import base64
+import io, base64
 """backend.app.services.common: tasks 主函数共用的辅助工具
 
 包含: 点位读取 / 页面稳定检测 / 阅读数识别 / 阅读数写库 / 采集统一退出
@@ -9,7 +11,7 @@ import time
 
 from . import computer as pc
 from ..database import get_conn
-from .ocr import _region_grayish, extract_reads
+from .ocr import color_sort, extract_reads
 from .robot import tasks_echo
 
 
@@ -78,9 +80,16 @@ def _extract_read_from_items(items, box, img=None):
     items = list(items or [])
     for i, (cx, cy, text, score, sbox, brightness) in enumerate(items):
         if "阅读" in (text or ""):
-            gray = _region_grayish(sbox, (ox, oy), img)
-            if gray is False:
-                continue   # 颜色不是灰色系 -> 排除
+            # 颜色校验: 文字框 RGB 频率排序, 前两主色应为{灰,白}(灰字白底, 不管顺序)
+            if img is None:      # 兼容无图(默认抓屏). 正常调用均带 img
+                from PIL import ImageGrab
+                img = ImageGrab.grab().convert("RGB")
+            cols = color_sort(img, region=(
+                min(p[0] for p in sbox), min(p[1] for p in sbox),
+                max(p[0] for p in sbox), max(p[1] for p in sbox)))
+            colset = {c for _, _, c in cols[:2]}
+            if not cols or not {"灰", "白"}.issubset(colset):
+                continue   # 颜色不符(非灰字白底) -> 排除
             # 优先: 本段提取数字(阅读 730 / 阅读730)
             r = extract_reads(text)
             if r is not None:
@@ -135,7 +144,6 @@ def merge_comment_shots(top_b64, bot_b64):
     top=上方图, bot=下方图(滚动后); 找重叠行k后拼 top + bot[k:]
     返回 PIL Image 或 None"""
     try:
-        import io, base64
         from PIL import Image
         def _img(b):
             sb = b.split(",", 1)[1] if "," in b else b
@@ -179,7 +187,6 @@ def clean_comment_text(text):
 
 def calc_comment_id(name, loc, t, likes, text, level):
     """计算评论ID: 清洗后 作者|正文|时间 -> md5 前16位(点赞变化不影响, 防重复)"""
-    import hashlib
     raw = f"{clean_comment_text(name)}|{clean_comment_text(text)}|{t}"
     return hashlib.md5(raw.encode("utf-8")).hexdigest()[:16]
 

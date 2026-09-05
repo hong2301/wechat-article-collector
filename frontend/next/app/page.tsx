@@ -1,24 +1,26 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { API_BASE } from "./lib/api";
 import { DndProvider, useDrag, useDrop } from "react-dnd";
 import { HTML5Backend } from "react-dnd-html5-backend";
 import { Table, Button, Typography, Tag, Tooltip, Space, Input, Checkbox, message, Modal, Spin, Progress, Empty, Switch, InputNumber } from "antd";
 import { DatePicker, Select } from "antd";
 import dayjs from "dayjs";
+import { useNav } from "./lib/nav";
 import { PlusOutlined, ImportOutlined, ReloadOutlined, DeleteOutlined, ScanOutlined, InboxOutlined, CalendarOutlined, ProfileOutlined, CopyOutlined, HolderOutlined, SearchOutlined, SwapOutlined, RobotOutlined, FolderOpenOutlined, FileExcelOutlined, UnorderedListOutlined, ExclamationCircleOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import PointsDialog from "./components/PointsDialog";
 import PaginationBar, { calcPageSize } from "./components/PaginationBar";
 import { hideTaskbar, showTaskbar } from "./components/taskbar";
 import { useSettingsIssues } from "./components/useSettingsIssues";
+import { useWechatStatus } from "./components/useWechatStatus";
 import ScrollsDialog from "./components/ScrollsDialog";
 import AiDialog from "./components/AiDialog";
 
-const API = "http://127.0.0.1:8000/api/accounts";
-const RESOLVE = "http://127.0.0.1:8000/api/resolve-name";
-const COLLECT = "http://127.0.0.1:8000/api/collect/start";
+const API = API_BASE + "/api/accounts";
+const RESOLVE = API_BASE + "/api/resolve-name";
+const COLLECT = API_BASE + "/api/collect/start";
 // 采集触发类型枚举(可扩展)
 const COLLECT_TYPE = {
   ACCOUNT_CLICK: 1,   // 公众号列表点击采集
@@ -112,7 +114,7 @@ function CollectCalendar({ daily, monthKey, onMonthChange }: {
 }
 
 export default function Home() {
-  const router = useRouter();
+  const Nav = useNav();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -163,13 +165,13 @@ export default function Home() {
   const [aiOpen, setAiOpen] = useState(false);
   // 点位/滚动完整性(共享hook, 有报红时采集按钮置灰+提示)
   const si = useSettingsIssues();
+  const wxLogged = useWechatStatus();
   // 是否打包版: NODE_ENV=production(Next构建期注入的公共环境变量)
   const isPackaged = process.env.NODE_ENV === "production";
   // 日期范围(采集用), null=全部(不限日期); 默认全部
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null);
   // 窗口分离(采集设置)
   const [cfgLoaded, setCfgLoaded] = useState(false);   // 采集配置localStorage加载完成
-  const [windowSplit, setWindowSplit] = useState(true);
   // 采集指标开关
   const [capture4metrics, setCapture4metrics] = useState(false);
   const [captureRead, setCaptureRead] = useState(false);
@@ -189,8 +191,7 @@ export default function Home() {
       const saved = localStorage.getItem("collectConfig");
       if (saved) {
         const d = JSON.parse(saved);
-        if (typeof d.window_split === "boolean") setWindowSplit(d.window_split);
-        if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
+                if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
         if (typeof d.capture_read === "boolean") setCaptureRead(d.capture_read);
         if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
         // 存储路径: 旧默认 D:/article_data 视为未设置(改用新默认 <数据目录>/article_data)
@@ -212,8 +213,7 @@ export default function Home() {
     if (!cfgLoaded) return;
     try {
       localStorage.setItem("collectConfig", JSON.stringify({
-        window_split: windowSplit,
-        capture_4metrics: capture4metrics,
+          capture_4metrics: capture4metrics,
         capture_read: captureRead,
         save_html: saveHtml,
         save_dir: saveDir,
@@ -226,7 +226,7 @@ export default function Home() {
       }));
     } catch { /* 忽略写入失败 */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [windowSplit, capture4metrics, captureRead, saveHtml, saveDir, captureComments, maxComments, maxLevel1, maxLevel2, dateRange]);
+  }, [capture4metrics, captureRead, saveHtml, saveDir, captureComments, maxComments, maxLevel1, maxLevel2, dateRange]);
 
   useEffect(() => {
     const probe = document.createElement("div");
@@ -421,7 +421,6 @@ export default function Home() {
       link,
       date_start: dateRange ? dateRange[0].format("YYYY-MM-DD") : "",
       date_end: dateRange ? dateRange[1].format("YYYY-MM-DD") : "",
-      window_split: windowSplit,
       capture_4metrics: capture4metrics,
       capture_read: captureRead,
       save_html: saveHtml,
@@ -489,7 +488,7 @@ export default function Home() {
   }
   // 停止采集: 通知后端中止 + 断开SSE, 按钮变关闭
   function stopCollect() {
-    fetch("http://127.0.0.1:8000/api/collect/stop", { method: "POST" }).catch(() => {});
+    fetch(API_BASE + "/api/collect/stop", { method: "POST" }).catch(() => {});
     collectAbortRef.current?.abort();
     setCollectStopped(true);
   }
@@ -519,14 +518,14 @@ export default function Home() {
   // 打开下载数据文件夹(D:/article_data)
   async function openDownloads() {
     try {
-      const d = await (await fetch("http://127.0.0.1:8000/api/settings/open-downloads", { method: "POST" })).json();
+      const d = await (await fetch(API_BASE + "/api/settings/open-downloads", { method: "POST" })).json();
       if (!d.ok) message.error(d.error || "打开失败");
     } catch { message.error("无法连接后端"); }
   }
   // 选择存储路径(保存HTML根目录): 弹系统文件夹选择器(从当前路径打开)
   async function pickSaveDir() {
     try {
-      const d = await (await fetch("http://127.0.0.1:8000/api/settings/pick-dir?current=" + encodeURIComponent(saveDir), { method: "POST" })).json();
+      const d = await (await fetch(API_BASE + "/api/settings/pick-dir?current=" + encodeURIComponent(saveDir), { method: "POST" })).json();
       if (d.dir) setSaveDir(d.dir);
     } catch { message.error("无法连接后端"); }
   }
@@ -673,16 +672,9 @@ export default function Home() {
         </div>
         {/* 采集开关行(第二行) */}
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minHeight: 32 }}>
-          <Tooltip title="窗口分离: 独立出搜一搜窗口。搜索时打开搜一搜有两种形态: ①独立弹出搜一搜窗口 ②嵌入微信窗口内部; 本功能统一为第一种(独立窗口)方式。">
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 14, color: "#555" }}>
-              窗口分离
-              <QuestionCircleOutlined style={{ color: "#8b949e" }} />
-            </span>
-          </Tooltip>
-          <Switch checked={windowSplit} onChange={setWindowSplit} />
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，4指标采集不可用:\n${si.ai.join("\n")}` : undefined}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", marginLeft: 12 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
               <span style={{ fontSize: 14, color: si.ai.length > 0 ? "#ff4d4f" : "#555" }}>采集4指标</span>
               {si.ai.length > 0 && <ExclamationCircleOutlined style={{ color: "#ff4d4f" }} />}
               <Switch checked={capture4metrics} disabled={si.ai.length > 0} onChange={setCapture4metrics} />
@@ -694,7 +686,7 @@ export default function Home() {
           <Switch checked={saveHtml} onChange={setSaveHtml} />
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，评论采集不可用:\n${si.ai.join("\n")}` : undefined}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", marginLeft: 12 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
               <span style={{ fontSize: 14, color: si.ai.length > 0 ? "#ff4d4f" : "#555" }}>评论采集</span>
               {si.ai.length > 0 && <ExclamationCircleOutlined style={{ color: "#ff4d4f" }} />}
               <Switch checked={captureComments} disabled={si.ai.length > 0} onChange={setCaptureComments} />
@@ -738,7 +730,9 @@ export default function Home() {
               icon={si.ai.length > 0 ? <ExclamationCircleOutlined /> : <RobotOutlined />}
               onClick={() => setAiOpen(true)}>AI模型</Button>
           </Tooltip>
-          <Button onClick={pickSaveDir}>存储路径: {saveDir || "默认(data/article_data)"}</Button>
+          <Tooltip title={saveDir || "默认: 程序数据目录/article_data"} placement="bottom">
+            <Button onClick={pickSaveDir}>存储路径修改</Button>
+          </Tooltip>
         </div>
       </div>
       <PointsDialog compact={isPackaged} open={pointsOpen} onClose={() => { setPointsOpen(false); si.refresh(); }} />
@@ -751,8 +745,8 @@ export default function Home() {
            style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
           <Tooltip
-            title={si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能采集" : undefined}>
-            <Button type="primary" disabled={si.points.length + si.scrolls.length > 0}
+            title={(si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能采集" : wxLogged === false ? "请先登录微信后再采集" : undefined)}>
+            <Button type="primary" disabled={si.points.length + si.scrolls.length > 0 || wxLogged === false}
               icon={si.points.length + si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <InboxOutlined />}
               onClick={collectSelected} style={{ flexShrink: 0 }}>采集选中</Button>
           </Tooltip>
@@ -816,7 +810,7 @@ export default function Home() {
                   render: (_: unknown, row: Task) => (
                     <Space>
                       <span>{row.collected_count ?? 0}</span>
-                      <Button size="small" type="link" icon={<ProfileOutlined />} onClick={() => router.push(`/articles?biz=${encodeURIComponent(row.biz || "")}&name=${encodeURIComponent(row.name || "")}`)}>查看</Button>
+                      <Button size="small" type="link" icon={<ProfileOutlined />} onClick={() => Nav(`/articles?biz=${encodeURIComponent(row.biz || "")}&name=${encodeURIComponent(row.name || "")}`)}>查看</Button>
                     </Space>
                   ),
                 },
@@ -825,8 +819,8 @@ export default function Home() {
                   render: (_: unknown, row: Task) => (
                     <Space>
                       <Tooltip
-                        title={si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能采集" : undefined}>
-                        <Button size="small" type="link" disabled={si.points.length + si.scrolls.length > 0}
+                        title={(si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能采集" : wxLogged === false ? "请先登录微信后再采集" : undefined)}>
+                        <Button size="small" type="link" disabled={si.points.length + si.scrolls.length > 0 || wxLogged === false}
                           icon={si.points.length + si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <InboxOutlined />}
                           onClick={() => collectRow(row)}>采集</Button>
                       </Tooltip>
@@ -846,7 +840,7 @@ export default function Home() {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 10, flexShrink: 0 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <Button size="small" color="primary" variant="outlined" icon={<UnorderedListOutlined />} onClick={() => router.push("/articles?biz=all&name=全部文章")}>查看全部文章</Button>
+            <Button size="small" color="primary" variant="outlined" icon={<UnorderedListOutlined />} onClick={() => Nav(`/articles?biz=all&name=${encodeURIComponent("全部文章")}`)}>查看全部文章</Button>
             <Button size="small" icon={<FolderOpenOutlined />} onClick={openDownloads}>打开下载数据</Button>
             <Button size="small" icon={<FileExcelOutlined />} onClick={exportExcel}>导出表格</Button>
           </div>
@@ -858,7 +852,7 @@ export default function Home() {
       </div>
 
       {/* 导入进度/失败弹窗 */}
-      <Modal title={failedRows.length ? "导入结果" : "正在导入"} open={importing}
+      <Modal mask={{ closable: false }} title={failedRows.length ? "导入结果" : "正在导入"} open={importing}
         footer={failedRows.length ? <Button type="primary" onClick={() => setImporting(false)}>关闭</Button> : null}
         closable={failedRows.length > 0} onCancel={() => setImporting(false)} width={420}>
         {failedRows.length ? (
@@ -877,13 +871,13 @@ export default function Home() {
       </Modal>
 
       {/* 采集日历弹窗 */}
-      <Modal title={calData ? `${calData.name} · 采集日历` : "采集日历"} open={calOpen}
+      <Modal mask={{ closable: false }} title={calData ? `${calData.name} · 采集日历` : "采集日历"} open={calOpen}
         footer={null} onCancel={() => setCalOpen(false)} width={760} style={{ maxHeight: "80vh", overflow: "auto" }}>
         {calData && <CollectCalendar daily={calData.daily} monthKey={calMonthKey} onMonthChange={(m) => loadCalendar(calData.id, m)} />}
       </Modal>
 
       {/* 采集弹窗: 确认阶段 -> 采集进行中(停止由后端ESC监听) */}
-      <Modal
+      <Modal mask={{ closable: false }}
         open={collectOpen}
         title={collectStarted ? `正在采集「${collectTask?.name || ""}」 (${queueIdx}/${queue.length})` : queue.length > 1 ? `确认采集设置 (共 ${queue.length} 个)` : "确认采集设置"}
         onCancel={() => {
@@ -913,7 +907,6 @@ export default function Home() {
               <div style={{ overflow: "auto", flex: 1, minHeight: 0 }}>
               {[
                 { label: "时间范围", value: dateRange ? `${dateRange[0].format("YYYY-MM-DD")} ~ ${dateRange[1].format("YYYY-MM-DD")}` : "全部" },
-                { label: "窗口分离", value: windowSplit ? "开" : "关" },
                 { label: "采集4指标", value: capture4metrics ? "开" : "关" },
                 { label: "采集阅读数", value: captureRead ? "开" : "关" },
                 { label: "保存Html", value: saveHtml ? "开" : "关" },
@@ -950,7 +943,6 @@ export default function Home() {
           <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0", marginBottom: 12 }}>
             {[
               { label: "时间范围", value: dateRange ? `${dateRange[0].format("YYYY-MM-DD")} ~ ${dateRange[1].format("YYYY-MM-DD")}` : "全部" },
-              { label: "窗口分离", value: windowSplit ? "开" : "关" },
               { label: "采集4指标", value: capture4metrics ? "开" : "关" },
               { label: "采集阅读数", value: captureRead ? "开" : "关" },
               { label: "保存Html", value: saveHtml ? "开" : "关" },
@@ -998,20 +990,21 @@ export default function Home() {
       </Modal>
 
       {/* 新增弹窗 */}
-      <Modal title="新增公众号" open={addOpen} onOk={save} okText="保存" confirmLoading={saving}
+      <Modal mask={{ closable: false }} title="新增公众号" open={addOpen} onOk={save} okText="保存" confirmLoading={saving}
         onCancel={() => setAddOpen(false)} cancelText="取消">
         <Space vertical style={{ width: "100%" }} size="middle">
-          <Space vertical style={{ width: "100%" }}>
-            <Input placeholder="公众号名称" value={name} onChange={(e) => setName(e.target.value)} />
-            <Input placeholder="biz 代码" value={biz} onChange={(e) => setBiz(e.target.value)} />
-          </Space>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>或通过公众号文章链接自动获取：</Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>通过公众号文章链接自动获取：</Typography.Text>
           <Space.Compact style={{ width: "100%" }}>
             <Input placeholder="粘贴文章链接" value={link} onChange={(e) => setLink(e.target.value)} />
             <Button type="default" loading={resolving} icon={<ScanOutlined />} onClick={resolve}>
               {resolving ? <Spin size="small" /> : "识别"}
             </Button>
           </Space.Compact>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>或直接输入公众号名称和 biz 代码：</Typography.Text>
+          <Space vertical style={{ width: "100%" }}>
+            <Input placeholder="公众号名称" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input placeholder="biz 代码" value={biz} onChange={(e) => setBiz(e.target.value)} />
+          </Space>
         </Space>
       </Modal>
     </div>

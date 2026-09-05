@@ -1,16 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { API_BASE } from "../lib/api";
 import {
   Modal, Table, Button, Input, Space, message, Select, InputNumber,
-  Empty, Typography, Checkbox,
+  Empty, Typography, Checkbox, Tooltip,
 } from "antd";
 import {
   PlusOutlined, DeleteOutlined, SwapOutlined, EditOutlined, ImportOutlined,
+  ExclamationCircleOutlined, BulbOutlined,
 } from "@ant-design/icons";
+import { useWechatStatus } from "./useWechatStatus";
 
-const API = "http://127.0.0.1:8000/api/scrolls";
-const POINTS_API = "http://127.0.0.1:8000/api/points";
+const API = API_BASE + "/api/scrolls";
+const POINTS_API = API_BASE + "/api/points";
 
 interface Scroll {
   id: number;
@@ -126,6 +129,26 @@ export default function ScrollsDialog({
   }
 
   // ---------- 删除 ----------
+  // ---------- 自动设置(调用后端 auto-setup: 人工预设流程+OCR+AI识别) ----------
+  const wxLogged = useWechatStatus();   // 未登录微信时自动设置不可用
+  const [autoLoading, setAutoLoading] = useState<number | null>(null);
+  async function autoSetRow(s: Scroll) {
+    setAutoLoading(s.id);
+    try {
+      const d = await (await fetch(`${API_BASE}/api/auto-setup/scroll/${s.id}`, { method: "POST" })).json();
+      if (d.ok) {
+        setRows((prev) => prev.map((x) => x.id === s.id ? { ...x, distance: String(d.distance) } : x));
+        message.success(`获取成功: 距离 ${d.distance} (=${d.from} y差)`);
+      } else {
+        message.error(d.error || "获取失败");
+      }
+    } catch {
+      message.error("无法连接后端");
+    } finally {
+      setAutoLoading(null);
+    }
+  }
+
   function delRow(s: Scroll) {
     Modal.confirm({
       title: "删除确认", content: `确定删除滚动 [${s.id}] ${s.name}？`, okText: "确认", cancelText: "取消",
@@ -229,49 +252,57 @@ export default function ScrollsDialog({
           onChange={(e) => toggleOne(s.id, e.target.checked)} />
       ),
     },
-    ...(compact ? [] : [{ title: "id", dataIndex: "id", width: 70, align: "center" as const }]),
-    { title: "名称", dataIndex: "name", render: (_: unknown, s: Scroll) => s.name },
+    ...(compact ? [] : [{ title: "id", dataIndex: "id", width: 60, align: "center" as const }]),
+    { title: "名称", dataIndex: "name", width: 200, render: (_: unknown, s: Scroll) => s.name },
     {
-      title: "距离", dataIndex: "distance", width: 110, align: "center" as const,
+      title: "距离", dataIndex: "distance", width: 90, align: "center" as const,
       render: (_: unknown, s: Scroll) => (
         <InputNumber size="small" min={0} step={50}
-          value={Number(s.distance) || 0} style={{ width: 90 }}
+          value={Number(s.distance) || 0} style={{ width: 80 }}
           onChange={(v) => updateRow(s.id, { distance: String(v ?? 0) })} />
       ),
     },
     {
-      title: "点位id", dataIndex: "point_id", width: 140, align: "center" as const,
+      title: "点位id", dataIndex: "point_id", width: 110, align: "center" as const,
       render: (_: unknown, s: Scroll) => (
         <Select size="small" value={s.point_id} options={pointOptions}
-          style={{ width: 130 }}
+          style={{ width: 100 }}
           onChange={(v) => updateRow(s.id, { point_id: v })} />
       ),
     },
     {
-      title: "方向", dataIndex: "direction", width: 90, align: "center" as const,
+      title: "方向", dataIndex: "direction", width: 70, align: "center" as const,
       render: (_: unknown, s: Scroll) => (
         <Button size="small"
           onClick={() => updateRow(s.id, { direction: s.direction === "up" ? "down" : "up" })}
-          style={{ width: 70 }}>
+          style={{ width: 60 }}>
           {s.direction === "up" ? "向上" : "向下"}
         </Button>
       ),
     },
     {
-      title: "操作", dataIndex: "op", width: 80, align: "center" as const,
+      title: "操作", dataIndex: "op", width: 76, align: "center" as const,
       render: (_: unknown, s: Scroll) => (
-        <Space style={{ display: "flex", justifyContent: "center" }}>
-          <Button size="small" type="link" icon={<SwapOutlined />}
-            loading={running === s.id} onClick={() => runRow(s)}>滚动</Button>
-          <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(s)}>修改</Button>
-          {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(s)}>删除</Button>}
+        <Space orientation="vertical" size={0} style={{ gap: 0, alignItems: "center" }}>
+          <Space size={2}>
+            <Button size="small" type="link" icon={<SwapOutlined />}
+              loading={running === s.id} onClick={() => runRow(s)}>滚动</Button>
+            <Button size="small" type="link" icon={<EditOutlined />} onClick={() => openEdit(s)}>修改</Button>
+          </Space>
+          <Space size={2}>
+            <Tooltip title={wxLogged === false ? "请先登录微信后再自动设置" : undefined}>
+            <Button size="small" type="link" icon={<BulbOutlined />} loading={autoLoading === s.id}
+              disabled={wxLogged === false} onClick={() => autoSetRow(s)}>获取</Button>
+          </Tooltip>
+            {!compact && <Button size="small" type="link" danger icon={<DeleteOutlined />} onClick={() => delRow(s)}>删除</Button>}
+          </Space>
         </Space>
       ),
     },
   ];
 
   return (
-    <Modal title="滚动设置" open={open} onCancel={onClose}
+    <Modal mask={{ closable: false }} title="滚动设置" open={open} onCancel={onClose}
       footer={<Button onClick={onClose}>关闭</Button>} width={900}
       style={{ maxHeight: "80vh" }}>
       <div
@@ -288,16 +319,12 @@ export default function ScrollsDialog({
           {!compact && (
             <>
               <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>新增</Button>
+
               <Button icon={<ImportOutlined />} onClick={() => fileRef.current?.click()}>导入</Button>
               <Button danger icon={<DeleteOutlined />} onClick={delSelected}>删除选中</Button>
             </>
           )}
           <div style={{ flex: 1 }} />
-          {pointName.length > 0 && (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              共 {rows.length} 条滚动配置
-            </Typography.Text>
-          )}
           <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: "none" }} onChange={onPick} />
         </div>
         <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
@@ -311,7 +338,7 @@ export default function ScrollsDialog({
       </div>
 
       {/* 新增/修改弹窗 */}
-      <Modal title={edit.isNew ? "新增滚动" : "修改滚动"} open={edit.open}
+      <Modal mask={{ closable: false }} title={edit.isNew ? "新增滚动" : "修改滚动"} open={edit.open}
         onOk={saveEdit} okText="保存" confirmLoading={saving}
         onCancel={() => setEdit({ open: false, isNew: false, id: null, name: "",
           distance: null, point_id: null, direction: "down", remark: "" })}

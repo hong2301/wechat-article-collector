@@ -2,74 +2,37 @@
 """点位(points) CRUD 路由"""
 import io
 import csv
-import sqlite3
 from typing import List
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
-from ..database import get_conn
 from ..models import Point, PointCreate, PointUpdate
+from ..repositories import points_repo
 
 router = APIRouter(prefix="/api/points", tags=["points"])
 
 
-def _row_to_dict(row):
-    return dict(row)
-
-
 @router.get("", response_model=list[Point])
 def list_points():
-    conn = get_conn()
-    try:
-        rows = conn.execute("SELECT * FROM points ORDER BY id ASC").fetchall()
-        return [_row_to_dict(r) for r in rows]
-    finally:
-        conn.close()
+    return points_repo.list_with_sort()
 
 
 @router.post("", response_model=Point, status_code=201)
 def create_point(payload: PointCreate):
-    conn = get_conn()
-    try:
-        cur = conn.execute(
-            "INSERT INTO points(name, x, y, remark) VALUES(?,?,?,?)",
-            (payload.name, payload.x, payload.y, payload.remark))
-        new_id = cur.lastrowid
-        conn.commit()
-        row = conn.execute("SELECT * FROM points WHERE id=?", (new_id,)).fetchone()
-        return dict(row)
-    finally:
-        conn.close()
+    return points_repo.create(payload.name, payload.x, payload.y, payload.remark)
 
 
 @router.put("/{pid}", response_model=Point)
 def update_point(pid: int, payload: PointUpdate):
-    conn = get_conn()
-    try:
-        row = conn.execute("SELECT * FROM points WHERE id=?", (pid,)).fetchone()
-        if not row:
-            raise HTTPException(404, "点位不存在")
-        fields = payload.model_dump(exclude_unset=True)
-        if fields:
-            sets = ", ".join(f"{k}=?" for k in fields)
-            conn.execute(f"UPDATE points SET {sets} WHERE id=?", (*fields.values(), pid))
-            conn.commit()
-        row = conn.execute("SELECT * FROM points WHERE id=?", (pid,)).fetchone()
-        return dict(row)
-    finally:
-        conn.close()
+    if not points_repo.get(pid):
+        raise HTTPException(404, "点位不存在")
+    return points_repo.update(pid, payload.model_dump(exclude_unset=True))
 
 
 @router.delete("/{pid}", status_code=204)
 def delete_point(pid: int):
-    conn = get_conn()
-    try:
-        cur = conn.execute("DELETE FROM points WHERE id=?", (pid,))
-        conn.commit()
-        if cur.rowcount == 0:
-            raise HTTPException(404, "点位不存在")
-    finally:
-        conn.close()
+    if not points_repo.delete(pid):
+        raise HTTPException(404, "点位不存在")
 
 
 class BatchDelete(BaseModel):
@@ -86,7 +49,7 @@ class PreviewPayload(BaseModel):
 def preview_point(payload: PreviewPayload):
     """在屏幕坐标 (x,y) 亮红点预览 duration 秒(默认1)
     返回: {"ok": true}"""
-    from ..services import computer as pc
+    from ..core import computer as pc
     pc.enable_dpi_awareness()
     pc.preview_point(payload.x, payload.y, duration=payload.duration or 1.0)
     return {"ok": True}
@@ -97,7 +60,7 @@ def capture_point():
     """阻塞采集屏幕坐标: 前端遮罩期间调用;
     左键单击记录(前端轮询preview)、双击确认、右键退出。
     返回: {"x":..,"y":..} 或 {"canceled": true}"""
-    from ..services import computer as pc
+    from ..core import computer as pc
     pc.enable_dpi_awareness()
     pc.clear_latest_click()
     r = pc.capture_point()
@@ -110,7 +73,7 @@ def capture_point():
 def capture_preview():
     """返回最近一次左键单击坐标(用于前端实时预览), 供遮罩期间轮询
     返回: {"x":..,"y":..} 或 {"none": true}"""
-    from ..services import computer as pc
+    from ..core import computer as pc
     r = pc.get_latest_click()
     if r is None:
         return {"none": True}
@@ -123,14 +86,7 @@ def batch_delete_points(payload: BatchDelete):
     ids = payload.ids
     if not ids:
         raise HTTPException(400, "未选择点位")
-    conn = get_conn()
-    try:
-        marks = ",".join("?" * len(ids))
-        cur = conn.execute(f"DELETE FROM points WHERE id IN ({marks})", ids)
-        conn.commit()
-        return {"ok": True, "deleted": cur.rowcount}
-    finally:
-        conn.close()
+    return {"ok": True, "deleted": points_repo.delete_many(ids)}
 
 
 # ---------- 导入（CSV/XLSX） ----------
@@ -202,37 +158,5 @@ def import_points(file: UploadFile = File(...)):
     rows = _parse_points_file(file.filename or "", raw)
     if not rows:
         raise HTTPException(400, "文件为空或无法解析")
-    added = 0
-    updated = 0
-    conn = get_conn()
-    try:
-        for d in rows:
-            name = str(d.get("name") or "").strip()
-            x = str(d.get("x") or "").strip()
-            y = str(d.get("y") or "").strip()
-            remark = str(d.get("remark") or "").strip()
-            pid = d.get("id")
-            # 优先按 id 更新/新增; id 缺失则按名称匹配
-            if pid is not None and str(pid).strip().isdigit():
-                exists = conn.execute("SELECT id FROM points WHERE id=?", (int(pid),)).fetchone()
-                if exists:
-                    conn.execute("UPDATE points SET name=?, x=?, y=?, remark=? WHERE id=?",
-                                 (name, x, y, remark, int(pid)))
-                    updated += 1
-                else:
-                    conn.execute("INSERT INTO points(name, x, y, remark) VALUES(?,?,?,?)",
-                                 (name, x, y, remark))
-                    added += 1
-            elif name:
-                exists = conn.execute("SELECT id FROM points WHERE name=?", (name,)).fetchone()
-                if exists:
-                    conn.execute("UPDATE points SET x=?, y=?, remark=? WHERE id=?", (x, y, remark, exists["id"]))
-                    updated += 1
-                else:
-                    conn.execute("INSERT INTO points(name, x, y, remark) VALUES(?,?,?,?)",
-                                 (name, x, y, remark))
-                    added += 1
-        conn.commit()
-        return {"ok": True, "added": added, "updated": updated, "total": len(rows)}
-    finally:
-        conn.close()
+    added, updated = points_repo.import_upsert(rows)
+    return {"ok": True, "added": added, "updated": updated, "total": len(rows)}

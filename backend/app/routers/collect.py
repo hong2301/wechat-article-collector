@@ -5,12 +5,14 @@ import json
 import queue
 import threading
 import time
+import time as _t
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..services import tasks as tasks_service
-from ..services import computer as pc
+from ..core import computer as pc
+from ..services import auto_setup as auto_setup_svc
 
 router = APIRouter(prefix="/api/collect", tags=["collect"])
 
@@ -32,6 +34,7 @@ def _task_end():
         _task_count[0] = max(0, _task_count[0] - 1)
 
 
+
 def _task_running_count():
     with _task_count_lock:
         return _task_count[0]
@@ -43,7 +46,6 @@ _last_block_notice = [0.0]
 
 def _do_stop():
     """停止采集: 信号兜底 + 向 worker 线程注入异常立即中断"""
-    import ctypes
     tasks_service.request_stop()
     tid = _worker_tid.get("tid")
     if tid:
@@ -53,7 +55,6 @@ def _do_stop():
 
 def _notice_input_block():
     """拦截到人工输入: 提示(限流3秒一次)"""
-    import time as _t
     now = _t.monotonic()
     if now - _last_block_notice[0] < 3.0:
         return
@@ -66,7 +67,7 @@ def _notice_input_block():
 
 def _start_esc_listener():
     """启动采集期间输入锁定: 人工键盘/鼠标拦截, 程序注入放行, ESC=停止"""
-    from ..services.inputlock import InputLock
+    from ..core.inputlock import InputLock
     global _input_lock
     if _input_lock is None:
         _input_lock = InputLock()
@@ -92,7 +93,6 @@ class CollectStart(BaseModel):
     link: str = ""           # 拼接好的公众号链接(前端拼好再传)
     date_start: str = ""     # 采集开始日期
     date_end: str = ""       # 采集结束日期
-    window_split: bool = True  # 窗口分离
     capture_4metrics: bool = False  # 采集4指标
     capture_read: bool = False       # 采集阅读数
     save_html: bool = False          # 保存文章为本地HTML(含图片)
@@ -107,7 +107,6 @@ class UpdateStart(BaseModel):
     biz: str = ""            # 公众号 biz
     name: str = ""           # 公众号名称
     link: str = ""           # 文章链接(前端拼好传)
-    window_split: bool = True  # 窗口分离
     capture_4metrics: bool = False  # 采集4指标
     capture_read: bool = False       # 采集阅读数
     save_html: bool = False          # 保存文章为本地HTML(含图片)
@@ -122,7 +121,6 @@ class CommentStart(BaseModel):
     biz: str = ""            # 公众号 biz
     name: str = ""           # 公众号名称
     link: str = ""           # 文章链接
-    window_split: bool = True  # 窗口分离
     capture_4metrics: bool = False  # 采集4指标
     capture_read: bool = False       # 采集阅读数
     save_html: bool = False          # 保存文章为本地HTML(含图片)
@@ -152,11 +150,16 @@ def _collect_generate(payload: CollectStart):
 
     def worker():
         _worker_tid["tid"] = threading.get_ident()
+        # 互斥: 一键设置进行中则拒绝启动采集
+        if auto_setup_svc.locked():
+            log_q.put(("log", "一键设置进行中, 无法启动采集"))
+            log_q.put(("done", False, "一键设置进行中"))
+            return
         _task_begin()
         prev_hook = tasks_service.bind_tasks_echo(hook)
         try:
             # 1) 微信窗口初始化(带窗口分离参数)
-            ok, text = tasks_service.init_wechat_window(window_split=payload.window_split)
+            ok, text = tasks_service.init_wechat_window()
             log_q.put(("log", f"[微信窗口初始化] {'成功' if ok else '失败'} | {text}"))
             if not ok:
                 log_q.put(("done", False, "微信窗口初始化失败"))
@@ -168,7 +171,7 @@ def _collect_generate(payload: CollectStart):
                 log_q.put(("done", False, "采集器窗口初始化失败"))
                 return
             # 3) 搜一搜窗口初始化(带窗口分离参数)
-            ok, text = tasks_service.search_window_init(window_split=payload.window_split)
+            ok, text = tasks_service.search_window_init()
             log_q.put(("log", f"[搜一搜窗口初始化] {'成功' if ok else '失败'} | {text}"))
             if not ok:
                 log_q.put(("done", False, "搜一搜窗口初始化失败"))
@@ -208,7 +211,6 @@ def _collect_generate(payload: CollectStart):
     tasks_service.clear_stop()   # 新任务开始前清除
     msg = (f"任务: {payload.name} | biz={payload.biz} | "
            f"日期 {payload.date_start} ~ {payload.date_end} | "
-           f"窗口分离={'开' if payload.window_split else '关'} | "
            f"4指标={'开' if payload.capture_4metrics else '关'} | "
            f"阅读数={'开' if payload.capture_read else '关'} | "
            f"保存Html={'开' if payload.save_html else '关'}")
@@ -220,28 +222,36 @@ def _collect_generate(payload: CollectStart):
     # 主循环: 从队列读日志并 yield(worker 线程阻塞跑死循环也不影响)
     # 空闲超过5秒发心跳帧, 保持SSE连接不断开
     last_sent = time.monotonic()
-    while not finished.is_set() or not log_q.empty():
-        try:
-            item = log_q.get(timeout=0.3)
-        except queue.Empty:
-            now = time.monotonic()
-            if now - last_sent >= 5:
-                yield _sse({"type": "keepalive"})
-                last_sent = now
-            continue
-        last_sent = time.monotonic()
-        with lock:
+    try:
+        while not finished.is_set() or not log_q.empty():
+            try:
+                item = log_q.get(timeout=0.3)
+            except queue.Empty:
+                now = time.monotonic()
+                if now - last_sent >= 5:
+                    yield _sse({"type": "keepalive"})
+                    last_sent = now
+                continue
+            last_sent = time.monotonic()
+            with lock:
+                if item[0] == "log":
+                    yield _sse({"type": "log", "msg": item[1]})
+                elif item[0] == "done":
+                    yield _sse({"type": "done", "ok": item[1], "reason": item[2]})
+            if item[0] == "done":
+                break
+        # 队列里可能还有残留日志, 清空发送
+        while not log_q.empty():
+            item = log_q.get_nowait()
             if item[0] == "log":
                 yield _sse({"type": "log", "msg": item[1]})
-            elif item[0] == "done":
-                yield _sse({"type": "done", "ok": item[1], "reason": item[2]})
-        if item[0] == "done":
-            break
-    # 队列里可能还有残留日志, 清空发送
-    while not log_q.empty():
-        item = log_q.get_nowait()
-        if item[0] == "log":
-            yield _sse({"type": "log", "msg": item[1]})
+    finally:
+        # 客户端断开/采集器窗口关闭等任意结束: 请求 worker 停止 -> finally 解锁键鼠
+        try:
+            tasks_service.request_stop()
+        except Exception:
+            pass
+
 
 
 def _update_generate(payload: UpdateStart):
@@ -259,11 +269,16 @@ def _update_generate(payload: UpdateStart):
 
     def worker():
         _worker_tid["tid"] = threading.get_ident()
+        # 互斥: 一键设置进行中则拒绝启动采集
+        if auto_setup_svc.locked():
+            log_q.put(("log", "一键设置进行中, 无法启动采集"))
+            log_q.put(("done", False, "一键设置进行中"))
+            return
         _task_begin()
         prev_hook = tasks_service.bind_tasks_echo(hook)
         try:
             # 1) 微信窗口初始化
-            ok, text = tasks_service.init_wechat_window(window_split=payload.window_split)
+            ok, text = tasks_service.init_wechat_window()
             log_q.put(("log", f"[微信窗口初始化] {'成功' if ok else '失败'} | {text}"))
             if not ok:
                 log_q.put(("done", False, "微信窗口初始化失败"))
@@ -275,7 +290,7 @@ def _update_generate(payload: UpdateStart):
                 log_q.put(("done", False, "采集器窗口初始化失败"))
                 return
             # 3) 搜一搜窗口初始化
-            ok, text = tasks_service.search_window_init(window_split=payload.window_split)
+            ok, text = tasks_service.search_window_init()
             log_q.put(("log", f"[搜一搜窗口初始化] {'成功' if ok else '失败'} | {text}"))
             if not ok:
                 log_q.put(("done", False, "搜一搜窗口初始化失败"))
@@ -313,7 +328,6 @@ def _update_generate(payload: UpdateStart):
 
     tasks_service.clear_stop()
     msg = (f"更新: {payload.name} | {payload.link[:50]} | "
-           f"窗口分离={'开' if payload.window_split else '关'} | "
            f"4指标={'开' if payload.capture_4metrics else '关'} | "
            f"阅读数={'开' if payload.capture_read else '关'} | "
            f"保存Html={'开' if payload.save_html else '关'}")
@@ -323,27 +337,35 @@ def _update_generate(payload: UpdateStart):
     threading.Thread(target=worker, daemon=True).start()
 
     last_sent = time.monotonic()
-    while not finished.is_set() or not log_q.empty():
-        try:
-            item = log_q.get(timeout=0.3)
-        except queue.Empty:
-            now = time.monotonic()
-            if now - last_sent >= 5:
-                yield _sse({"type": "keepalive"})
-                last_sent = now
-            continue
-        last_sent = time.monotonic()
-        with lock:
+    try:
+        while not finished.is_set() or not log_q.empty():
+            try:
+                item = log_q.get(timeout=0.3)
+            except queue.Empty:
+                now = time.monotonic()
+                if now - last_sent >= 5:
+                    yield _sse({"type": "keepalive"})
+                    last_sent = now
+                continue
+            last_sent = time.monotonic()
+            with lock:
+                if item[0] == "log":
+                    yield _sse({"type": "log", "msg": item[1]})
+                elif item[0] == "done":
+                    yield _sse({"type": "done", "ok": item[1], "reason": item[2]})
+            if item[0] == "done":
+                break
+        while not log_q.empty():
+            item = log_q.get_nowait()
             if item[0] == "log":
                 yield _sse({"type": "log", "msg": item[1]})
-            elif item[0] == "done":
-                yield _sse({"type": "done", "ok": item[1], "reason": item[2]})
-        if item[0] == "done":
-            break
-    while not log_q.empty():
-        item = log_q.get_nowait()
-        if item[0] == "log":
-            yield _sse({"type": "log", "msg": item[1]})
+    finally:
+        # 客户端断开/采集器窗口关闭等任意结束: 请求 worker 停止 -> finally 解锁键鼠
+        try:
+            tasks_service.request_stop()
+        except Exception:
+            pass
+
 
 
 def _comment_generate(payload: CommentStart):
@@ -361,11 +383,16 @@ def _comment_generate(payload: CommentStart):
 
     def worker():
         _worker_tid["tid"] = threading.get_ident()
+        # 互斥: 一键设置进行中则拒绝启动采集
+        if auto_setup_svc.locked():
+            log_q.put(("log", "一键设置进行中, 无法启动采集"))
+            log_q.put(("done", False, "一键设置进行中"))
+            return
         _task_begin()
         prev_hook = tasks_service.bind_tasks_echo(hook)
         try:
             # 1) 微信窗口初始化
-            ok, text = tasks_service.init_wechat_window(window_split=payload.window_split)
+            ok, text = tasks_service.init_wechat_window()
             log_q.put(("log", f"[微信窗口初始化] {'成功' if ok else '失败'} | {text}"))
             if not ok:
                 log_q.put(("done", False, "微信窗口初始化失败")); return
@@ -375,7 +402,7 @@ def _comment_generate(payload: CommentStart):
             if not ok:
                 log_q.put(("done", False, "采集器窗口初始化失败")); return
             # 3) 搜一搜窗口初始化
-            ok, text = tasks_service.search_window_init(window_split=payload.window_split)
+            ok, text = tasks_service.search_window_init()
             log_q.put(("log", f"[搜一搜窗口初始化] {'成功' if ok else '失败'} | {text}"))
             if not ok:
                 log_q.put(("done", False, "搜一搜窗口初始化失败")); return
@@ -420,33 +447,40 @@ def _comment_generate(payload: CommentStart):
     threading.Thread(target=worker, daemon=True).start()
 
     last_sent = time.monotonic()
-    while not finished.is_set() or not log_q.empty():
-        try:
-            item = log_q.get(timeout=0.3)
-        except queue.Empty:
-            now = time.monotonic()
-            if now - last_sent >= 5:
-                yield _sse({"type": "keepalive"})
-                last_sent = now
-            continue
-        last_sent = time.monotonic()
-        with lock:
+    try:
+        while not finished.is_set() or not log_q.empty():
+            try:
+                item = log_q.get(timeout=0.3)
+            except queue.Empty:
+                now = time.monotonic()
+                if now - last_sent >= 5:
+                    yield _sse({"type": "keepalive"})
+                    last_sent = now
+                continue
+            last_sent = time.monotonic()
+            with lock:
+                if item[0] == "log":
+                    yield _sse({"type": "log", "msg": item[1]})
+                elif item[0] == "done":
+                    yield _sse({"type": "done", "ok": item[1], "reason": item[2]})
+            if item[0] == "done":
+                break
+        while not log_q.empty():
+            item = log_q.get_nowait()
             if item[0] == "log":
                 yield _sse({"type": "log", "msg": item[1]})
-            elif item[0] == "done":
-                yield _sse({"type": "done", "ok": item[1], "reason": item[2]})
-        if item[0] == "done":
-            break
-    while not log_q.empty():
-        item = log_q.get_nowait()
-        if item[0] == "log":
-            yield _sse({"type": "log", "msg": item[1]})
+    finally:
+        # 客户端断开/采集器窗口关闭等任意结束: 请求 worker 停止 -> finally 解锁键鼠
+        try:
+            tasks_service.request_stop()
+        except Exception:
+            pass
+
 
 
 @router.post("/stop")
 def collect_stop():
     """前端关闭采集窗口时调用: 强制中断采集线程(立即停止, 集中在此实现)"""
-    import ctypes
     _do_stop()          # 复用统一停止(信号+注入异常)
     return {"ok": True}
 

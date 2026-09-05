@@ -1,18 +1,4 @@
-// 任务栏控制: 采集弹窗显示即隐藏任务栏(整屏采集), 弹窗关闭即恢复
-const API_BASE = "http://127.0.0.1:8000";
-
-export function hideTaskbar() {
-  fetch(`${API_BASE}/api/settings/taskbar`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "hide" }),
-  }).catch(() => { /* 忽略失败 */ });
-}
-
-export function showTaskbar() {
-  fetch(`${API_BASE}/api/settings/taskbar`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "show" }),
-  }).catch(() => { /* 忽略失败 */ });
-}
+// 任务栏控制: 【机制已彻底删除】不再隐藏/恢复任务栏(隐藏会改WorkArea/RECT,
+// 导致截图坐标与实际渲染不一致)。保留空函数避免改其它调用点; 调用无任何行为。
+export function hideTaskbar() {}
+export function showTaskbar() {}

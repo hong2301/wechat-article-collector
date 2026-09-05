@@ -1,16 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { API_BASE } from "../lib/api";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Tooltip, Spin, DatePicker, InputNumber, Input, Checkbox, Progress, Switch, Select } from "antd";
 import { ArrowLeftOutlined, ReloadOutlined, PlusOutlined, ImportOutlined, DeleteOutlined, SearchOutlined, ClearOutlined, FileExcelOutlined, ExclamationCircleOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import PaginationBar, { calcPageSize } from "../components/PaginationBar";
 import { hideTaskbar, showTaskbar } from "../components/taskbar";
+import { useConflictGate } from "../components/ConflictGate";
 import { useSettingsIssues } from "../components/useSettingsIssues";
+import { useWechatStatus } from "../components/useWechatStatus";
+import { useNav } from "../lib/nav";
 import dayjs from "dayjs";
 
-const API = "http://127.0.0.1:8000/api/accounts";
+const API = API_BASE + "/api/accounts";
 
 interface CommentRow {
   id: number;
@@ -48,7 +51,7 @@ function NumRange({ value, onChange }: {
 }
 
 export default function CommentsPage() {
-  const router = useRouter();
+  const Nav = useNav();
   const [artBiz, setArtBiz] = useState("");
   const [biz, setBiz] = useState("");
   const [title, setTitle] = useState("");
@@ -62,6 +65,17 @@ export default function CommentsPage() {
   const retryRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const retryCountRef = useRef(0);   // 连不上后端时的自动重试计数(上限5次)
   const tableWrapRef = useRef<HTMLDivElement>(null);
+  // 表格可视高度(供 scroll.y, 让横向滚动条常驻表体底部)
+  const [tableY, setTableY] = useState(0);
+  useEffect(() => {
+    const measure = () => {
+      if (tableWrapRef.current) setTableY(Math.max(100, tableWrapRef.current.clientHeight - 56));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const t = setInterval(measure, 800);   // 数据/布局变化兜底
+    return () => { window.removeEventListener("resize", measure); clearInterval(t); };
+  }, []);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
@@ -74,7 +88,6 @@ export default function CommentsPage() {
   const [ipFilter, setIpFilter] = useState<string[]>(["__all__"]);   // IP多选(含'全部')
   const [levelFilter, setLevelFilter] = useState<string[]>(["__all__"]); // 层级多选(含'全部')
   // 评论采集设置(独立存 commentConfig)
-  const [windowSplit, setWindowSplit] = useState(false);   // 窗口分离
   const [maxComments, setMaxComments] = useState<number | null>(null);
   const [maxLevel1, setMaxLevel1] = useState<number | null>(null);
   const [maxLevel2, setMaxLevel2] = useState<number | null>(0);
@@ -82,8 +95,7 @@ export default function CommentsPage() {
   useEffect(() => {
     try {
       const d = JSON.parse(localStorage.getItem("commentConfig") || "{}");
-      if (typeof d.window_split === "boolean") setWindowSplit(d.window_split);
-      if ("max_comments" in d) setMaxComments(d.max_comments);
+            if ("max_comments" in d) setMaxComments(d.max_comments);
       if ("max_level1" in d) setMaxLevel1(d.max_level1);
       if ("max_level2" in d) setMaxLevel2(d.max_level2);
       if (d.date_start && d.date_end) setDateRange([dayjs(d.date_start), dayjs(d.date_end)]);
@@ -94,16 +106,16 @@ export default function CommentsPage() {
     if (!ccLoaded) return;
     try {
       localStorage.setItem("commentConfig", JSON.stringify({
-        window_split: windowSplit,
-        max_comments: maxComments, max_level1: maxLevel1, max_level2: maxLevel2,
+          max_comments: maxComments, max_level1: maxLevel1, max_level2: maxLevel2,
         date_start: dateRange ? dateRange[0].format("YYYY-MM-DD") : "",
         date_end: dateRange ? dateRange[1].format("YYYY-MM-DD") : "",
       }));
     } catch { /* 忽略 */ }
-  }, [ccLoaded, windowSplit, maxComments, maxLevel1, maxLevel2, dateRange]);
+  }, [ccLoaded, maxComments, maxLevel1, maxLevel2, dateRange]);
   // 评论采集弹窗
   const [ccOpen, setCcOpen] = useState(false);
   const si = useSettingsIssues();
+  const wxLogged = useWechatStatus();
   const [ccStarted, setCcStarted] = useState(false);
   const [ccLogs, setCcLogs] = useState<string[]>([]);
   const ccAbortRef = useRef<AbortController | null>(null);
@@ -214,7 +226,7 @@ export default function CommentsPage() {
   }
   // 停止评论采集: 通知后端中止(同ESC) + 断开SSE, 按钮变关闭
   function stopCc() {
-    fetch("http://127.0.0.1:8000/api/collect/stop", { method: "POST" }).catch(() => {});
+    fetch(API_BASE + "/api/collect/stop", { method: "POST" }).catch(() => {});
     ccAbortRef.current?.abort();
     setCcStopped(true);
   }
@@ -242,9 +254,11 @@ export default function CommentsPage() {
     setCcCount(0); setCcCount1(0); setCcCount2(0);
     setCcOpen(true);
   }
+  const { runWithGuard } = useConflictGate();
   // 确认采集: 调后端 /api/collect/comments, SSE 接收日志
   function confirmCommentCollect() {
     if (!artBiz) { message.warning("无文章链接"); return; }
+    void runWithGuard(async () => {
     setCcStopped(false);
     const link = `https://mp.weixin.qq.com/s/${artBiz}`;
     setCcStarted(true);
@@ -255,13 +269,13 @@ export default function CommentsPage() {
     ccAbortRef.current = controller;
     const payload = {
       name: name || "", biz: biz || "", link,
-      window_split: windowSplit, capture_4metrics: false, capture_read: false,
+ capture_4metrics: false, capture_read: false,
       save_html: false, save_dir: "",
       max_comments: maxComments, max_level1: maxLevel1, max_level2: maxLevel2,
     };
     (async () => {
       try {
-        const resp = await fetch("http://127.0.0.1:8000/api/collect/comments", {
+        const resp = await fetch(API_BASE + "/api/collect/comments", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload), signal: controller.signal,
         });
@@ -299,6 +313,7 @@ export default function CommentsPage() {
         if ((e as Error)?.name !== "AbortError") setCcLogs((p) => [...p, `❌ 接口异常: ${(e as Error)?.message || e}`]);
       }
     })();
+    });
   }
 
   // 过滤
@@ -360,7 +375,7 @@ export default function CommentsPage() {
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 0 8px" }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => router.push(`/articles?biz=${encodeURIComponent(biz)}&name=${encodeURIComponent(name)}`)}>返回</Button>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => Nav(`/articles?biz=${encodeURIComponent(biz)}&name=${encodeURIComponent(name)}`)}>返回</Button>
         <Typography.Title level={5} style={{ margin: 0 }}>「{title || "..."}」的评论列表</Typography.Title>
       </div>
       {/* 评论采集设置卡片 */}
@@ -375,15 +390,6 @@ export default function CommentsPage() {
           <span style={{ fontSize: 14, color: "#555" }}>每级二级评论数</span>
           <InputNumber min={0} placeholder="无限" value={maxLevel2}
             onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 110 }} />
-        </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          <Tooltip title="窗口分离: 独立出搜一搜窗口。搜索时打开搜一搜有两种形态: ①独立弹出搜一搜窗口 ②嵌入微信窗口内部; 本功能统一为第一种(独立窗口)方式。">
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 14, color: "#555" }}>
-              窗口分离
-              <QuestionCircleOutlined style={{ color: "#8b949e" }} />
-            </span>
-          </Tooltip>
-          <Switch checked={windowSplit} onChange={setWindowSplit} />
         </div>
       </div>
       {/* 筛选面板 */}
@@ -444,8 +450,9 @@ export default function CommentsPage() {
         style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, minHeight: shown.length ? 0 : undefined, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Tooltip
-            title={si.points.length + si.scrolls.length + si.ai.length > 0 ? `采集前需补全:\n[${si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺; " : ""}${si.ai.length > 0 ? "AI模型未配置" : ""}]`.trim() : undefined}>
-            <Button type="primary" disabled={si.points.length + si.scrolls.length + si.ai.length > 0}
+            title={(si.points.length + si.scrolls.length + si.ai.length > 0 ? `采集前需补全:\n[${si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺; " : ""}${si.ai.length > 0 ? "AI模型未配置" : ""}]`.trim()
+              : wxLogged === false ? "请先登录微信后再采集评论" : undefined)}>
+            <Button type="primary" disabled={si.points.length + si.scrolls.length + si.ai.length > 0 || wxLogged === false}
               icon={si.points.length + si.scrolls.length + si.ai.length > 0 ? <ExclamationCircleOutlined /> : <ReloadOutlined />}
               onClick={openCollect}>采集</Button>
           </Tooltip>
@@ -464,7 +471,7 @@ export default function CommentsPage() {
         </div>
         ) : shown.length > 0 ? (
         <div ref={tableWrapRef} style={{ flex: 1, minHeight: 0, position: "relative", overflow: "auto" }}>
-          <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" sticky scroll={{ x: 1200 }}
+          <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" sticky scroll={{ x: 1200, y: tableY }}
             rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
             locale={{ emptyText: <Empty description={loadErr ? "加载失败，请重试" : "暂无评论"} /> }}
             columns={[
@@ -504,7 +511,7 @@ export default function CommentsPage() {
           <Empty description={loadErr ? "加载失败，请重试" : "暂无评论"} />
         </div>
         )}
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 10 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, paddingTop: 10, flexShrink: 0 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Button size="small" icon={<FileExcelOutlined />} onClick={exportExcel}>导出表格</Button>
           </div>
@@ -515,7 +522,7 @@ export default function CommentsPage() {
         </div>
       </div>
       {/* 导入进度弹窗 */}
-      <Modal title="正在导入" open={importing} footer={null} closable={false} width={400}>
+      <Modal mask={{ closable: false }} title="正在导入" open={importing} footer={null} closable={false} width={400}>
         <div style={{ textAlign: "center", padding: "8px 0" }}>
           <Typography.Title level={5} style={{ marginTop: 0 }}>导入进度</Typography.Title>
           <Spin size="large" />
@@ -525,7 +532,7 @@ export default function CommentsPage() {
       </Modal>
 
       {/* 评论采集弹窗: 确认阶段 -> 采集进行中 */}
-      <Modal
+      <Modal mask={{ closable: false }}
         open={ccOpen}
         title={ccStarted ? `正在采集「${title || artBiz}」评论` : "确认评论采集设置"}
         onCancel={() => { if (ccStarted) { stopCc(); return; } closeCc(); }}

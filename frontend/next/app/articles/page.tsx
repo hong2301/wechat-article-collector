@@ -1,16 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
-import { useRouter } from "next/navigation";
+import { API_BASE } from "../lib/api";
 import dayjs from "dayjs";
 import { Table, Button, Typography, Space, Tag, message, Modal, Empty, Input, Tooltip, Progress, DatePicker, InputNumber, Spin, Switch, Select } from "antd";
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined, ImportOutlined, InboxOutlined, SearchOutlined, ClearOutlined, UpOutlined, DownOutlined, MessageOutlined, FolderOpenOutlined, DownloadOutlined, ReloadOutlined, FileExcelOutlined, ExclamationCircleOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import * as XLSX from "xlsx";
 import PaginationBar, { calcPageSize } from "../components/PaginationBar";
+import { useNav } from "../lib/nav";
 import { hideTaskbar, showTaskbar } from "../components/taskbar";
+import { useConflictGate } from "../components/ConflictGate";
 import { useSettingsIssues } from "../components/useSettingsIssues";
+import { useWechatStatus } from "../components/useWechatStatus";
 
-const API = "http://127.0.0.1:8000/api/accounts";
+const API = API_BASE + "/api/accounts";
 const ART_PREFIX = "https://mp.weixin.qq.com/s/";
 
 // 合并「起~止」为一体范围输入框
@@ -49,19 +52,30 @@ interface Article {
 }
 
 export default function ArticlePage() {
-  const router = useRouter();
+  const Nav = useNav();
   const [biz, setBiz] = useState("");
   const [name, setName] = useState("");
   const [articles, setArticles] = useState<Article[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
-  const [sortInfo, setSortInfo] = useState<{ key: string; order: "ascend" | "descend" }>({ key: "acc_name", order: "ascend" });
+  const [sortInfo, setSortInfo] = useState<{ key: string; order: "ascend" | "descend" }>({ key: "date", order: "descend" });
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
   const [quickActive, setQuickActive] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(true);
+  // 表格可视高度(供 scroll.y, 让横向滚动条常驻表体底部)
+  const [tableY, setTableY] = useState(0);
+  const [tbH, setTbH] = useState(0);
+  useEffect(() => {
+    const measure = () => {
+      if (tableWrapRef.current) setTableY(Math.max(100, tableWrapRef.current.clientHeight - 56));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const t = setInterval(measure, 800);   // 数据/布局变化兜底
+    return () => { window.removeEventListener("resize", measure); clearInterval(t); };
+  }, []);
   // 更新设置(与公众号页共享配置): 窗口分离/4指标/阅读数/保存Html
-  const [windowSplit, setWindowSplit] = useState(true);
   const [capture4metrics, setCapture4metrics] = useState(false);
   const [captureRead, setCaptureRead] = useState(false);
   const [saveHtml, setSaveHtml] = useState(false);
@@ -75,8 +89,7 @@ export default function ArticlePage() {
   useEffect(() => {
     try {
       const d = JSON.parse(localStorage.getItem("updateConfig") || "{}");
-      if (typeof d.window_split === "boolean") setWindowSplit(d.window_split);
-      if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
+            if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
       if (typeof d.capture_read === "boolean") setCaptureRead(d.capture_read);
       if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
       if (typeof d.capture_comments === "boolean") setCaptureComments(d.capture_comments);
@@ -93,7 +106,7 @@ export default function ArticlePage() {
     if (!cfgLoaded) return;
     try {
       const d = JSON.parse(localStorage.getItem("updateConfig") || "{}");
-      d.window_split = windowSplit; d.capture_4metrics = capture4metrics;
+      d.capture_4metrics = capture4metrics;
       d.capture_read = captureRead; d.save_html = saveHtml;
       d.capture_comments = captureComments; d.max_comments = maxComments;
       d.max_level1 = maxLevel1; d.max_level2 = maxLevel2;
@@ -102,7 +115,7 @@ export default function ArticlePage() {
       d.quick = quickActive;
       localStorage.setItem("updateConfig", JSON.stringify(d));
     } catch { /* 忽略 */ }
-  }, [cfgLoaded, windowSplit, capture4metrics, captureRead, saveHtml, captureComments, maxComments, maxLevel1, maxLevel2, dateRange, quickActive]);
+  }, [cfgLoaded, capture4metrics, captureRead, saveHtml, captureComments, maxComments, maxLevel1, maxLevel2, dateRange, quickActive]);
   const NUM_FIELDS = [
     { key: "reads", label: "阅读" },
     { key: "likes", label: "点赞" },
@@ -129,6 +142,7 @@ export default function ArticlePage() {
   // 更新弹窗(单篇文章更新)
   const [updOpen, setUpdOpen] = useState(false);
   const si = useSettingsIssues();
+  const wxLogged = useWechatStatus();
   const [updStarted, setUpdStarted] = useState(false);
   const [updTask, setUpdTask] = useState<Article | null>(null);
   const [updLogs, setUpdLogs] = useState<string[]>([]);
@@ -236,7 +250,7 @@ export default function ArticlePage() {
     setDlKey(a.art_biz);
     const hint = message.loading("正在下载...", 0);
     try {
-      const d = await (await fetch("http://127.0.0.1:8000/api/settings/save-article-html", {
+      const d = await (await fetch(API_BASE + "/api/settings/save-article-html", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ link, account_name: name || "" }),
       })).json();
@@ -268,7 +282,7 @@ export default function ArticlePage() {
       setDlItems((p) => p.map((x, j) => j === i ? { ...x, status: "下载中" } : x));
       try {
         const link = `https://mp.weixin.qq.com/s/${a.art_biz}`;
-        const resp = await fetch("http://127.0.0.1:8000/api/settings/save-article-html", {
+        const resp = await fetch(API_BASE + "/api/settings/save-article-html", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ link, account_name: name || "" }),
           signal: dlAbortRef.current?.signal,
@@ -309,12 +323,15 @@ export default function ArticlePage() {
     setUpdLogs([]);
     setUpdOpen(true);
   }
+  const { runWithGuard } = useConflictGate();
   // 确认更新: 按队列启动(多个串行完整更新流程)
   function confirmUpdate() {
     if (updQueue.length === 0) return;
-    setUpdStopped(false);
-    setUpdStarted(true);
-    runUpd(0);
+    void runWithGuard(async () => {
+      setUpdStopped(false);
+      setUpdStarted(true);
+      runUpd(0);
+    }, "文章更新采集");
   }
   // 关闭更新弹窗: 收起界面 + 刷新文章列表(更新数据后重新拉取)
   function closeUpd() {
@@ -323,7 +340,7 @@ export default function ArticlePage() {
   }
   // 停止更新: 通知后端中止 + 断开SSE, 按钮变关闭
   function stopUpdate() {
-    fetch("http://127.0.0.1:8000/api/collect/stop", { method: "POST" }).catch(() => {});
+    fetch(API_BASE + "/api/collect/stop", { method: "POST" }).catch(() => {});
     updAbortRef.current?.abort();
     setUpdStopped(true);
   }
@@ -353,7 +370,6 @@ export default function ArticlePage() {
       name: name || "",
       biz: biz || "",
       link,
-      window_split: windowSplit,
       capture_4metrics: capture4metrics,
       capture_read: captureRead,
       save_html: saveHtml,
@@ -365,7 +381,7 @@ export default function ArticlePage() {
     (async () => {
       let finished = false;
       try {
-        const resp = await fetch("http://127.0.0.1:8000/api/collect/update", {
+        const resp = await fetch(API_BASE + "/api/collect/update", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload), signal: controller.signal,
         });
@@ -441,8 +457,8 @@ export default function ArticlePage() {
     const isAll = biz === "all";
     try {
       const url = isAll
-        ? `http://127.0.0.1:8000/api/settings/open-downloads`
-        : `http://127.0.0.1:8000/api/settings/open-downloads?sub=${encodeURIComponent(name || "")}`;
+        ? `${API_BASE}/api/settings/open-downloads`
+        : `${API_BASE}/api/settings/open-downloads?sub=${encodeURIComponent(name || "")}`;
       const d = await (await fetch(url, { method: "POST" })).json();
       if (!d.ok) message.error(d.error || "打开失败");
     } catch { message.error("无法连接后端"); }
@@ -596,24 +612,17 @@ export default function ArticlePage() {
   }
 
   return (
-    <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden", gap: 10, background: "#f5f6f8" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 0 8px" }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => router.push("/")}>返回</Button>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => Nav("/")}>返回</Button>
         <Typography.Title level={5} style={{ margin: 0 }}>「{name || "..."}」的文章列表</Typography.Title>
       </div>
       {/* 更新设置卡片(开关行 + 评论采集设置行) */}
-      <div style={{ display: "flex", flexDirection: "column", background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px", margin: "0 0 12px" }}>
+      <div style={{ display: "flex", flexDirection: "column", background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "12px 18px", margin: "0 0 12px", flexShrink: 0 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minHeight: 32 }}>
-          <Tooltip title="窗口分离: 独立出搜一搜窗口。搜索时打开搜一搜有两种形态: ①独立弹出搜一搜窗口 ②嵌入微信窗口内部; 本功能统一为第一种(独立窗口)方式。">
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 14, color: "#555" }}>
-              窗口分离
-              <QuestionCircleOutlined style={{ color: "#8b949e" }} />
-            </span>
-          </Tooltip>
-          <Switch checked={windowSplit} onChange={setWindowSplit} />
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，4指标采集不可用:\n${si.ai.join("\n")}` : undefined}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", marginLeft: 12 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
               <span style={{ fontSize: 14, color: si.ai.length > 0 ? "#ff4d4f" : "#555" }}>采集4指标</span>
               {si.ai.length > 0 && <ExclamationCircleOutlined style={{ color: "#ff4d4f" }} />}
               <Switch checked={capture4metrics} disabled={si.ai.length > 0} onChange={setCapture4metrics} />
@@ -625,7 +634,7 @@ export default function ArticlePage() {
           <Switch checked={saveHtml} onChange={setSaveHtml} />
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，评论采集不可用:\n${si.ai.join("\n")}` : undefined}>
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", marginLeft: 12 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
               <span style={{ fontSize: 14, color: si.ai.length > 0 ? "#ff4d4f" : "#555" }}>评论采集</span>
               {si.ai.length > 0 && <ExclamationCircleOutlined style={{ color: "#ff4d4f" }} />}
               <Switch checked={captureComments} disabled={si.ai.length > 0} onChange={setCaptureComments} />
@@ -647,7 +656,7 @@ export default function ArticlePage() {
         )}
       </div>
       {/* 筛选面板 */}
-      <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "14px 18px", margin: "0 0 12px" }}>
+      <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "14px 18px", margin: "0 0 12px", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
           <DatePicker.RangePicker
             value={dateRange}
@@ -707,11 +716,11 @@ export default function ArticlePage() {
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files?.[0]; if (f) importFile(f); }}
-        style={{ display: "flex", flexDirection: "column", flex: shown.length ? 1 : undefined, background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
+        style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflow: "hidden", background: dragOver ? "#eef4ff" : "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "16px 18px", transition: ".2s", border: dragOver ? "2px dashed #1565c0" : "2px solid transparent" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
           <Tooltip
-            title={si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能更新" : undefined}>
-            <Button type="primary" disabled={si.points.length + si.scrolls.length > 0}
+            title={(si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能更新" : wxLogged === false ? "请先登录微信后再更新" : undefined)}>
+            <Button type="primary" disabled={si.points.length + si.scrolls.length > 0 || wxLogged === false}
               icon={si.points.length + si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <ReloadOutlined />}
               onClick={openUpdateSelected}>更新选中</Button>
           </Tooltip>
@@ -731,7 +740,7 @@ export default function ArticlePage() {
         </div>
         ) : shown.length > 0 ? (
         <div ref={tableWrapRef} style={{ flex: 1, minHeight: 0, position: "relative", overflow: "auto" }}>
-        <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" sticky scroll={{ x: 1500 }}
+        <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" scroll={{ x: 1500, y: tableY }}
           onChange={(_p: any, _f: any, sorter: any) => {
             const s = Array.isArray(sorter) ? sorter[0] : sorter;
             const key = s?.columnKey || s?.field;
@@ -781,7 +790,7 @@ export default function ArticlePage() {
                     {r.comment_count ?? 0}/{v || 0}
                   </span>
                   <Button size="small" type="link" icon={<MessageOutlined />}
-                    onClick={() => router.push(`/comments?art_biz=${encodeURIComponent(r.art_biz || "")}&biz=${encodeURIComponent(biz)}&name=${encodeURIComponent(name || "")}&title=${encodeURIComponent(r.title || "")}`)}>查看</Button>
+                    onClick={() => Nav(`/comments?art_biz=${encodeURIComponent(r.art_biz || "")}&biz=${encodeURIComponent(biz)}&name=${encodeURIComponent(name || "")}&title=${encodeURIComponent(r.title || "")}`)}>查看</Button>
                 </Space>
               ),
             },
@@ -805,8 +814,8 @@ export default function ArticlePage() {
                 <Space>
                   <Button size="small" type="link" icon={<DownloadOutlined />} loading={dlKey === (r.art_biz || "")} onClick={() => downloadHtml(r)}>下载</Button>
                   <Tooltip
-                    title={si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能更新" : undefined}>
-                    <Button size="small" type="link" disabled={si.points.length + si.scrolls.length > 0}
+                    title={(si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能更新" : wxLogged === false ? "请先登录微信后再更新" : undefined)}>
+                    <Button size="small" type="link" disabled={si.points.length + si.scrolls.length > 0 || wxLogged === false}
                       icon={si.points.length + si.scrolls.length > 0 ? <ExclamationCircleOutlined /> : <ReloadOutlined />}
                       onClick={() => openUpdate(r)}>更新</Button>
                   </Tooltip>
@@ -833,7 +842,7 @@ export default function ArticlePage() {
         </div>
       </div>
       {/* 导入进度/失败弹窗 */}
-      <Modal title={failedLinks.length || dupRows.length ? "导入结果" : "正在导入"} open={importing}
+      <Modal mask={{ closable: false }} title={failedLinks.length || dupRows.length ? "导入结果" : "正在导入"} open={importing}
         footer={(failedLinks.length || dupRows.length) ? <Button type="primary" onClick={() => setImporting(false)}>关闭</Button> : null}
         closable={(failedLinks.length || dupRows.length) > 0} onCancel={() => setImporting(false)} width={520}>
         {(failedLinks.length || dupRows.length) ? (
@@ -885,7 +894,7 @@ export default function ArticlePage() {
         </div>
       </Modal>
 
-      <Modal title="新增文章" open={addOpen} onOk={saveNew} confirmLoading={saving} onCancel={() => setAddOpen(false)}
+      <Modal mask={{ closable: false }} title="新增文章" open={addOpen} onOk={saveNew} confirmLoading={saving} onCancel={() => setAddOpen(false)}
         okText="保存" cancelText="取消">
         <Space vertical style={{ width: "100%" }}>
           <div>请输入文章链接，保存后显示在标题列（无标题则显示链接）。</div>
@@ -894,7 +903,7 @@ export default function ArticlePage() {
       </Modal>
 
       {/* 更新弹窗: 确认阶段 -> 更新进行中 */}
-      <Modal
+      <Modal mask={{ closable: false }}
         open={updOpen}
         title={updStarted ? `正在更新「${updTask?.title || updTask?.art_biz || ""}」 (${updIdx}/${updQueue.length || 1})` : updQueue.length > 1 ? `确认更新设置 (共 ${updQueue.length} 个)` : "确认更新设置"}
         onCancel={() => { if (updStarted) { stopUpdate(); return; } closeUpd(); }}
@@ -917,7 +926,6 @@ export default function ArticlePage() {
             <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
               <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0" }}>更新设置</div>
               {[
-                { label: "窗口分离", value: windowSplit ? "开" : "关" },
                 { label: "采集4指标", value: capture4metrics ? "开" : "关" },
                 { label: "采集阅读数", value: captureRead ? "开" : "关" },
                 { label: "保存Html", value: saveHtml ? "开" : "关" },
@@ -946,7 +954,6 @@ export default function ArticlePage() {
         ) : (
           <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
             {[
-              { label: "窗口分离", value: windowSplit ? "开" : "关" },
               { label: "采集4指标", value: capture4metrics ? "开" : "关" },
               { label: "采集阅读数", value: captureRead ? "开" : "关" },
               { label: "保存Html", value: saveHtml ? "开" : "关" },

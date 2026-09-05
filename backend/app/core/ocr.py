@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import logging as _logging
+from . import obs
 """backend.app.services.ocr: OCR 识别模块（精简版）
 
 参考原 main.py 使用的 RapidOCR 方案，只保留识别能力。
@@ -21,18 +23,14 @@ _ocr_lock = threading.Lock()
 
 # 时间格式正则（参考原 main 实现）
 TIME_PATTERNS = (
-    r"星期[一二三四五六日天]|周[一二三四五六日]|礼拜[一二三四五六日天]",
     r"今天|昨天|前天",
-    r"\d+\s*天前",
-    r"\d+\s*小时前",
-    r"\d+\s*分钟前",
-    r"\d{4}[-/. ]\d{1,2}[-/. ]\d{1,2}",
-    r"\d{1,2}月\d{1,2}日?",
-    r"\d{1,2}[-/]\d{1,2}",
+    r"星期[一二三四五六日天]|周[一二三四五六日]|礼拜[一二三四五六日天]",
+    r"\d{4}[-/. ]\d{1,2}[-/. ]\d{1,2}",          # 往年: 2026/09/05 (分隔符)
+    r"\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日?",  # 往年: 2026年9月5日(中文)
+    r"\d{1,2}月\d{1,2}日?",                        # 今年: 9月6日
 )
 TIME_RE = re.compile("|".join(f"({p})" for p in TIME_PATTERNS))
 
-TIME_BRIGHT_MIN = 140   # 时间点位文字最小亮度
 
 _WEEKDAY_CN = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6}
 
@@ -60,6 +58,7 @@ def get_ocr_engine():
         return _ocr_engine
 
 
+@obs.timed("ocr")
 def ocr(img):
     """输入 PIL 图片, 输出 OCR 识别结果。
     返回: [(中心x, 中心y, 文本, score, sbox, brightness), ...]
@@ -104,73 +103,6 @@ def _text_brightness(crop):
         return sum(text_px) / len(text_px)
     except Exception:
         return 255.0
-
-
-def _region_sample(sbox, box=None, img=None):
-    """通用: 截取 sbox 区域像素采样(深色像素)
-    img 给定时从该 PIL 图裁剪(sbox相对图内+box偏移对应图区域), 否则 ImageGrab 抓当前屏幕
-    返回: [RGB元组,...]; 失败返回 None"""
-    if not sbox or len(sbox) < 4 or box is None:
-        return None
-    try:
-        if img is not None:
-            # sbox 相对截图坐标(截图时OCR基于该图), 直接用, 不加box偏移
-            crop = img.crop((min(p[0] for p in sbox), min(p[1] for p in sbox),
-                             max(p[0] for p in sbox), max(p[1] for p in sbox)))
-            samples = [crop.getpixel((x, y)) for y in range(0, crop.size[1], 2)
-                       for x in range(0, crop.size[0], 2)]
-        else:
-            from PIL import ImageGrab
-            xs = [p[0] for p in sbox]
-            ys = [p[1] for p in sbox]
-            abs_box = (box[0] + min(xs), box[1] + min(ys),
-                       box[0] + max(xs), box[1] + max(ys))
-            img = ImageGrab.grab(bbox=abs_box).convert("RGB")
-            w, h = img.size
-            samples = [img.getpixel((x, y)) for y in range(0, h, 2)
-                       for x in range(0, w, 2)]
-        dark = [p for p in samples if sum(p) < 650]   # 深色像素(文字)
-        return dark if dark else None
-    except Exception:
-        return None
-
-
-def _region_grayish(sbox, box=None, img=None):
-    """判断 sbox 区域主色是否为灰色系(时间点位文字: 三通道接近, 中等亮度)
-    返回 True/False; box 为空或失败返回 None(不判定/不阻断)
-    img 给定时基于该图像素, 否则 ImageGrab 抓屏幕"""
-    dark = _region_sample(sbox, box, img)
-    if not dark:
-        return None
-    r = sum(p[0] for p in dark) / len(dark)
-    g = sum(p[1] for p in dark) / len(dark)
-    b = sum(p[2] for p in dark) / len(dark)
-    spread = max(r, g, b) - min(r, g, b)
-    avg = (r + g + b) / 3
-    # 灰色系: 三通道接近(spread小) 且 中等亮度
-    return spread < 45 and 100 <= avg <= 210
-
-
-def text_color(sbox, box=None):
-    """通用: 判断 sbox 区域文字主色调(平均色判定, 同 _region_grayish 思路)
-    返回: 'blue'(蓝调: B明显高于R且不低于G) / 'gray'(灰系: 三通道接近+中等亮度)
-          / 'black'(深黑) / 'other'; 无深色或失败返回 None"""
-    dark = _region_sample(sbox, box)
-    if not dark:
-        return None
-    r = sum(p[0] for p in dark) / len(dark)
-    g = sum(p[1] for p in dark) / len(dark)
-    b = sum(p[2] for p in dark) / len(dark)
-    spread = max(r, g, b) - min(r, g, b)
-    avg = (r + g + b) / 3
-    # 蓝调: B 明显高于 R 且不低于 G (余下按钮实测) / 灰系: 三通道接近+中等亮度
-    if b > r + 15 and b >= g:
-        return "blue"
-    if spread < 45 and 100 <= avg <= 210:
-        return "gray"
-    if avg < 60 and spread < 60:
-        return "black"
-    return "other"
 
 
 def extract_reads(text):
@@ -242,12 +174,32 @@ def resolve_date(text, today=None):
     return None
 
 
-def classify_items(items, box=None):
+
+def _abs_sbox(pt, sbox, box, img):
+    """sbox 单点 -> 屏幕绝对(统一换算; img+完整bbox 走 shot_abs 比例, 否则直加)"""
+    return ocr_abs(img, box, int(pt[0]), int(pt[1]))
+
+
+def ocr_abs(img, bbox, x, y):
+    """图像相对坐标 -> 屏幕绝对坐标(全项目唯一换算入口)
+    img 给且 bbox 含 x2,y2(4元素) 时按 DPI 比例(shot_abs); 否则用 bbox 起点直加(旧行为)"""
+    from ..core import computer as _pc
+    if bbox is None:
+        return int(x), int(y)
+    bbox = tuple(bbox)
+    if img is None or len(bbox) < 4:
+        return int(bbox[0]) + int(x), int(bbox[1]) + int(y)
+    return _pc.shot_abs(img, bbox, x, y)
+
+
+def classify_items(items, box=None, img=None):
     """对 OCR 原始数据分类识别时间/文章点位。
     参数:
       items  ocr() 的原始返回: [(cx, cy, text, score, sbox, brightness)]
              sbox 为相对截图坐标; box=(截图区域左上x,左上y) 用于换算屏幕绝对坐标
-      box   截图区域左上角 (x1,y1); None 时灰字校验跳过
+      box   截图区域 (x1,y1) 或 (x1,y1,x2,y2); None 时灰字校验跳过
+      img   截图 PIL 图(可选): 给出时 sbox->绝对 走 pc.shot_abs(DPI按比例);
+            否则用 box 起点直加(旧行为)
     返回: [(顺序, 点位类型, 点位文本, 点位box坐标, data), ...] 按 y 从上到下
       点位类型: 'time'(时间点位) / 'article'(文章点位, 含'阅读'+数字 或 '付费')
       点位box坐标: [(x1,y1),(x2,y2)...] 屏幕绝对坐标(四角)
@@ -263,29 +215,147 @@ def classify_items(items, box=None):
         m_read = re.search(r"阅读\s*\d+", text or "")    # '阅读'+数字
         m_pay = "付费" in (text or "")                    # '付费'(可能无阅读)
         if has_time and not m_read:
-            # 时间点位: 浅灰白文字(亮度>=140) + 灰色系校验
-            if brightness < TIME_BRIGHT_MIN:
-                continue                      # 深色 -> 非时间点位
-            gray = _region_grayish(sbox, box)
-            if gray is False:
-                continue                      # 非灰 -> 非时间点位
+            # 时间点位颜色判据: 统一 color_sort(文字框前两主色), 判定外联=灰+浅色
+            try:
+                from PIL import ImageGrab
+                _full = ImageGrab.grab().convert("RGB")
+                _cols = color_sort(_full, region=(
+                    ox + min(p[0] for p in sbox), oy + min(p[1] for p in sbox),
+                    ox + max(p[0] for p in sbox), oy + max(p[1] for p in sbox)))
+                _colset = {c for _, _, c in _cols[:2]}
+                _okc = bool(_colset.issubset({"灰", "白"}) and _colset & {"灰"})
+            except Exception:
+                _okc = True                    # 取色失败不阻断(同原 None 语义)
+            if _okc is False:
+                log_time_reject(text, _cols)
+                continue                      # 非灰+浅色 -> 非时间点位
             d = resolve_date(text)
-            data = {"time": d.strftime("%Y/%m/%d") if d else None,
+            if d is None:
+                continue                      # 解析不出标准日期(如日期区间'8.31-9.6') -> 非法时间点位, 忽略
+            data = {"time": d.strftime("%Y/%m/%d"),
                     "reads": None, "likes": None}
             ordered.append((cy, "time", text,
-                            [(int(p[0]) + ox, int(p[1]) + oy) for p in sbox],
+                            [_abs_sbox(p, sbox, box, img) for p in sbox],
                             data))
         elif m_read or m_pay:
             data = {"time": None,
                     "reads": extract_reads(text),
                     "likes": extract_likes(text)}
             ordered.append((cy, "article", text,
-                            [(int(p[0]) + ox, int(p[1]) + oy) for p in sbox],
+                            [_abs_sbox(p, sbox, box, img) for p in sbox],
                             data))
     ordered.sort(key=lambda r: r[0])   # 按 y 排序(从上到下)
+    # 文章点位位置校验(不靠颜色): box 的 y / 高度 应与同屏其他点位"差不多"
+    # 参照=本屏全部点位的 y 分布范围 与 高度中位; 明显越界(如页面别处的"阅读xx")剔除
+    # 仅该屏 1 个点位(无参照)时保留, 避免误删
+    if len(ordered) > 1:
+        _hs = sorted(max(p[1] for p in b[3]) - min(p[1] for p in b[3]) for b in ordered)
+        _hm = _hs[len(_hs) // 2]                      # 点位高度中位(参考行高)
+        _kept = []
+        for _it in ordered:
+            _type = _it[1]; _bbox = _it[3]
+            _keep = True
+            if _type == "article":
+                _y = min(p[1] for p in _bbox)
+                _h = max(p[1] for p in _bbox) - min(p[1] for p in _bbox)
+                if not (_hm * 0.5 <= _h <= _hm * 2.0):
+                    _keep = False                     # 高度明显偏离列表项布局
+                    _logging.getLogger("perf").log(
+                        20, "[pos-drop] %r y=%d h=%d 高度中位=%d 原因=高度偏离(0.5~2x不满足)",
+                        _it[2], _y, _h, _hm)
+                else:
+                    # y"差不多"判定: 与其余最近点位的顶部y距离(列表常规间距内OK, 孤立远点剔除)
+                    _near = min(abs(_y - min(p[1] for p in b[3]))
+                                for b in ordered if b is not _it)
+                    if _near > max(300, _hm * 24):    # 远离其他点位(≥300px或行高24x才算孤立误识别)
+                        _keep = False
+                        _logging.getLogger("perf").log(
+                            20, "[pos-drop] %r y=%d 最近邻=%d 行高中位=%d 原因=最近邻>max(300,行高24x)",
+                            _it[2], _y, _near, _hm)
+            if _keep:
+                _kept.append(_it)
+        ordered = _kept
     return [(i + 1, typ, text, sbox, data)
             for i, (_y, typ, text, sbox, data) in enumerate(ordered)]
 
 
 __all__ = ["init", "ocr", "classify_items",
            "extract_reads", "extract_likes", "resolve_date"]
+
+
+def log_time_reject(text, cols=None):
+    """诊断: 时间点位颜色判据拒绝时打日志(含颜色排序明细: rgb,count,色系)"""
+    import logging as _lg
+    try:
+        _detail = [f"{rgb}({cnt}){cn}" for rgb, cnt, cn in (cols or [])[:4]]
+        _lg.getLogger("perf").log(20, "[time-reject] %r 颜色排序=%s", text, _detail)
+    except Exception:
+        pass
+
+
+def _name_color(rgb):
+    """按常见色系把 (r,g,b) 归名(自然语言): 白/黑/灰/蓝/红/绿/黄/紫/彩"""
+    r, g, b = rgb
+    span = max(rgb) - min(rgb)
+    if span < 60:                       # 无彩色系 / 近白低饱和(如浅蓝紫(200,200,240)应视为白底)
+        avg = (r + g + b) // 3
+        if avg >= 205:
+            return "白"
+        if avg <= 55:
+            return "黑"
+        return "灰"
+    if r >= 150 and r - g > 60 and r - b > 60:
+        return "红"
+    if b >= 150 and b - r > 60 and b - g > 60:
+        return "蓝"
+    if g >= 150 and g - r > 60 and g - b > 60:
+        return "绿"
+    if r >= 140 and b >= 140 and r - g > 60 and b - g > 60:
+        return "紫"
+    if r >= 150 and g >= 150 and r - b > 60 and g - b > 60:
+        return "黄"
+    return "彩"
+
+
+def color_sort(img, region=None, top=4, merge=True):
+    """按 RGB 出现频率对图片主色排序, 每项带色系名称(判定留给调用方)
+
+    参数:
+      img    PIL Image
+      region 可选 (x1, y1, x2, y2); None=整图
+      top    返回前 top 名
+      merge  True(默认) 同色系合并: 每种色系一条(rgb=加权平均, count=求和)
+             例: 灰字白底 -> [(灰均值, 灰像素数, '灰'), (白均值, 白像素数, '白'), ...]
+             False 输出未合并的量化桶(可能同色系多档, 如多个深浅不同的灰)
+
+    返回: [(rgb, count, 色系名称), ...] 从多到少
+    """
+    if region is not None:
+        img = img.crop(region)
+    if img.width < 4 or img.height < 4:
+        return []
+    small = img.convert("RGB").resize((30, 30))            # 降采样, 主色占比更稳
+    counts = {}
+    for px in small.getdata():
+        q = ((px[0] // 40) * 40, (px[1] // 40) * 40, (px[2] // 40) * 40)
+        counts[q] = counts.get(q, 0) + 1
+    buckets = sorted(counts.items(), key=lambda kv: -kv[1])[:top]
+    if not merge:
+        return [(rgb, c, _name_color(rgb)) for rgb, c in buckets]
+    # 合并同色系: rgb 按 count 加权平均, count 求和, 按合并后 count 降序
+    merged = {}
+    for rgb, c in buckets:
+        name = _name_color(rgb)
+        if name not in merged:
+            merged[name] = [0, 0, 0, 0]          # r,g,b,count
+        w = merged[name]
+        w[0] += rgb[0] * c; w[1] += rgb[1] * c; w[2] += rgb[2] * c
+        w[3] += c
+    out = []
+    for name, w in merged.items():
+        rgb_avg = (w[0] // w[3], w[1] // w[3], w[2] // w[3])
+        out.append((rgb_avg, w[3], name))
+    out.sort(key=lambda t: -t[1])
+    return out[:top]
+
+
