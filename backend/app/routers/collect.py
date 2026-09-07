@@ -100,6 +100,8 @@ class CollectStart(BaseModel):
     max_comments: int | None = None # 文章最大评论采集数(空=无限, 3个全0=不采评论)
     max_level1: int | None = None   # 一级评论采集数(空=无限)
     max_level2: int | None = 0      # 每级二级评论采集数(默认0=不采二级, null=无限)
+    capture_keyword: bool = False   # 关键词查询开关
+    keyword: str = ""               # 要查询的关键词
 
 
 class UpdateStart(BaseModel):
@@ -114,6 +116,8 @@ class UpdateStart(BaseModel):
     max_comments: int | None = None # 文章最大评论采集数(空=无限, 3个全0=不采评论)
     max_level1: int | None = None   # 一级评论采集数(空=无限)
     max_level2: int | None = 0      # 每级二级评论采集数(默认0=不采二级, null=无限)
+    capture_keyword: bool = False   # 关键词查询开关
+    keyword: str = ""               # 要查询的关键词
 
 
 class CommentStart(BaseModel):
@@ -128,6 +132,8 @@ class CommentStart(BaseModel):
     max_comments: int | None = None # 文章最大评论采集数(空=无限)
     max_level1: int | None = None   # 一级评论采集数(空=无限)
     max_level2: int | None = 0      # 每级二级评论采集数(默认0=不采二级, null=无限)
+    capture_keyword: bool = False   # 关键词查询开关
+    keyword: str = ""               # 要查询的关键词
 
 
 def _sse(data: dict):
@@ -182,7 +188,19 @@ def _collect_generate(payload: CollectStart):
             if not ok:
                 log_q.put(("done", False, "搜一搜查询失败"))
                 return
-            # 5) 文章列表识别循环(死循环, 前端断开/手动停止时结束)
+            # 5) 关键词分支: keyword 非空 -> 关键词查询流程(gzh_query_page_init 为第一步); 否则旧流程
+            _kw = (payload.keyword or "").strip()
+            if _kw:
+                log_q.put(("log", f"[关键词查询] 分支启动 (关键词={_kw!r})"))
+                ok, text = tasks_service.gzh_query_page_init()
+                log_q.put(("log", f"[公众号查询页初始化] {'成功' if ok else '失败'} | {text}"))
+                if not ok:
+                    log_q.put(("done", False, "公众号查询页初始化失败"))
+                    return
+                tasks_service.wait_bg_done()
+                log_q.put(("done", True, "关键词查询流程(当前仅完成查询页初始化, 后续待扩展)"))
+                return
+            # 5b) 旧流程: 文章列表识别循环(死循环, 前端断开/手动停止时结束)
             log_q.put(("log", "进入文章列表识别循环(可手动停止)"))
             ok, text = tasks_service.article_list_wait_stable(
                 date_start=payload.date_start, date_end=payload.date_end,

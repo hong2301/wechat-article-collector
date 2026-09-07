@@ -289,6 +289,13 @@ def search_query(link=""):
     time.sleep(0.3)
     pc.key_press(pc.VK_RETURN)
     logs.append("按回车")
+    # 回车后鼠标移到点位15(文章列表左上角, 为后续列表/关键词流程就位)
+    p15 = _read_point(15)
+    if p15:
+        pc._u32().SetCursorPos(p15[0], p15[1])
+        logs.append(f"鼠标已移到点位15({p15[0]},{p15[1]})")
+    else:
+        logs.append("缺少点位15, 未移动鼠标")
     return True, "; ".join(logs)
 
 

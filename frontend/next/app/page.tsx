@@ -182,6 +182,9 @@ export default function Home() {
   const [maxComments, setMaxComments] = useState<number | null>(null);   // 文章最大评论采集数(空=无限)
   const [maxLevel1, setMaxLevel1] = useState<number | null>(null);      // 一级评论数(空=无限)
   const [maxLevel2, setMaxLevel2] = useState<number | null>(0);               // 每级二级评论采集数(默认0, 空=无限)
+  // 关键词查询设置
+  const [captureKeyword, setCaptureKeyword] = useState(false);   // 关键词查询开关
+  const [keywordQuery, setKeywordQuery] = useState("");         // 要查询的关键词
   // 保存HTML根目录(存储路径, 空=默认 <数据目录>/article_data)
   const [saveDir, setSaveDir] = useState("");
 
@@ -428,6 +431,8 @@ export default function Home() {
       max_comments: captureComments ? maxComments : 0,
       max_level1: captureComments ? maxLevel1 : 0,
       max_level2: captureComments ? maxLevel2 : 0,
+      capture_keyword: captureKeyword,
+      keyword: keywordQuery.trim(),
     };
 
     (async () => {
@@ -692,6 +697,13 @@ export default function Home() {
               <Switch checked={captureComments} disabled={si.ai.length > 0} onChange={setCaptureComments} />
             </span>
           </Tooltip>
+          <Tooltip
+            title={captureKeyword ? "开启后按关键词筛选要采集的文章" : undefined}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+              <span style={{ fontSize: 14, color: "#555" }}>关键词查询</span>
+              <Switch checked={captureKeyword} onChange={setCaptureKeyword} />
+            </span>
+          </Tooltip>
         </div>
         {/* 评论采集设置行(开关开时显示) */}
         {captureComments && (
@@ -705,6 +717,13 @@ export default function Home() {
             <span style={{ fontSize: 13, color: "#555" }}>每级二级评论数</span>
             <InputNumber min={0} placeholder="无限" value={maxLevel2}
               onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 90 }} />
+          </div>
+        )}
+        {/* 关键词查询设置行(开关开时显示) */}
+        {captureKeyword && (
+          <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", minHeight: 32 }}>
+            <Input placeholder="请输入要查询的关键词" value={keywordQuery} allowClear
+              onChange={(e) => setKeywordQuery(e.target.value)} style={{ width: 280 }} />
           </div>
         )}
         {/* 设置按钮行(第三行) */}
@@ -914,6 +933,7 @@ export default function Home() {
                 { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
                 { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
                 { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
+                { label: "关键词查询", value: keywordQuery ? `${keywordQuery}` : "关" },
               ].map((row) => (
                 <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
                   <span style={{ width: 110, color: "#888", whiteSpace: "nowrap" }}>{row.label}</span>
@@ -950,6 +970,7 @@ export default function Home() {
               { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
               { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
               { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
+              { label: "关键词查询", value: keywordQuery ? `${keywordQuery}` : "关" },
             ].map((row) => (
               <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
                 <span style={{ width: 110, color: "#888", whiteSpace: "nowrap" }}>{row.label}</span>
