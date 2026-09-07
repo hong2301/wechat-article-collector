@@ -144,6 +144,10 @@ def _flow_point14_query_button(ctx):
 
     # 新探测逻辑: 原点=搜一搜文本box右上角, 向右扫, 步长=box中心x/10, 上限3sw/8,
     # 截图x∈[box.max_x,3sw/8], y∈[0,box.top]; 2次变化后点击, 窗口未关=命中, 关闭=步长过大减半重试
+    ok_ap, txt_ap = tasks_svc.init_app_window()      # 采集器窗口先就位右半屏(前置要求)
+    if not ok_ap:
+        log.warning(f"点位14 采集器窗口初始化失败: {txt_ap}")
+        return None, None
     for round_idx in range(3):
         if not _ensure_wechat():
             return None, None
@@ -185,6 +189,9 @@ def _flow_point14_query_button(ctx):
         divide = 1 << round_idx
         step = max(1, mid_x // 10 // divide)   # 步长 = box中心x/10, 每轮减半
         log.info(f"点位14 第{round_idx+1}轮: 原点=({ox},{oy}) 步长={step} 上限x={limit_x} 截图{shot_box}")
+        # 先把鼠标移到原点, 等待5秒渲染稳定后再开始扫描(避免hover/加载未定型)
+        _pc._u32().SetCursorPos(ox, oy)
+        _time.sleep(5)
         base0 = snap()       # 初始基准(未hover)
         base1 = None         # 首次变化后的基准(变化时保存)
         changes = 0

@@ -233,8 +233,8 @@ WECHAT_VERSION = "${wxVer}"  # 微信基准版本(单一来源: 根 .env WECHAT_
   // 2.3b 客人卡密 -> release/guest.key(存在即永久授权; 与模板库同源 scripts/)
   const guestKey = path.join(ROOT, 'scripts', 'guest.key')
   if (fs.existsSync(guestKey)) {
-    fs.copyFileSync(guestKey, path.join(RELEASE, 'guest.key'))
-    console.log('   guest.key -> release/guest.key (客人卡密/永久授权)')
+    fs.copyFileSync(guestKey, path.join(RELEASE, 'data', 'guest.key'))  // 与数据库同目录
+    console.log('   guest.key -> release/data/guest.key (客人卡密/永久授权, 与库同目录)')
   } else {
     console.log('   (无 scripts/guest.key, 跳过客人卡密——正式版需卡密激活)')
   }
