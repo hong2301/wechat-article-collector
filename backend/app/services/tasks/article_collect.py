@@ -307,12 +307,13 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             s_dir = row["direction"] if row else "down"
         except Exception:
             s_dist, s_dir = 0, "down"
-        # 第二次确认截图相同(同2次)时: 滚动前先反向回滚 1/10 距离, 排除"假到底"
+        # 第二次确认截图相同(同2次)时: 滚动前先反向回滚 1/2 距离, 排除"假到底"
         # (页面未刷新/加载动画未触发造成截图不变), 回滚再回来可能触发新内容
         if same_shot == 2 and s_dist > 0:
             back_dir = "up" if s_dir == "down" else "down"
-            pc.scroll(x1, y1, max(1, int(s_dist / 10)), direction=back_dir)
-            echo(f"第{loop_n}轮: 第2次确认相同, 先向{back_dir}回滚 {max(1, int(s_dist/10))}px 再继续")
+            back_dist = max(1, int(s_dist / 2))
+            pc.scroll(x1, y1, back_dist, direction=back_dir)
+            echo(f"第{loop_n}轮: 第2次确认相同, 先向{back_dir}回滚 {back_dist}px 再继续")
         if s_dist > 0:
             pc.scroll(x1, y1, s_dist, direction=s_dir)
             echo(f"第{loop_n}轮末尾: 在点位15({x1},{y1})向{s_dir}滚动 {s_dist}px")
