@@ -192,7 +192,7 @@ def _collect_generate(payload: CollectStart):
             _kw = (payload.keyword or "").strip()
             if _kw:
                 log_q.put(("log", f"[关键词查询] 分支启动 (关键词={_kw!r})"))
-                ok, text = tasks_service.gzh_query_page_init()
+                ok, text = tasks_service.gzh_query_page_init(keyword=_kw)
                 log_q.put(("log", f"[公众号查询页初始化] {'成功' if ok else '失败'} | {text}"))
                 if not ok:
                     log_q.put(("done", False, "公众号查询页初始化失败"))
