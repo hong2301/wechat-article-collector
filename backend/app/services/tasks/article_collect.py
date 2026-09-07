@@ -654,6 +654,9 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
             if _art and _art in _SESSION_ARTS:
                 step(f"重复链接(本次已采过): {link[:60]}, 视为失败进入重试")
                 log.warning("[复制链接] 重复链接(本次已采过): art=%s", _art[:10])
+                # 重复链接 = 确认已点到复制链接按钮(打开过文章页)
+                # 即使最终重试失败退出, 收尾也要 Ctrl+W 关闭标签页
+                copy_seen = True
                 link = None   # 重复 = 失败, 走下方重试(收起菜单/清剪贴板)
         step(f"已复制链接: {link[:60]}" if link else "未读取到剪贴板链接")
         if not link:
