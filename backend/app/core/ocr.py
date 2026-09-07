@@ -88,7 +88,10 @@ def ocr(img):
                     brightness = 255.0
                 items.append((cx, cy, text, score, sbox, brightness))
         return items
-    except Exception:
+    except Exception as e:
+        # 准确错误日志(ERROR -> 进 error.log): 区分"无文本"([] 正常返回)与"引擎故障"
+        _logging.getLogger("ocr").error(
+            "OCR 识别失败: %s: %s", type(e).__name__, e)
         return []
 
 
