@@ -118,6 +118,35 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
         logs.append(msg)
         tasks_echo(msg)
 
+    def _do_scroll():
+        """滚动(滚动配置id3, 锚点点位15) + 滚动后鼠标移点位18; 第2次确认相同先反向回滚一半"""
+        try:
+            conn = get_conn()
+            try:
+                row = conn.execute("SELECT distance, direction FROM scrolls WHERE id=3").fetchone()
+            finally:
+                conn.close()
+            s_dist = int(float(row["distance"])) if row else 0
+            s_dir = row["direction"] if row else "down"
+        except Exception:
+            s_dist, s_dir = 0, "down"
+        if same_shot == 2 and s_dist > 0:
+            back_dir = "up" if s_dir == "down" else "down"
+            back_dist = max(1, int(s_dist / 2))
+            pc.scroll(x1, y1, back_dist, direction=back_dir)
+            echo(f"第{loop_n}轮: 第2次确认相同, 先向{back_dir}回滚 {back_dist}px 再继续")
+        if s_dist > 0:
+            pc.scroll(x1, y1, s_dist, direction=s_dir)
+            echo(f"第{loop_n}轮末尾: 在点位15({x1},{y1})向{s_dir}滚动 {s_dist}px")
+        else:
+            echo("滚动配置3无效, 跳过滚动")
+        p18 = _read_point(18)
+        if p18:
+            pc._u32().SetCursorPos(p18[0], p18[1])
+            echo(f"第{loop_n}轮滚动后鼠标已移到点位18({p18[0]},{p18[1]})")
+        else:
+            echo("第{loop_n}轮缺少点位18, 未移动鼠标")
+
     while True:
         if stop_requested():
             echo("收到停止请求, 退出识别循环")
@@ -137,6 +166,26 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
         if not shot_path:
             echo(f"第{loop_n}轮截图失败")
             return False, f"第{loop_n}轮截图失败"
+        # 截图相同判定(与上一轮): 立即算 md5(临时文件会被覆盖)
+        try:
+            with open(shot_path, "rb") as _f:
+                cur_shot_hash = hashlib.md5(_f.read()).hexdigest()
+        except Exception:
+            cur_shot_hash = None
+        if prev_shot_hash == cur_shot_hash:
+            same_shot = same_shot + 1
+        else:
+            same_shot = 1
+        prev_shot_hash = cur_shot_hash
+        # 连续5次相同 -> 无更多文章, 结束
+        if same_shot >= 5:
+            echo(f"第{loop_n}轮: 连续5次列表截图相同, 判定无更多文章, 停止")
+            return True, "无更多文章"
+        # 截图与上次相同(第2次起) -> 跳过本轮点位处理(点位已处理过), 直接滚动
+        if same_shot >= 2:
+            echo(f"第{loop_n}轮截图与上次相同, 跳过本轮点位处理, 直接滚动")
+            _do_scroll()
+            continue
         try:
             img = Image.open(shot_path)
             items = ocr_service.ocr(img)
@@ -277,48 +326,8 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             else:
                 date_out_count = 0       # 本轮无时间点位, 不判定, 重置
 
-        # 停止条件: 连续3轮OCR列表截图完全相同 -> 无更多文章, 停止(返回True)
-        # 注意: 独立重新截图列表区域, 避免被各采集步骤的截图覆盖污染
-        cur_shot_hash = None
-        try:
-            _sp, _ = pc.screenshot(x1, y1, x2, y2, img_format="png")
-            if _sp:
-                with open(_sp, "rb") as _f:
-                    cur_shot_hash = hashlib.md5(_f.read()).hexdigest()
-        except Exception:
-            cur_shot_hash = None
-        if prev_shot_hash == cur_shot_hash:
-            same_shot = same_shot + 1
-        else:
-            same_shot = 1
-        prev_shot_hash = cur_shot_hash
-        if same_shot >= 5:
-            echo(f"第{loop_n}轮: 连续5次列表截图相同, 判定无更多文章, 停止")
-            return True, "无更多文章"
-
-        # 滚动: 鼠标移到点位15, 触发滚动配置 id=3(向下)
-        try:
-            conn = get_conn()
-            try:
-                row = conn.execute("SELECT distance, direction FROM scrolls WHERE id=3").fetchone()
-            finally:
-                conn.close()
-            s_dist = int(float(row["distance"])) if row else 0
-            s_dir = row["direction"] if row else "down"
-        except Exception:
-            s_dist, s_dir = 0, "down"
-        # 第二次确认截图相同(同2次)时: 滚动前先反向回滚 1/2 距离, 排除"假到底"
-        # (页面未刷新/加载动画未触发造成截图不变), 回滚再回来可能触发新内容
-        if same_shot == 2 and s_dist > 0:
-            back_dir = "up" if s_dir == "down" else "down"
-            back_dist = max(1, int(s_dist / 2))
-            pc.scroll(x1, y1, back_dist, direction=back_dir)
-            echo(f"第{loop_n}轮: 第2次确认相同, 先向{back_dir}回滚 {back_dist}px 再继续")
-        if s_dist > 0:
-            pc.scroll(x1, y1, s_dist, direction=s_dir)
-            echo(f"第{loop_n}轮末尾: 在点位15({x1},{y1})向{s_dir}滚动 {s_dist}px")
-        else:
-            echo("滚动配置3无效, 跳过滚动")
+        # 滚动(配置id3, 反向逻辑与鼠标18都在 _do_scroll 内)
+        _do_scroll()
 
     return True, "; ".join(logs)
 
@@ -591,7 +600,7 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
 
     # 1) 获取复制链接(2次机会): 点18(3点菜单) -> 点27(复制链接) -> 读剪贴板60次
     #    (不依赖点位28/29: 不再截图OCR检测'复制'字样, 点18后直接点27再读剪贴板验证)
-    COPY_TRIES = 2          # 复制链接最大尝试次数(想改 5 次只需改这里)
+    COPY_TRIES = 3          # 复制链接最大尝试次数
     p18 = _read_point(18)   # 文章右上角3点
     p27 = _read_point(27)   # 点击复制链接
     if not p18 or not p27:
@@ -607,7 +616,7 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         # 直接点击复制链接按钮(点位27), 然后读剪贴板验证
         step(f"点击点位27(复制链接)({p27[0]},{p27[1]})")
         pc.mouse_click(p27[0], p27[1])
-        for _i in range(1, 60):
+        for _i in range(1, 20):
             time.sleep(0.1)
             v = pc.read_clipboard_text()
             if v:

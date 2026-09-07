@@ -17,6 +17,7 @@ from ...core import computer as pc
 from ...core import ocr as ocr_service
 from ...core.common import wait_page_stable, _read_point
 from ...database import get_conn
+from .article_collect import article_data_collect
 
 log = logging.getLogger("collect.keysearch")   # 对接 main.py 已配的 root handler -> data/logs/backend.log
 from ...services.tasks.wx_window import WECHAT_APPEX  # noqa: F401 (re-export)
@@ -73,13 +74,13 @@ def _extract_article_points(ocr_items, shot_path, region):
                 log.info("[kw-extract] 颜色不符(含白:%s 含灰:%s, 实际%s, 跳过): %r",
                          "白" in colset, "灰" in colset, sorted(colset), text)
                 continue   # 非灰字白底 -> 排除
-        # 点击坐标: sbox 相对截图 -> 屏幕绝对(DPI 按比例)
+        # 点击坐标: sbox 左上角 -> 屏幕绝对(DPI 按比例); 点击用 box 最左(上)位置
         try:
             _cx0, _cy0 = ocr_service.ocr_abs(_im, region,
                                              min(p[0] for p in sbox), min(p[1] for p in sbox))
             _cx1, _cy1 = ocr_service.ocr_abs(_im, region,
                                              max(p[0] for p in sbox), max(p[1] for p in sbox))
-            click_x, click_y = (_cx0 + _cx1) // 2, (_cy0 + _cy1) // 2
+            click_x, click_y = _cx0, _cy0   # box 左上角
         except Exception:
             click_x, click_y = cx, cy
         log.info("[kw-extract] 命中: %r -> 阅读=%s @(%s,%s)", text, reads, click_x, click_y)
@@ -93,18 +94,23 @@ def _extract_article_points(ocr_items, shot_path, region):
     return points
 
 
-def gzh_query_page_article_loop():
+def gzh_query_page_article_loop(date_start="", date_end="", biz="",
+                                capture_4metrics=False, capture_read=False,
+                                save_html=False, save_dir="",
+                                max_comments=None, max_level1=None, max_level2=0):
     """公众号查询页文章列表循环(关键词查询分支第二步)。
 
     前提(文字记录, 本函数内部不做判定): 须在 gzh_query_page_init 成功(点击点位42,
     已进入公众号查询页文章列表)之后调用。
 
-    流程: while 死循环(刻意安排, 结束条件后续补充):
+    参数: date_start/date_end/biz/采集开关/保存参数/评论参数 与 article_list_wait_stable 一致。
+    流程: while 循环(点击采集后滚动, 连续3轮截图相同结束):
       1) 点位43/44 区域稳定性检测: 60次机会, 连续30次相同判稳定
-      2) 截图点位43/44 区域
+      2) 截图点位43/44 区域(+md5 连续相同判定)
       3) OCR 得到文本结果
-      4) 内部函数提取文章点位(文本含'阅读' + 灰字白底 + 时间/阅读量结构)
-      5) 输出文章点位列表
+      4) 内部函数提取文章点位(文本含'阅读'+数字 + 灰字白底)
+      5) 遍历文章点位: 点击 -> 等0.3s -> article_data_collect(collect_type=1)
+      6) 向下滚动(滚动 id10) + 鼠标移点位18
 
     返回: (成功?, 说明文本) —— 死循环一般由外部停止信号/异常打断
     """
@@ -163,9 +169,9 @@ def gzh_query_page_article_loop():
         prev_shot_hash = cur_shot_hash
 
         # 结束条件: 连续3轮截图完全相同 -> 到底, 结束 while
-        if same_shot >= 3:
-            echo(f"第{loop_n}轮: 连续3次列表截图相同, 判定无更多文章, 停止")
-            log.info("[kw-loop] 第%d轮连续3次截图相同, 退出循环", loop_n)
+        if same_shot >= 5:
+            echo(f"第{loop_n}轮: 连续5次列表截图相同, 判定无更多文章, 停止")
+            log.info("[kw-loop] 第%d轮连续5次截图相同, 退出循环", loop_n)
             return True, "无更多文章"
 
         # 截图与上次相同(第2次确认): 跳过本轮 OCR/提取/输出(点位已拿), 直接滚动
@@ -193,6 +199,22 @@ def gzh_query_page_article_loop():
             log.info("[kw-loop] 第%d轮提取结果: %d 个文章点位", loop_n, len(points))
             for pt in points:
                 echo(f"  文章: 阅读{pt['reads']} | {pt['text']} @({pt['cx']},{pt['cy']})")
+
+            # 5b) 遍历文章点位: 点击 -> 等待0.3s -> article_data_collect(collect_type=1)
+            #     (参考 article_list: 点击后采集, 无日期范围等时间判断)
+            for seq, pt in enumerate(points, 1):
+                echo(f"  点击文章[{seq}] {pt['text']!r} 阅读{pt['reads']} @({pt['cx']},{pt['cy']})")
+                pc.mouse_click(pt["cx"], pt["cy"])
+                _time.sleep(0.3)
+                ok_c, text_c = article_data_collect(
+                    collect_type=1, capture_4metrics=capture_4metrics,
+                    capture_read=capture_read, save_html=save_html,
+                    save_dir=save_dir, biz=biz,
+                    list_reads=pt["reads"], list_likes=None,
+                    max_comments=max_comments, max_level1=max_level1,
+                    max_level2=max_level2)
+                echo(f"  文章[{seq}]数据采集: {'成功' if ok_c else '失败'} | {text_c}")
+                _time.sleep(0.5)   # 采集完成间隔
 
         # 6) 向下滚动(滚动 id10, 锚点=点位43, 距离=|43.y-44.y|*0.95)
         try:

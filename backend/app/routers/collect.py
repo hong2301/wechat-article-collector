@@ -197,7 +197,13 @@ def _collect_generate(payload: CollectStart):
                 if not ok:
                     log_q.put(("done", False, "公众号查询页初始化失败"))
                     return
-                ok2, text2 = tasks_service.gzh_query_page_article_loop()
+                ok2, text2 = tasks_service.gzh_query_page_article_loop(
+                    date_start=payload.date_start, date_end=payload.date_end,
+                    biz=payload.biz, capture_4metrics=payload.capture_4metrics,
+                    capture_read=payload.capture_read, save_html=payload.save_html,
+                    save_dir=payload.save_dir,
+                    max_comments=payload.max_comments, max_level1=payload.max_level1,
+                    max_level2=payload.max_level2)
                 log_q.put(("log", f"[公众号查询页文章列表循环] 结束 | {text2}"))
                 tasks_service.wait_bg_done()
                 log_q.put(("done", ok2, text2 or "关键词查询流程结束"))
