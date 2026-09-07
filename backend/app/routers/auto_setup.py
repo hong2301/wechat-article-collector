@@ -58,6 +58,7 @@ def auto_setup_scroll(sid: int):
     pair = {
         "文章列表滚动": (15, 16),
         "评论区滚动": (35, 36),
+        "公众号查询文章列表滚动距离": (43, 44),
     }.get(row["name"])
     if not pair:
         return {"ok": False, "name": row["name"], "error": f"未配置点位对应: {row['name']}"}
@@ -69,7 +70,7 @@ def auto_setup_scroll(sid: int):
     y1s, y2s = str(pt1["y"] or "").strip(), str(pt2["y"] or "").strip()
     if not (y1s.isdigit() and y2s.isdigit()):
         return {"ok": False, "name": row["name"], "error": f"点位{p1}/{p2} 坐标未设置(需先一键设置校准), 无法计算滚动距离"}
-    dist = int(abs(int(y2s) - int(y1s)) * 0.95)   # 区域高度(y绝对值差)再小5%
+    dist = int(abs(int(y2s) - int(y1s)) * 0.95)   # 区域高度(y绝对值差)再小5%(与 id3/5 一致)
     scrolls_repo.set_distance(sid, dist)
     return {"ok": True, "name": row["name"], "distance": dist, "from": f"点位{p1}/{(p2)}"}
 

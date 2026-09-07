@@ -6,6 +6,7 @@
   关键词不为空    -> 走本模块流程
 """
 import ctypes
+import logging
 import re
 import time as _time
 
@@ -14,6 +15,9 @@ from PIL import Image
 from ...core import computer as pc
 from ...core import ocr as ocr_service
 from ...core.common import wait_page_stable, _read_point
+from ...database import get_conn
+
+log = logging.getLogger("collect.keysearch")   # 对接 main.py 已配的 root handler -> data/logs/backend.log
 from ...services.tasks.wx_window import WECHAT_APPEX  # noqa: F401 (re-export)
 from .wx_window import WECHAT_APPEX
 
@@ -32,8 +36,7 @@ _TIME_RE = re.compile(
     r"|20\d{2}"                          # 2025
     r"|\d{1,2}[\/\-]\d{1,2}"             # 3/5
     r"|\d{1,2}"                          # 5
-    r"|\d+[个]?月[前|]?"                 # (n个月前另设, 见下)
-    r"|\d+个月前|\d+天前|\d+小时前"      # 相对时间
+    r"|\d+个月前|\d+人月前|\d+天前|\d+小时前"   # 相对时间(OCR 可能把'个'识别成'人')
     r")"
 )
 # 时间与阅读之间必有空白(OCR 可能识别为半角空格/全角空格/多个空格)
@@ -78,15 +81,22 @@ def _extract_article_points(ocr_items, shot_path, region):
     except Exception:
         items = []
         _im = None
+    log.info("[kw-extract] 开始提取: region=%s items=%d", region, len(items))
     for it in items:
         if not it or len(it) < 6:
+            log.info("[kw-extract] 条目结构异常(跳过): %r", it)
             continue
         cx, cy, text, score, sbox, brightness = it
-        if not text or "阅读" not in text:
+        if not text:
+            log.info("[kw-extract] 空文本(跳过)")
+            continue
+        if "阅读" not in text:
+            log.info("[kw-extract] 不含'阅读'(跳过): %r", text)
             continue
         # 结构校验(时间+空白+阅读)
         m = _match_article_struct(text)
         if not m:
+            log.info("[kw-extract] 含'阅读'但结构不匹配(时间格式不符/无时间): %r", text)
             continue
         time_txt, reads = m
         # 颜色: 灰字白底(该 bbox 区域颜色)
@@ -95,10 +105,16 @@ def _extract_article_points(ocr_items, shot_path, region):
                 cols = ocr_service.color_sort(_im, region=(
                     min(p[0] for p in sbox), min(p[1] for p in sbox),
                     max(p[0] for p in sbox), max(p[1] for p in sbox)))
-            except Exception:
+            except Exception as e:
+                log.info("[kw-extract] 颜色判定异常: %r err=%s", text, e)
                 cols = []
             colset = {c for _, _, c in cols[:2]}
-            if not cols or "白" not in colset or not ({"灰"} & colset):
+            if not cols:
+                log.info("[kw-extract] 颜色判定无结果(跳过): %r", text)
+                continue
+            if "白" not in colset or "灰" not in colset:
+                log.info("[kw-extract] 颜色不符(含白:%s 含灰:%s, 实际%s, 跳过): %r",
+                         "白" in colset, "灰" in colset, sorted(colset), text)
                 continue   # 非灰字白底 -> 排除
         # 点击坐标: sbox 相对截图 -> 屏幕绝对(DPI 按比例)
         try:
@@ -109,12 +125,88 @@ def _extract_article_points(ocr_items, shot_path, region):
             click_x, click_y = (_cx0 + _cx1) // 2, (_cy0 + _cy1) // 2
         except Exception:
             click_x, click_y = cx, cy
+        log.info("[kw-extract] 命中: %r -> time=%s 阅读=%s @(%s,%s) sbox=%s",
+                 text, time_txt, reads, click_x, click_y,
+                 [(p[0], p[1]) for p in sbox] if sbox else None)
         points.append({
             "cx": click_x, "cy": click_y,
             "text": text.strip(),
             "time": time_txt,
             "reads": reads,
             "box": sbox,
+        })
+
+    # ---- pass B: 跨条目配对(该页面 OCR 常把时间/阅读拆成两条独立条目) ----
+    # 收集纯时间条目(整条即时间格式)与纯阅读条目(整条即 阅读+数字)
+    time_items, read_items = [], []
+    for it in items:
+        if not it or len(it) < 6:
+            continue
+        _cx, _cy, _text, _score, _sbox, _brightness = it
+        if not _text:
+            continue
+        ts = _text.strip()
+        if "阅读" not in ts and _TIME_RE.fullmatch(ts):
+            time_items.append((_cy, ts, it))
+            continue
+        rm = _READ_RE.fullmatch(ts)
+        if rm:
+            read_items.append((_cy, ts, rm.group(1), it))
+    log.info("[kw-extract] passB: 时间条目=%d 阅读条目=%d", len(time_items), len(read_items))
+    for ry, rtext, rreads, rit in read_items:
+        # 找 y 最接近的纯时间条目; 时间和阅读必须在同一行(|y差| 很小)
+        best = None
+        for ty, ttext, tit in time_items:
+            d = abs(ty - ry)
+            if best is None or d < best[0]:
+                best = (d, ttext, tit)
+        if best is None:
+            log.info("[kw-extract] passB 无时间条目可配(跳过): %r", rtext)
+            continue
+        # 同行阈值: 时间/阅读 box 高度的 1/3(按比例, 不写死)
+        _th = (max(p[1] for p in tit[4]) - min(p[1] for p in tit[4])) if (tit and len(tit) > 5 and tit[4]) else 30
+        _rh = (max(p[1] for p in rit[4]) - min(p[1] for p in rit[4])) if (rit and len(rit) > 5 and rit[4]) else 30
+        _dy_max = max(_th, _rh) / 3.0
+        if best[0] > _dy_max:
+            log.info("[kw-extract] passB 阅读条目无同行时间(y差=%s > 阈值 %.1f, 跳过): %r",
+                     best[0], _dy_max, rtext)
+            continue
+        _d, ttext, tit = best
+        if tit is None or len(tit) < 6:
+            continue
+        _tx, _ty, *_ = tit
+        # 颜色: 灰字白底(阅读条目 bbox)
+        if _im is not None and rit[4]:
+            try:
+                cols = ocr_service.color_sort(_im, region=(
+                    min(p[0] for p in rit[4]), min(p[1] for p in rit[4]),
+                    max(p[0] for p in rit[4]), max(p[1] for p in rit[4])))
+            except Exception:
+                cols = []
+            colset = {c for _, _, c in cols[:2]}
+            if not cols:
+                log.info("[kw-extract] passB 颜色判定无结果(跳过): %r", rtext)
+                continue
+            if "白" not in colset or "灰" not in colset:
+                log.info("[kw-extract] passB 颜色不符(含白:%s 含灰:%s, 实际%s, 跳过): %r",
+                         "白" in colset, "灰" in colset, sorted(colset), rtext)
+                continue
+        try:
+            _rx0, _ry0 = ocr_service.ocr_abs(_im, region,
+                                             min(p[0] for p in rit[4]), min(p[1] for p in rit[4]))
+            _rx1, _ry1 = ocr_service.ocr_abs(_im, region,
+                                             max(p[0] for p in rit[4]), max(p[1] for p in rit[4]))
+            click_x, click_y = (_rx0 + _rx1) // 2, (_ry0 + _ry1) // 2
+        except Exception:
+            click_x, click_y = rit[0], ry
+        log.info("[kw-extract] passB 命中: time=%s + %r @(%s,%s) y差=%s",
+                 ttext, rtext, click_x, click_y, best[0])
+        points.append({
+            "cx": click_x, "cy": click_y,
+            "text": f"{ttext} {rtext}",
+            "time": ttext,
+            "reads": rreads,
+            "box": rit[4],
         })
     return points
 
@@ -134,7 +226,7 @@ def gzh_query_page_article_loop():
 
     返回: (成功?, 说明文本) —— 死循环一般由外部停止信号/异常打断
     """
-    from ...core.robot import stop_requested, request_stop
+    from ...core.robot import stop_requested, request_stop, tasks_echo
     logs = []
 
     p43 = _read_point(43)
@@ -147,39 +239,71 @@ def gzh_query_page_article_loop():
     region = (x1, y1, x2, y2)
 
     loop_n = 0
+
+    def echo(msg):
+        """本轮日志: 存 logs 并实时转发到前端"""
+        logs.append(msg)
+        tasks_echo(msg)
+
     while True:
         loop_n += 1
         # 外部停止信号(前端断开/手动停止) -> 退出死循环
         if stop_requested():
-            logs.append(f"第{loop_n}轮收到停止信号, 退出循环")
+            echo(f"第{loop_n}轮收到停止信号, 退出循环")
             break
 
         # 1) 点位43/44 稳定性检测(60次/连续30次)
         ok, info = wait_page_stable(x1, y1, x2, y2, same_need=30, timeout=60, interval=0.1)
+        log.info("[kw-loop] 第%d轮稳定检测: 区域=(%s,%s,%s,%s) %s",
+                 loop_n, x1, y1, x2, y2, '稳定' if ok else '未稳定:'+info)
         if not ok:
-            logs.append(f"第{loop_n}轮点位43/44未稳定(60次内未达30次连续): {info}")
+            echo(f"第{loop_n}轮点位43/44未稳定(60次内未达30次连续): {info}")
             return False, "; ".join(logs)
 
         # 2) 截图
         shot_path, _b64 = pc.screenshot(x1, y1, x2, y2, img_format="png")
         if not shot_path:
-            logs.append(f"第{loop_n}轮截图失败")
+            echo(f"第{loop_n}轮截图失败")
             return False, "; ".join(logs)
+        log.info("[kw-loop] 第%d轮截图: %s", loop_n, shot_path)
 
         # 3) OCR
         try:
             items = ocr_service.ocr(Image.open(shot_path))
         except Exception as e:
-            logs.append(f"第{loop_n}轮OCR失败: {e}")
+            echo(f"第{loop_n}轮OCR失败: {e}")
+            log.exception("[kw-loop] 第%d轮OCR异常", loop_n)
             return False, "; ".join(logs)
+        log.info("[kw-loop] 第%d轮 OCR items=%d", loop_n, len(items))
+        for _i, _it in enumerate(items):
+            if _it and len(_it) > 2 and _it[2]:
+                log.info("[kw-loop]    OCR[%d]: %r", _i, _it[2])
 
         # 4) 提取文章点位(内部函数)
         points = _extract_article_points(items, shot_path, region)
 
         # 5) 输出文章点位列表
-        logs.append(f"第{loop_n}轮识别文章点位 {len(points)} 个")
+        echo(f"第{loop_n}轮识别文章点位 {len(points)} 个")
+        log.info("[kw-loop] 第%d轮提取结果: %d 个文章点位", loop_n, len(points))
         for pt in points:
-            logs.append(f"  文章: {pt['time']} | {pt['text']} | 阅读{pt['reads']} @({pt['cx']},{pt['cy']})")
+            echo(f"  文章: {pt['time']} | {pt['text']} | 阅读{pt['reads']} @({pt['cx']},{pt['cy']})")
+
+        # 6) 向下滚动(滚动 id10, 锚点=点位43, 距离=|43.y-44.y|*0.95)
+        try:
+            conn = get_conn()
+            try:
+                row = conn.execute("SELECT distance, direction FROM scrolls WHERE id=10").fetchone()
+            finally:
+                conn.close()
+            s_dist = int(float(row["distance"])) if row and row["distance"] else 0
+            s_dir = row["direction"] if row and row["direction"] else "down"
+        except Exception:
+            s_dist, s_dir = 0, "down"
+        if s_dist > 0:
+            pc.scroll(p43[0], p43[1], s_dist, direction=s_dir)
+            echo(f"第{loop_n}轮末尾: 在点位43({p43[0]},{p43[1]})向{s_dir}滚动 {s_dist}px")
+        else:
+            echo("滚动配置10无效, 跳过滚动")
 
         # 死循环(刻意安排, 结束条件后续补充): 本轮结束直接下一轮
         _time.sleep(0.1)
@@ -211,7 +335,7 @@ def gzh_query_page_init(keyword: str = ""):
     logs = []
 
     # 1) 基于搜一搜窗口取矩形
-    appex = pc.find_windows(exe=SW_APPEX, visible_only=True)
+    appex = pc.find_windows(exe=WECHAT_APPEX, visible_only=True)
     if not appex:
         logs.append("未找到搜一搜窗口(WeChatAppEx)")
         return False, "; ".join(logs)
