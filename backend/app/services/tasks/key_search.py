@@ -6,6 +6,7 @@
   关键词不为空    -> 走本模块流程
 """
 import ctypes
+import hashlib
 import logging
 import re
 import time as _time
@@ -26,52 +27,13 @@ from .wx_window import WECHAT_APPEX
 # ---------------------------------------------------------------------------
 # 阅读量部分格式固定: "阅读" + 数字(可含千分位逗号)
 _READ_RE = re.compile(r"阅读\s*([\d,，]+)")
-# 时间部分多格式(全部):
-#   yyyy/mm/dd | yyyy/m/dd | yyyy/mm | yyyy | m/dd | m/d | d
-#   n个月前 | n天前 | n小时前
-_TIME_RE = re.compile(
-    r"(?:"
-    r"\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}"   # 2025/3/3
-    r"|20\d{2}[\/\-]\d{1,2}"             # 2025/3
-    r"|20\d{2}"                          # 2025
-    r"|\d{1,2}[\/\-]\d{1,2}"             # 3/5
-    r"|\d{1,2}"                          # 5
-    r"|\d+个月前|\d+人月前|\d+天前|\d+小时前"   # 相对时间(OCR 可能把'个'识别成'人')
-    r")"
-)
-# 时间与阅读之间必有空白(OCR 可能识别为半角空格/全角空格/多个空格)
-_SEP_RE = re.compile(r"[\s\u3000　]+")
-
-
-def _match_article_struct(text: str):
-    """校验文章点位结构: 时间 + 空白 + 阅读量。返回 (时间串, 阅读数字) 或 None。
-    结构特征: 时间部分格式多变(见 _TIME_RE), 阅读部分固定 '阅读'+数字,
-    两者之间是若干空白(半角/全角空格)。"""
-    if not text:
-        return None
-    # 时间与阅读之间必有空白(OCR 可能识别为半角/全角空格/多个空格, 也可能连读无空格)
-    m = re.match(
-        r"^(?P<time>.+?)[\s\u3000　]*(?P<read>阅读[\s\u3000　]*[\d,，]+)$",
-        text.strip())
-    if not m:
-        return None
-    time_txt = m.group("time").strip()
-    read_txt = m.group("read").strip()
-    # 时间部分必须符合任一格式
-    if not _TIME_RE.fullmatch(time_txt):
-        return None
-    rm = _READ_RE.search(read_txt)
-    if not rm:
-        return None
-    return time_txt, rm.group(1)
 
 
 def _extract_article_points(ocr_items, shot_path, region):
     """从 OCR 结果提取文章点位列表(内部函数)。
     判定条件(全部满足):
-      1) 文本含 '阅读'
+      1) 文本含 '阅读' + 数字(格式: 阅读+数字, 取消时间识别)
       2) 颜色: 灰字白底(截图区域颜色判定)
-      3) 结构: 时间 + 空白 + 阅读量(时间格式多变, 阅读固定)
     返回: [{cx, cy, text, time, reads, box}, ...] 按屏幕绝对坐标
     """
     points = []
@@ -84,21 +46,16 @@ def _extract_article_points(ocr_items, shot_path, region):
     log.info("[kw-extract] 开始提取: region=%s items=%d", region, len(items))
     for it in items:
         if not it or len(it) < 6:
-            log.info("[kw-extract] 条目结构异常(跳过): %r", it)
             continue
         cx, cy, text, score, sbox, brightness = it
-        if not text:
-            log.info("[kw-extract] 空文本(跳过)")
-            continue
-        if "阅读" not in text:
+        if not text or "阅读" not in text:
             log.info("[kw-extract] 不含'阅读'(跳过): %r", text)
             continue
-        # 结构校验(时间+空白+阅读)
-        m = _match_article_struct(text)
-        if not m:
-            log.info("[kw-extract] 含'阅读'但结构不匹配(时间格式不符/无时间): %r", text)
+        rm = _READ_RE.search(text)
+        if not rm:
+            log.info("[kw-extract] 含'阅读'但无数字(跳过): %r", text)
             continue
-        time_txt, reads = m
+        reads = rm.group(1)
         # 颜色: 灰字白底(该 bbox 区域颜色)
         if _im is not None and sbox:
             try:
@@ -125,88 +82,13 @@ def _extract_article_points(ocr_items, shot_path, region):
             click_x, click_y = (_cx0 + _cx1) // 2, (_cy0 + _cy1) // 2
         except Exception:
             click_x, click_y = cx, cy
-        log.info("[kw-extract] 命中: %r -> time=%s 阅读=%s @(%s,%s) sbox=%s",
-                 text, time_txt, reads, click_x, click_y,
-                 [(p[0], p[1]) for p in sbox] if sbox else None)
+        log.info("[kw-extract] 命中: %r -> 阅读=%s @(%s,%s)", text, reads, click_x, click_y)
         points.append({
             "cx": click_x, "cy": click_y,
             "text": text.strip(),
-            "time": time_txt,
+            "time": None,
             "reads": reads,
             "box": sbox,
-        })
-
-    # ---- pass B: 跨条目配对(该页面 OCR 常把时间/阅读拆成两条独立条目) ----
-    # 收集纯时间条目(整条即时间格式)与纯阅读条目(整条即 阅读+数字)
-    time_items, read_items = [], []
-    for it in items:
-        if not it or len(it) < 6:
-            continue
-        _cx, _cy, _text, _score, _sbox, _brightness = it
-        if not _text:
-            continue
-        ts = _text.strip()
-        if "阅读" not in ts and _TIME_RE.fullmatch(ts):
-            time_items.append((_cy, ts, it))
-            continue
-        rm = _READ_RE.fullmatch(ts)
-        if rm:
-            read_items.append((_cy, ts, rm.group(1), it))
-    log.info("[kw-extract] passB: 时间条目=%d 阅读条目=%d", len(time_items), len(read_items))
-    for ry, rtext, rreads, rit in read_items:
-        # 找 y 最接近的纯时间条目; 时间和阅读必须在同一行(|y差| 很小)
-        best = None
-        for ty, ttext, tit in time_items:
-            d = abs(ty - ry)
-            if best is None or d < best[0]:
-                best = (d, ttext, tit)
-        if best is None:
-            log.info("[kw-extract] passB 无时间条目可配(跳过): %r", rtext)
-            continue
-        # 同行阈值: 时间/阅读 box 高度的 1/3(按比例, 不写死)
-        _th = (max(p[1] for p in tit[4]) - min(p[1] for p in tit[4])) if (tit and len(tit) > 5 and tit[4]) else 30
-        _rh = (max(p[1] for p in rit[4]) - min(p[1] for p in rit[4])) if (rit and len(rit) > 5 and rit[4]) else 30
-        _dy_max = max(_th, _rh) / 3.0
-        if best[0] > _dy_max:
-            log.info("[kw-extract] passB 阅读条目无同行时间(y差=%s > 阈值 %.1f, 跳过): %r",
-                     best[0], _dy_max, rtext)
-            continue
-        _d, ttext, tit = best
-        if tit is None or len(tit) < 6:
-            continue
-        _tx, _ty, *_ = tit
-        # 颜色: 灰字白底(阅读条目 bbox)
-        if _im is not None and rit[4]:
-            try:
-                cols = ocr_service.color_sort(_im, region=(
-                    min(p[0] for p in rit[4]), min(p[1] for p in rit[4]),
-                    max(p[0] for p in rit[4]), max(p[1] for p in rit[4])))
-            except Exception:
-                cols = []
-            colset = {c for _, _, c in cols[:2]}
-            if not cols:
-                log.info("[kw-extract] passB 颜色判定无结果(跳过): %r", rtext)
-                continue
-            if "白" not in colset or "灰" not in colset:
-                log.info("[kw-extract] passB 颜色不符(含白:%s 含灰:%s, 实际%s, 跳过): %r",
-                         "白" in colset, "灰" in colset, sorted(colset), rtext)
-                continue
-        try:
-            _rx0, _ry0 = ocr_service.ocr_abs(_im, region,
-                                             min(p[0] for p in rit[4]), min(p[1] for p in rit[4]))
-            _rx1, _ry1 = ocr_service.ocr_abs(_im, region,
-                                             max(p[0] for p in rit[4]), max(p[1] for p in rit[4]))
-            click_x, click_y = (_rx0 + _rx1) // 2, (_ry0 + _ry1) // 2
-        except Exception:
-            click_x, click_y = rit[0], ry
-        log.info("[kw-extract] passB 命中: time=%s + %r @(%s,%s) y差=%s",
-                 ttext, rtext, click_x, click_y, best[0])
-        points.append({
-            "cx": click_x, "cy": click_y,
-            "text": f"{ttext} {rtext}",
-            "time": ttext,
-            "reads": rreads,
-            "box": rit[4],
         })
     return points
 
@@ -239,6 +121,8 @@ def gzh_query_page_article_loop():
     region = (x1, y1, x2, y2)
 
     loop_n = 0
+    prev_shot_hash = None   # 与 article_list 同法: 独立截图md5比较, 连续相同判定到底
+    same_shot = 0
 
     def echo(msg):
         """本轮日志: 存 logs 并实时转发到前端"""
@@ -266,27 +150,49 @@ def gzh_query_page_article_loop():
             echo(f"第{loop_n}轮截图失败")
             return False, "; ".join(logs)
         log.info("[kw-loop] 第%d轮截图: %s", loop_n, shot_path)
-
-        # 3) OCR
+        # 截图后立刻算 md5(临时文件会被覆盖), 供连续相同判定
         try:
-            items = ocr_service.ocr(Image.open(shot_path))
-        except Exception as e:
-            echo(f"第{loop_n}轮OCR失败: {e}")
-            log.exception("[kw-loop] 第%d轮OCR异常", loop_n)
-            return False, "; ".join(logs)
-        log.info("[kw-loop] 第%d轮 OCR items=%d", loop_n, len(items))
-        for _i, _it in enumerate(items):
-            if _it and len(_it) > 2 and _it[2]:
-                log.info("[kw-loop]    OCR[%d]: %r", _i, _it[2])
+            with open(shot_path, "rb") as _f:
+                cur_shot_hash = hashlib.md5(_f.read()).hexdigest()
+        except Exception:
+            cur_shot_hash = None
+        if prev_shot_hash == cur_shot_hash:
+            same_shot += 1
+        else:
+            same_shot = 1
+        prev_shot_hash = cur_shot_hash
 
-        # 4) 提取文章点位(内部函数)
-        points = _extract_article_points(items, shot_path, region)
+        # 结束条件: 连续3轮截图完全相同 -> 到底, 结束 while
+        if same_shot >= 3:
+            echo(f"第{loop_n}轮: 连续3次列表截图相同, 判定无更多文章, 停止")
+            log.info("[kw-loop] 第%d轮连续3次截图相同, 退出循环", loop_n)
+            return True, "无更多文章"
 
-        # 5) 输出文章点位列表
-        echo(f"第{loop_n}轮识别文章点位 {len(points)} 个")
-        log.info("[kw-loop] 第%d轮提取结果: %d 个文章点位", loop_n, len(points))
-        for pt in points:
-            echo(f"  文章: {pt['time']} | {pt['text']} | 阅读{pt['reads']} @({pt['cx']},{pt['cy']})")
+        # 截图与上次相同(第2次确认): 跳过本轮 OCR/提取/输出(点位已拿), 直接滚动
+        if same_shot >= 2:
+            echo(f"第{loop_n}轮截图与上次相同, 跳过本轮OCR/提取/输出, 直接滚动")
+            log.info("[kw-loop] 第%d轮截图相同, 跳过提取/输出", loop_n)
+        else:
+            # 3) OCR
+            try:
+                items = ocr_service.ocr(Image.open(shot_path))
+            except Exception as e:
+                echo(f"第{loop_n}轮OCR失败: {e}")
+                log.exception("[kw-loop] 第%d轮OCR异常", loop_n)
+                return False, "; ".join(logs)
+            log.info("[kw-loop] 第%d轮 OCR items=%d", loop_n, len(items))
+            for _i, _it in enumerate(items):
+                if _it and len(_it) > 2 and _it[2]:
+                    log.info("[kw-loop]    OCR[%d]: %r", _i, _it[2])
+
+            # 4) 提取文章点位(内部函数)
+            points = _extract_article_points(items, shot_path, region)
+
+            # 5) 输出文章点位列表
+            echo(f"第{loop_n}轮识别文章点位 {len(points)} 个")
+            log.info("[kw-loop] 第%d轮提取结果: %d 个文章点位", loop_n, len(points))
+            for pt in points:
+                echo(f"  文章: 阅读{pt['reads']} | {pt['text']} @({pt['cx']},{pt['cy']})")
 
         # 6) 向下滚动(滚动 id10, 锚点=点位43, 距离=|43.y-44.y|*0.95)
         try:
@@ -299,11 +205,26 @@ def gzh_query_page_article_loop():
             s_dir = row["direction"] if row and row["direction"] else "down"
         except Exception:
             s_dist, s_dir = 0, "down"
+        # 第二次确认截图相同(同2次)时: 滚动前先反向回滚一半距离, 排除"假到底"
+        # (页面未刷新/加载动画未触发造成截图不变), 回滚再滚下来可能触发新内容
+        if same_shot == 2 and s_dist > 0:
+            back_dir = "up" if s_dir == "down" else "down"
+            back_dist = max(1, int(s_dist / 2))
+            pc.scroll(p43[0], p43[1], back_dist, direction=back_dir)
+            echo(f"第{loop_n}轮: 第2次确认相同, 先向{back_dir}回滚 {back_dist}px 再继续")
         if s_dist > 0:
             pc.scroll(p43[0], p43[1], s_dist, direction=s_dir)
             echo(f"第{loop_n}轮末尾: 在点位43({p43[0]},{p43[1]})向{s_dir}滚动 {s_dist}px")
         else:
             echo("滚动配置10无效, 跳过滚动")
+
+        # 7) 滚动后鼠标移到点位18
+        p18 = _read_point(18)
+        if p18:
+            pc._u32().SetCursorPos(p18[0], p18[1])
+            echo(f"第{loop_n}轮滚动后鼠标已移到点位18({p18[0]},{p18[1]})")
+        else:
+            echo("第{loop_n}轮缺少点位18, 未移动鼠标")
 
         # 死循环(刻意安排, 结束条件后续补充): 本轮结束直接下一轮
         _time.sleep(0.1)
