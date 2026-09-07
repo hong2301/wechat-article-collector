@@ -48,6 +48,23 @@ def save_ai_settings(payload: AiSettings):
     return {"ok": True, "count": n}
 
 
+@router.get("/save-dir")
+def get_save_dir():
+    """读取存储路径(settings 表 save_dir)"""
+    from ..repositories.settings_repo import get_setting
+    return {"dir": get_setting("save_dir")}
+
+
+@router.post("/save-dir")
+def save_dir_api(payload: dict = None):
+    """保存存储路径到数据库(settings 表 save_dir)"""
+    from ..repositories.settings_repo import set_setting
+    p = payload or {}
+    d = (p.get("dir") or "").strip()
+    set_setting("save_dir", d)
+    return {"ok": True, "dir": d}
+
+
 @router.post("/open-downloads")
 def open_downloads(sub: str = ""):
     """打开文章下载文件夹(默认 <数据目录>/article_data), sub给定公众号名则打开对应子文件夹

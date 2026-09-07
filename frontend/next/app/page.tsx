@@ -197,8 +197,6 @@ export default function Home() {
                 if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
         if (typeof d.capture_read === "boolean") setCaptureRead(d.capture_read);
         if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
-        // 存储路径: 旧默认 D:/article_data 视为未设置(改用新默认 <数据目录>/article_data)
-        if (typeof d.save_dir === "string" && d.save_dir && d.save_dir !== "D:/article_data") setSaveDir(d.save_dir);
         if (typeof d.capture_comments === "boolean") setCaptureComments(d.capture_comments);
         if ("max_comments" in d) setMaxComments(d.max_comments);
         if ("max_level1" in d) setMaxLevel1(d.max_level1);
@@ -211,7 +209,21 @@ export default function Home() {
     setCfgLoaded(true);
   }, []);
 
+  // 存储路径(保存HTML根目录): 记录在数据库(settings 表), 启动时读取, 并同步 Header 里的修改
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await (await fetch(API_BASE + "/api/settings/save-dir")).json();
+        if (r && r.dir) setSaveDir(r.dir);
+      } catch { /* 后端不可达 */ }
+    })();
+    const onSd = (e: Event) => setSaveDir(((e as CustomEvent<string>).detail) || "");
+    window.addEventListener("save-dir-changed", onSd);
+    return () => window.removeEventListener("save-dir-changed", onSd);
+  }, []);
+
   // 保存采集配置到 localStorage(加载完成后生效, 避免初始默认覆盖记忆)
+  // 说明: 存储路径 save_dir 已改由数据库记录, 不再进 localStorage
   useEffect(() => {
     if (!cfgLoaded) return;
     try {
@@ -219,7 +231,6 @@ export default function Home() {
           capture_4metrics: capture4metrics,
         capture_read: captureRead,
         save_html: saveHtml,
-        save_dir: saveDir,
         capture_comments: captureComments,
         max_comments: maxComments,
         max_level1: maxLevel1,
@@ -229,7 +240,7 @@ export default function Home() {
       }));
     } catch { /* 忽略写入失败 */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [capture4metrics, captureRead, saveHtml, saveDir, captureComments, maxComments, maxLevel1, maxLevel2, dateRange]);
+  }, [capture4metrics, captureRead, saveHtml, captureComments, maxComments, maxLevel1, maxLevel2, dateRange]);
 
   useEffect(() => {
     const probe = document.createElement("div");
@@ -520,18 +531,11 @@ export default function Home() {
       XLSX.writeFile(wb, `公众号列表.xlsx`);
     } catch { message.error("导出失败"); }
   }
-  // 打开下载数据文件夹(D:/article_data)
+  // 打开下载数据文件夹(默认 <数据目录>/article_data)
   async function openDownloads() {
     try {
       const d = await (await fetch(API_BASE + "/api/settings/open-downloads", { method: "POST" })).json();
       if (!d.ok) message.error(d.error || "打开失败");
-    } catch { message.error("无法连接后端"); }
-  }
-  // 选择存储路径(保存HTML根目录): 弹系统文件夹选择器(从当前路径打开)
-  async function pickSaveDir() {
-    try {
-      const d = await (await fetch(API_BASE + "/api/settings/pick-dir?current=" + encodeURIComponent(saveDir), { method: "POST" })).json();
-      if (d.dir) setSaveDir(d.dir);
     } catch { message.error("无法连接后端"); }
   }
 
@@ -748,9 +752,6 @@ export default function Home() {
             <Button danger={si.ai.length > 0}
               icon={si.ai.length > 0 ? <ExclamationCircleOutlined /> : <RobotOutlined />}
               onClick={() => setAiOpen(true)}>AI模型</Button>
-          </Tooltip>
-          <Tooltip title={saveDir || "默认: 程序数据目录/article_data"} placement="bottom">
-            <Button onClick={pickSaveDir}>存储路径修改</Button>
           </Tooltip>
         </div>
       </div>

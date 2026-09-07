@@ -17,7 +17,7 @@ from ...core import computer as pc
 from ...core import ocr as ocr_service
 from ...core.common import wait_page_stable, _read_point
 from ...database import get_conn
-from .article_collect import article_data_collect
+from .article_collect import article_data_collect, reset_session_links
 
 log = logging.getLogger("collect.keysearch")   # 对接 main.py 已配的 root handler -> data/logs/backend.log
 from ...services.tasks.wx_window import WECHAT_APPEX  # noqa: F401 (re-export)
@@ -32,10 +32,11 @@ _READ_RE = re.compile(r"阅读\s*([\d,，]+)")
 
 def _extract_article_points(ocr_items, shot_path, region):
     """从 OCR 结果提取文章点位列表(内部函数)。
-    判定条件(全部满足):
-      1) 文本含 '阅读' + 数字(格式: 阅读+数字, 取消时间识别)
-      2) 颜色: 灰字白底(截图区域颜色判定)
-    返回: [{cx, cy, text, time, reads, box}, ...] 按屏幕绝对坐标
+    判定条件(满足其一):
+      A) 文本含 '阅读' + 数字(格式: 阅读+数字) -> 灰字白底
+      B) 文本含 '最近读过'(被读过的文章无'阅读', 显示'最近读过') -> 不做颜色判定
+    返回: [{cx, cy, text, time, reads, box}, ...] 按屏幕绝对坐标;
+          点击 x 取点位43(x1=region起点), 即列表最左缘整行点击
     """
     points = []
     try:
@@ -49,15 +50,24 @@ def _extract_article_points(ocr_items, shot_path, region):
         if not it or len(it) < 6:
             continue
         cx, cy, text, score, sbox, brightness = it
-        if not text or "阅读" not in text:
-            log.info("[kw-extract] 不含'阅读'(跳过): %r", text)
+        if not text:
             continue
-        rm = _READ_RE.search(text)
-        if not rm:
-            log.info("[kw-extract] 含'阅读'但无数字(跳过): %r", text)
-            continue
-        reads = rm.group(1)
-        # 颜色: 灰字白底(该 bbox 区域颜色)
+        # 文本识别: A=含'最近读过'(被读过文章, 无'阅读'); B=含'阅读'+数字
+        rm = None
+        recent = False
+        if "最近读过" in text:
+            recent = True
+        else:
+            if "阅读" not in text:
+                log.info("[kw-extract] 不含'阅读/最近读过'(跳过): %r", text)
+                continue
+            rm = _READ_RE.search(text)
+            if not rm:
+                log.info("[kw-extract] 含'阅读'但无数字(跳过): %r", text)
+                continue
+        reads = rm.group(1) if rm else None   # '最近读过'型无数字 -> reads=None(走阅读数采集)
+        # 颜色: 按类型要求 B=灰字白底('阅读'+数字); A=白底+(蓝或彩)('最近读过',
+        #   蓝色 OCR 判定不稳, 高饱和蓝常被归为'彩', 故'彩'白底也算命中)
         if _im is not None and sbox:
             try:
                 cols = ocr_service.color_sort(_im, region=(
@@ -70,20 +80,23 @@ def _extract_article_points(ocr_items, shot_path, region):
             if not cols:
                 log.info("[kw-extract] 颜色判定无结果(跳过): %r", text)
                 continue
-            if "白" not in colset or "灰" not in colset:
-                log.info("[kw-extract] 颜色不符(含白:%s 含灰:%s, 实际%s, 跳过): %r",
-                         "白" in colset, "灰" in colset, sorted(colset), text)
-                continue   # 非灰字白底 -> 排除
-        # 点击坐标: sbox 左上角 -> 屏幕绝对(DPI 按比例); 点击用 box 最左(上)位置
+            if recent:
+                pass   # 最近读过: 不做颜色判定(文本本身已唯一标识)
+            else:
+                if "白" not in colset or "灰" not in colset:
+                    log.info("[kw-extract] 阅读颜色不符(需要白+灰, 实际%s, 跳过): %r",
+                             sorted(colset), text)
+                    continue
+        # 点击坐标: x 取点位43(region起点x=列表最左缘整行), y 取该行 sbox 左上角
         try:
-            _cx0, _cy0 = ocr_service.ocr_abs(_im, region,
-                                             min(p[0] for p in sbox), min(p[1] for p in sbox))
-            _cx1, _cy1 = ocr_service.ocr_abs(_im, region,
-                                             max(p[0] for p in sbox), max(p[1] for p in sbox))
-            click_x, click_y = _cx0, _cy0   # box 左上角
+            _cy0 = ocr_service.ocr_abs(_im, region, 0,
+                                       min(p[1] for p in sbox))[1]
+            click_x = region[0]   # 点位43的x
+            click_y = _cy0
         except Exception:
-            click_x, click_y = cx, cy
-        log.info("[kw-extract] 命中: %r -> 阅读=%s @(%s,%s)", text, reads, click_x, click_y)
+            click_x, click_y = region[0], cy
+        log.info("[kw-extract] 命中%s: %r -> 阅读=%s @(%s,%s)",
+                 '(最近读过)' if recent else '', text, reads, click_x, click_y)
         points.append({
             "cx": click_x, "cy": click_y,
             "text": text.strip(),
@@ -114,6 +127,7 @@ def gzh_query_page_article_loop(date_start="", date_end="", biz="",
 
     返回: (成功?, 说明文本) —— 死循环一般由外部停止信号/异常打断
     """
+    reset_session_links()   # 新任务: 清空本次会话已采链接集合
     from ...core.robot import stop_requested, request_stop, tasks_echo
     logs = []
 
@@ -227,13 +241,13 @@ def gzh_query_page_article_loop(date_start="", date_end="", biz="",
             s_dir = row["direction"] if row and row["direction"] else "down"
         except Exception:
             s_dist, s_dir = 0, "down"
-        # 第二次确认截图相同(同2次)时: 滚动前先反向回滚一半距离, 排除"假到底"
+        # 第2次起连续截图相同时: 滚动前先反向回滚一半距离, 排除"假到底"
         # (页面未刷新/加载动画未触发造成截图不变), 回滚再滚下来可能触发新内容
-        if same_shot == 2 and s_dist > 0:
+        if same_shot >= 2 and s_dist > 0:
             back_dir = "up" if s_dir == "down" else "down"
             back_dist = max(1, int(s_dist / 2))
             pc.scroll(p43[0], p43[1], back_dist, direction=back_dir)
-            echo(f"第{loop_n}轮: 第2次确认相同, 先向{back_dir}回滚 {back_dist}px 再继续")
+            echo(f"第{loop_n}轮: 截图第{same_shot}次相同, 先向{back_dir}回滚 {back_dist}px 再继续")
         if s_dist > 0:
             pc.scroll(p43[0], p43[1], s_dist, direction=s_dir)
             echo(f"第{loop_n}轮末尾: 在点位43({p43[0]},{p43[1]})向{s_dir}滚动 {s_dist}px")
