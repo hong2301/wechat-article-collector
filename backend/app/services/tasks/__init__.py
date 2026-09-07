@@ -20,7 +20,7 @@ from .wx_window import (init_wechat_window, search_window_init, search_query,  #
                         init_app_window, WECHAT_MAIN, WECHAT_APPEX,
                         APP_TITLE, APP_EXE)
 from .helpers import _submit_bg, _done_bg, wait_bg_done  # noqa: F401
-from .key_search import gzh_query_page_init  # noqa: F401  关键词查询分支第一步
+from .key_search import (gzh_query_page_init, gzh_query_page_article_loop)  # noqa: F401  关键词查询分支
 from .article_collect import (article_data_collect, article_list_wait_stable,  # noqa: F401
                               _save_article_base, _save_html_block,
                               _bg_ai_metrics, _collect_metrics,

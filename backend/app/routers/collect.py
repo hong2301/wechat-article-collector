@@ -197,8 +197,10 @@ def _collect_generate(payload: CollectStart):
                 if not ok:
                     log_q.put(("done", False, "公众号查询页初始化失败"))
                     return
+                ok2, text2 = tasks_service.gzh_query_page_article_loop()
+                log_q.put(("log", f"[公众号查询页文章列表循环] 结束 | {text2}"))
                 tasks_service.wait_bg_done()
-                log_q.put(("done", True, "关键词查询流程(当前仅完成查询页初始化, 后续待扩展)"))
+                log_q.put(("done", ok2, text2 or "关键词查询流程结束"))
                 return
             # 5b) 旧流程: 文章列表识别循环(死循环, 前端断开/手动停止时结束)
             log_q.put(("log", "进入文章列表识别循环(可手动停止)"))
