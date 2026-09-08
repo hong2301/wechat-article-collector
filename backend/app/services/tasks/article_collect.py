@@ -20,10 +20,13 @@ from ...core.common import (_read_point, _finish, _save_reads,
 from ...core.robot import (request_stop, clear_stop, stop_requested,
                            bind_tasks_echo, tasks_echo)
 
-log = logging.getLogger("collect.article")   # 异步处理详情 -> data/logs/backend.log
+log = logging.getLogger("collect.article")   # 异步处理详情 -> data/logs/run.log(collect.* 前缀路由)
 
 # 会话级已采链接集合(本次采集任务内生效, art_biz 为键): 判重用
 _SESSION_ARTS = set()
+
+# 文章链接格式校验: 形如 https://mp.weixin.qq.com/s/<短id>
+_MP_LINK_RE = re.compile(r"^https?://mp\.weixin\.qq\.com/s/[A-Za-z0-9_-]+")
 
 
 def reset_session_links():
@@ -624,7 +627,7 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         step("触发类型不确定, 无法采集")
         return _finish(logs, copy_seen, False, "触发类型不确定, 无法采集")
 
-    # 1) 获取复制链接(2次机会): 点18(3点菜单) -> 点27(复制链接) -> 读剪贴板60次
+    # 1) 获取复制链接(最多5次): 点18(3点菜单) -> 点27(复制链接) -> 读剪贴板3次
     #    (不依赖点位28/29: 不再截图OCR检测'复制'字样, 点18后直接点27再读剪贴板验证)
     COPY_TRIES = 5          # 复制链接最大尝试次数(重复链接也计入失败重试)
     p18 = _read_point(18)   # 文章右上角3点
@@ -638,11 +641,11 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         pc.clear_clipboard()
         step(f"点击点位18(3点)({p18[0]},{p18[1]})")
         pc.mouse_click(p18[0], p18[1])
-        time.sleep(0.5)   # 等菜单弹出
+        time.sleep(0.3)   # 等菜单弹出
         # 直接点击复制链接按钮(点位27), 然后读剪贴板验证
         step(f"点击点位27(复制链接)({p27[0]},{p27[1]})")
         pc.mouse_click(p27[0], p27[1])
-        for _i in range(1, 20):
+        for _i in range(1, 4):    # 读剪贴板轮询 3 次
             time.sleep(0.1)
             v = pc.read_clipboard_text()
             if v:
@@ -650,23 +653,29 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
                 break
         _art = None
         if link:
-            _art = extract_art_biz(link)
-            if _art and _art in _SESSION_ARTS:
-                step(f"重复链接(本次已采过): {link[:60]}, 视为失败进入重试")
-                log.warning("[复制链接] 重复链接(本次已采过): art=%s", _art[:10])
-                # 重复链接 = 确认已点到复制链接按钮(打开过文章页)
-                # 即使最终重试失败退出, 收尾也要 Ctrl+W 关闭标签页
-                copy_seen = True
-                link = None   # 重复 = 失败, 走下方重试(收起菜单/清剪贴板)
+            if not _MP_LINK_RE.match(link.strip()):
+                # 链接格式不符(非 mp 文章链接)视为复制失败, 走重试
+                step(f"链接格式异常(非mp文章链接): {link[:50]}, 视为失败进入重试")
+                log.warning("[复制链接] 格式异常: %s", link[:80])
+                link = None
+            else:
+                _art = extract_art_biz(link)
+                if _art and _art in _SESSION_ARTS:
+                    step(f"重复链接(本次已采过): {link[:60]}, 视为失败进入重试")
+                    log.warning("[复制链接] 重复链接(本次已采过): art=%s", _art[:10])
+                    # 重复链接 = 确认已点到复制链接按钮(打开过文章页)
+                    # 即使最终重试失败退出, 收尾也要 Ctrl+W 关闭标签页
+                    copy_seen = True
+                    link = None   # 重复 = 失败, 走下方重试(收起菜单/清剪贴板)
         step(f"已复制链接: {link[:60]}" if link else "未读取到剪贴板链接")
         if not link:
-            # 未读到: 点击右半屏中点(收起当前3点菜单), 等0.5s, 清剪贴板后进入下一次尝试
+            # 未读到: 点击右半屏中点(收起当前3点菜单), 等0.3s, 清剪贴板后进入下一次尝试
             _sw = ctypes.windll.user32.GetSystemMetrics(0)
             _sh = ctypes.windll.user32.GetSystemMetrics(1)
             _mx, _my = int(_sw * 3 / 4), int(_sh / 2)
             step(f"未读到链接, 点击右半屏中点({_mx},{_my})收起菜单")
             pc.mouse_click(_mx, _my)
-            time.sleep(1.0)   # 等菜单收起稳定, 下一轮重新点3点
+            time.sleep(0.3)   # 等菜单收起稳定, 下一轮重新点3点
         else:
             copy_seen = True    # 拿到链接=确实打开过文章页(收尾 Ctrl+W 关闭文章页合理)
             if _art:
