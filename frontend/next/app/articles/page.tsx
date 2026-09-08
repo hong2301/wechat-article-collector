@@ -49,6 +49,7 @@ interface Article {
   ip: string;
   comment_count?: number;   // 实际采集评论数(comments表)
   comment_recog?: number;   // 识别出来的评论数
+  acc_name?: string;        // 公众号名称
 }
 
 export default function ArticlePage() {
@@ -440,7 +441,7 @@ export default function ArticlePage() {
       const all = Array.isArray(d.articles) ? d.articles : (d.items || []);
       if (all.length === 0) { message.info("没有可导出的数据"); return; }
       const rows = all.map((a: Article) => ({
-        "ID": a.id, "标题": a.title || "", "日期": a.date || "",
+        "ID": a.id, "公众号": a.acc_name || "", "标题": a.title || "", "日期": a.date || "",
         "art_biz": a.art_biz || "", "阅读": a.reads ?? "", "点赞": a.likes ?? "",
         "转发": a.forwards ?? "", "喜欢": a.favorites ?? "", "评论": (a as any).comments ?? "",
         "原创": a.original || "", "IP属地": a.ip || "", "写入时间": a.write_time || "",
