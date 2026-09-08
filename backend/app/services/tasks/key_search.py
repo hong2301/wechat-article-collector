@@ -19,7 +19,7 @@ from ...core.common import wait_page_stable, _read_point
 from ...database import get_conn
 from .article_collect import article_data_collect, reset_session_links
 
-log = logging.getLogger("collect.keysearch")   # 对接 main.py 已配的 root handler -> data/logs/backend.log
+log = logging.getLogger("collect.keysearch")   # 对接 main.py 分流: collect.* 前缀 -> data/logs/run.log
 from ...services.tasks.wx_window import WECHAT_APPEX  # noqa: F401 (re-export)
 from .wx_window import WECHAT_APPEX
 

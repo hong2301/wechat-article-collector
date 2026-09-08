@@ -58,4 +58,5 @@ if __name__ == "__main__":
     if parent and parent.isdigit():
         start_watchdog(int(parent))
     port = int(os.environ.get("BACKEND_PORT", "8001"))   # 生产端口与开发(8000)区分
-    uvicorn.run(app, host="127.0.0.1", port=port, reload=False)
+    uvicorn.run(app, host="127.0.0.1", port=port, reload=False,
+                log_config=None)   # 日志统一走 app.main 分流(root handlers), 关 uvicorn 自带 dictConfig

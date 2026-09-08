@@ -9,6 +9,7 @@ import uvicorn
 
 os.environ.setdefault("BACKEND_PORT", "8000")  # 端口单一来源: 供内部自调用/其它模块读取
 os.environ.setdefault("WECHAT_ENV", "dev")  # 运行环境统一标记(env.is_prod/is_dev 判定)
+os.environ.setdefault("APP_DEV_RELOAD", "1")  # reload=True 标记: reloader父进程不持有日志文件(轮转冲突)
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("BACKEND_PORT", "8000"))   # 与打包版一致, 可用环境变量改端口
@@ -33,4 +34,5 @@ if __name__ == "__main__":
         print(f"   taskkill /F /IM python.exe              (开发版后端, 慎用)")
         print("=" * 52 + "\n")
         sys.exit(1)
-    uvicorn.run("app.main:app", host=HOST, port=PORT, reload=True)
+    uvicorn.run("app.main:app", host=HOST, port=PORT, reload=True,
+                log_config=None)   # 日志统一走 app.main 分流(root handlers), 关 uvicorn 自带 dictConfig
