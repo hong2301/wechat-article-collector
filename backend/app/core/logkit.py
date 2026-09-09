@@ -157,6 +157,37 @@ def set_level(name="", level=logging.INFO):
     logging.getLogger(name).setLevel(level)
 
 
+# ================= 子进程采集(Pipe 日志通道) =================
+
+class _PipeHandler(logging.Handler):
+    """采集子进程日志 -> Pipe 回传主进程(子进程不写文件; 单一写者=主进程)"""
+    def __init__(self, pipe):
+        super().__init__(level=logging.INFO)
+        self._pipe = pipe
+
+    def emit(self, record):
+        try:
+            self._pipe.send({"type": "log", "msg": record.getMessage(),
+                             "level": record.levelno, "logger": record.name})
+        except Exception:
+            pass
+
+
+def setup_child(pipe):
+    """采集子进程日志初始化: root 只挂 Pipe handler(消息回传主进程统一处理)
+    - 不写文件(避免双进程写 run.log 交错)
+    - 不配 console(子进程无终端意义)
+    - tasks_echo/编排日志由 collect_worker 自己的 pipe 钩子发口径一致
+    """
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    root.handlers[:] = []
+    try:
+        root.addHandler(_PipeHandler(pipe))
+    except Exception:
+        pass
+
+
 # ================= 接口日志中间件 =================
 
 # 高频健康轮询端点(前端每秒级轮询, 无日志价值), 跳过记录防止刷屏 api.log
