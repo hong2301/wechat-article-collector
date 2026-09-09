@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from ..services import auto_setup as as_svc
 from ..core import logkit
 from ..core.computer import enable_dpi_awareness
+from ..core import computer as _pc_mod
 from ..repositories import points_repo, scrolls_repo
 from ..autosetup_worker import run_autosetup
 
@@ -52,6 +53,7 @@ def auto_setup_point(pid: int):
         log.warning("[auto-setup.point] id=%s 不存在", pid)
         raise HTTPException(404, f"点位不存在 id={pid}")
     try:
+        _pc_mod.hide_taskbar()               # 自动设置期间隐藏任务栏
         if not as_svc.locked():              # 输入锁开着时直接复用(不重复抢)/否则本次开启
             if not as_svc.lock():
                 return {"ok": False, "name": row["name"], "error": "采集进行中"}
@@ -94,6 +96,7 @@ def auto_setup_point(pid: int):
         return {"ok": False, "name": row["name"], "error": reason or "识别失败"}
     finally:
         as_svc.set_stop_hook(None)
+        _pc_mod.show_taskbar()               # 结束(含终止)恢复任务栏
 
 
 @router.post("/scroll/{sid}")
@@ -131,6 +134,7 @@ def auto_setup_run_all(names: str = ""):
     """一键设置: 自动设置子进程执行(整体/可强停), 进度经 Pipe 转发 SSE"""
     from fastapi.responses import StreamingResponse
     log.info("[auto-setup.run-all] 开始一键设置 names=%r", names)
+    _pc_mod.hide_taskbar()                  # 自动设置期间隐藏任务栏
     as_svc.set_stop_hook(_as_stop)          # ESC -> 主进程 terminate 自动设置子进程
 
     def gen():
@@ -191,6 +195,7 @@ def auto_setup_run_all(names: str = ""):
         finally:
             _as_stop()                     # 断开/完成统一清理(已完成的空转无害)
             as_svc.set_stop_hook(None)
+            _pc_mod.show_taskbar()         # 结束(含断开/终止)恢复任务栏
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

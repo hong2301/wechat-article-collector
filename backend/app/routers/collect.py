@@ -367,6 +367,7 @@ def collect_start(payload: CollectStart):
              payload.capture_4metrics, payload.capture_read, payload.save_html)
     pc.enable_dpi_awareness()   # 确保坐标用物理像素(否则DPI缩放下点击偏移)
     _start_esc_listener()       # 采集开始: 监听 ESC(按ESC=停止流程)
+    pc.hide_taskbar()             # 采集期间隐藏任务栏(全屏布局与点位假设一致)
     # 客户端断开时(生成器被close)请求停止死循环
     generator = _collect_generate(payload)
 
@@ -376,6 +377,7 @@ def collect_start(payload: CollectStart):
         finally:
             _do_stop()                     # 前端断开 -> 终止采集子进程(整体强停)
             _stop_esc_listener()           # 结束ESC监听
+            pc.show_taskbar()              # 流程结束(含强制终止)恢复任务栏
     return StreamingResponse(
         wrap(),
         media_type="text/event-stream",
@@ -391,6 +393,7 @@ def collect_update(payload: UpdateStart):
     pc.enable_dpi_awareness()
     _start_esc_listener()
     generator = _update_generate(payload)
+    pc.hide_taskbar()
 
     def wrap():
         try:
@@ -398,6 +401,7 @@ def collect_update(payload: UpdateStart):
         finally:
             _do_stop()                     # 前端断开 -> 终止采集子进程(整体强停)
             _stop_esc_listener()
+            pc.show_taskbar()              # 流程结束(含强制终止)恢复任务栏
     return StreamingResponse(
         wrap(),
         media_type="text/event-stream",

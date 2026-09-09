@@ -230,6 +230,15 @@ WECHAT_VERSION = "${wxVer}"  # 微信基准版本(单一来源: 根 .env WECHAT_
   fs.copyFileSync(TPL_DB, path.join(RELEASE, 'data', 'collector.db'))
   console.log('   template_collector.db -> release/data/collector.db')
 
+  // 2.3a 任务栏恢复工具 -> release/data/任务栏恢复.bat(异常时手动恢复任务栏; 与模板库同源 scripts/)
+  const tbBat = path.join(ROOT, 'scripts', '任务栏恢复.bat')
+  if (fs.existsSync(tbBat)) {
+    fs.copyFileSync(tbBat, path.join(RELEASE, 'data', '任务栏恢复.bat'))
+    console.log('   任务栏恢复.bat -> release/data/任务栏恢复.bat (异常手动恢复任务栏)')
+  } else {
+    console.log('   (无 scripts/任务栏恢复.bat, 跳过任务栏恢复工具)')
+  }
+
   // 2.3b 客人卡密 -> release/guest.key(存在即永久授权; 与模板库同源 scripts/)
   const guestKey = path.join(ROOT, 'scripts', 'guest.key')
   if (fs.existsSync(guestKey)) {
