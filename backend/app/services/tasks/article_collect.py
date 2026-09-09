@@ -110,13 +110,13 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
                                              max(p[0] for p in sbox), max(p[1] for p in sbox))
             click_x, click_y = (_cx0 + _cx1) // 2, (_cy0 + _cy1) // 2
             logs.append(f"识别文章标记: {text!r} @({click_x},{click_y})")
-            tasks_echo(f"识别文章标记: {text!r} @({click_x},{click_y})")
+            log.info(f"识别文章标记: {text!r} @({click_x},{click_y})")
             pc.mouse_click(click_x, click_y)
             clicked = True
             break
         if not clicked:
             logs.append("未识别到文章标记(黑字白底), 跳过点击")
-            tasks_echo("未识别到文章标记(黑字白底), 跳过点击")
+            log.warning("未识别到文章标记(黑字白底), 跳过点击")
     except Exception as e:
         logs.append(f"文章标记识别失败: {e}")
 
@@ -131,7 +131,7 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
     def echo(msg):
         """本轮日志: 存 logs 并实时转发(打印 + 后端钩子)"""
         logs.append(msg)
-        tasks_echo(msg)
+        log.info(msg)
 
     def _do_scroll():
         """滚动(滚动配置id3, 锚点点位15) + 滚动后鼠标移点位18; 第2次确认相同先反向回滚一半"""
@@ -355,7 +355,7 @@ def _save_article_base(link, biz, list_reads=None, list_likes=None):
     try:
         art = extract_art_biz(link)
         tag = f"元数据#{art[:10]}"
-        tasks_echo(f"[async:{tag}] 正在采集...")
+        log.info(f"[async:{tag}] 正在采集...")
         log.info("[db写表] 开始: art=%s link=%s", art[:10], link[:90])
         # 抓取文章元信息(网络请求, 失败不阻断, 失败仅写链接)
         meta = None
@@ -431,7 +431,7 @@ def _save_article_base(link, biz, list_reads=None, list_likes=None):
         except Exception as e:
             logs.append(f"列表阅读/赞写入失败: {e}")
 
-    tasks_echo(f"[async:{tag}] 采集完成, 文章已写入 id={new_id}")
+    log.info(f"[async:{tag}] 采集完成, 文章已写入 id={new_id}")
     log.info("[db写表] 完成: id=%d", new_id)
     return new_id, name, art, "; ".join(logs)
 
@@ -444,18 +444,18 @@ def _save_html_block(link, name="", tag="", base_dir=None):
             tag = f"保存Html#{extract_art_biz(link)[:10]}"
         except Exception:
             tag = "保存Html"
-    tasks_echo(f"[async:{tag}] 正在保存...")
+    log.info(f"[async:{tag}] 正在保存...")
     log.info("[存HTML] 开始: tag=%s link=%s", tag, link[:90])
     try:
         html_path, info = save_article_html(link, account_name=name, base_dir=base_dir)
         ok_txt = "成功: " + info if html_path else "失败: " + info
-        tasks_echo(f"[async:{tag}] {ok_txt}")
+        log.info(f"[async:{tag}] {ok_txt}")
         if html_path:
             log.info("[存HTML] 成功: %s | %s", html_path, info)
         else:
             log.warning("[存HTML] 失败: %s", info)
     except Exception as e:
-        tasks_echo(f"[async:{tag}] 异常: {e}")
+        log.error(f"[async:{tag}] 异常: {e}")
         log.error("[存HTML] 异常: %s | link=%s", e, link[:90])
 
 def _bg_ai_metrics(shot_b64, api_key, model, biz, art):
@@ -465,14 +465,14 @@ def _bg_ai_metrics(shot_b64, api_key, model, biz, art):
     try:
         metrics = None
         if shot_b64 and api_key and model:
-            tasks_echo(f"[async:{tag}] 正在豆包识图...")
+            log.info(f"[async:{tag}] 正在豆包识图...")
             metrics = doubao_recognize_interact(shot_b64, api_key, model)
             if metrics is not None:
-                tasks_echo(f"[async:{tag}] 点赞{metrics[0]} 转发{metrics[1]} 喜欢{metrics[2]} 留言{metrics[3]}")
+                log.info(f"[async:{tag}] 点赞{metrics[0]} 转发{metrics[1]} 喜欢{metrics[2]} 留言{metrics[3]}")
             else:
-                tasks_echo(f"[async:{tag}] 识图失败")
+                log.warning(f"[async:{tag}] 识图失败")
         else:
-            tasks_echo(f"[async:{tag}] 未配置AI模型或截图失败")
+            log.warning(f"[async:{tag}] 未配置AI模型或截图失败")
 
         # 更新文章数据: 成功写指标值
         data = {"biz": biz, "art_biz": art}
@@ -491,11 +491,11 @@ def _bg_ai_metrics(shot_b64, api_key, model, biz, art):
                 _upd = (r.json() or {}).get("updated", 0)
             except Exception:
                 _upd = "?"
-            tasks_echo(f"[async:{tag}] 数据已更新(命中{_upd}行, art={art})")
+            log.info(f"[async:{tag}] 数据已更新(命中{_upd}行, art={art})")
         else:
-            tasks_echo(f"[async:{tag}] 更新失败: HTTP {r.status_code}")
+            log.error(f"[async:{tag}] 更新失败: HTTP {r.status_code}")
     except Exception as e:
-        tasks_echo(f"[async:{tag}] 异常: {e}")
+        log.error(f"[async:{tag}] 异常: {e}")
 
 
 def _collect_metrics(biz, art):
@@ -510,18 +510,18 @@ def _collect_metrics(biz, art):
         # 页面稳定判断(30/31区域, 50次机会, 连续15次相同判稳定; 不稳定也继续执行)
         ok_stable, info = wait_page_stable(
             p30[0], p30[1], p31[0], p31[1], same_need=15, timeout=50, interval=0.1)
-        tasks_echo(f"4指标: 页面稳定={ok_stable}({info})")
+        log.info(f"4指标: 页面稳定={ok_stable}({info})")
         try:
             shot_path, shot_b64 = pc.screenshot(
                 p30[0], p30[1], p31[0], p31[1], img_format="png", as_base64=True)
             if not shot_b64:
-                tasks_echo("4指标区域截图失败")
+                log.warning("4指标区域截图失败")
                 shot_b64 = None
         except Exception as e:
-            tasks_echo(f"4指标区域截图失败: {e}")
+            log.error(f"4指标区域截图失败: {e}")
             shot_b64 = None
     else:
-        tasks_echo("缺少点位30/31(4指标区域), 跳过4指标")
+        log.warning("缺少点位30/31(4指标区域), 跳过4指标")
         shot_b64 = None
 
     # 从 ai_model 表取 key + 模型; 未配置则跳过识图只留截图
@@ -553,12 +553,12 @@ def _bg_reads_ocr(png_path, box, biz, art):
         items = ocr_service.ocr(img)
         reads = _extract_read_from_items(items, box, img=img)
         if reads is not None:
-            tasks_echo(f"[async:{tag}] 识别到阅读数 {reads}")
+            log.info(f"[async:{tag}] 识别到阅读数 {reads}")
             _save_reads(biz, art, reads)
         else:
-            tasks_echo(f"[async:{tag}] OCR未找到'阅读'+数字或颜色不符")
+            log.warning(f"[async:{tag}] OCR未找到'阅读'+数字或颜色不符")
     except Exception as e:
-        tasks_echo(f"[async:{tag}] 阅读数OCR异常: {e}")
+        log.error(f"[async:{tag}] 阅读数OCR异常: {e}")
 
 
 def _collect_reads(collect_type, link, biz, art):
@@ -568,34 +568,34 @@ def _collect_reads(collect_type, link, biz, art):
     # 实时输出: 每步直接 tasks_echo
     p15 = _read_point(15)
     if not p15:
-        tasks_echo(f"[warn] 阅读数: 缺少点位15={bool(p15)}, 跳过阅读数采集")
+        log.warning(f"[warn] 阅读数: 缺少点位15={bool(p15)}, 跳过阅读数采集")
         return
     # 1) 鼠标移到文章列表左上(点位15), 向下滚动5000px(0.5s内完成)
     pc.scroll(p15[0], p15[1], 50000, direction="down", duration=0.5)
-    tasks_echo("阅读数: 在点位15滚动5000px")
+    log.info("阅读数: 在点位15滚动5000px")
     time.sleep(0.5)
     # 2) Ctrl+R 刷新当前页(刷新后阅读数区域可见), 等0.8s
     pc.ctrl_key("R")
-    tasks_echo("阅读数: Ctrl+R 刷新")
+    log.info("阅读数: Ctrl+R 刷新")
     time.sleep(0.8)
     # 3) 刷新后: 页面稳定检测(点位32/33区域, 50次机会, 连续20次相同) -> OCR提取阅读数
     p32 = _read_point(32)
     p33 = _read_point(33)
     if not (p32 and p33):
-        tasks_echo("缺少点位32/33(阅读数区域), 跳过阅读数识别")
+        log.warning("缺少点位32/33(阅读数区域), 跳过阅读数识别")
     else:
         ok_stable, info = wait_page_stable(
             p32[0], p32[1], p33[0], p33[1], same_need=20, timeout=50, interval=0.1)
         if not ok_stable:
             # 未稳定也继续: 页面可能仍在加载/动, 不等稳定直接截图识别
-            tasks_echo(f"阅读数: 结果页未稳定({info}), 继续尝试识别...")
+            log.info(f"阅读数: 结果页未稳定({info}), 继续尝试识别...")
         # 稳定或未稳定: 都截图 -> OCR识别丢后台异步, 识别到写文章表
         png_path, b64 = pc.screenshot(
             p32[0], p32[1], p33[0], p33[1], img_format="png", as_base64=True)
         if not b64:
-            tasks_echo("阅读数: 稳定后截图失败")
+            log.warning("阅读数: 稳定后截图失败")
         else:
-            tasks_echo("阅读数: 截图完成, OCR识别后台进行...")
+            log.info("阅读数: 截图完成, OCR识别后台进行...")
             _submit_bg(_bg_reads_ocr, png_path, (p32[0], p32[1]), biz, art)
 
 
@@ -621,7 +621,7 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
     def step(msg):
         """步骤日志: 实时转发(带[step]标记) + 入汇总"""
         logs.append(msg)
-        tasks_echo(f"[step] {msg}")
+        log.info(f"[step] {msg}")
 
     if collect_type == 0:
         step("触发类型不确定, 无法采集")
@@ -706,20 +706,20 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
 
     # 4) 4指标(开启时)
     if capture_4metrics:
-        tasks_echo("[step] 正在采集4指标...")
+        log.info("[step] 正在采集4指标...")
         log.info("[采集链路] 调用4指标采集")
         _collect_metrics(biz, art)
 
     # 5) 采集阅读数(开启且列表无阅读数时)
     # 列表页已识别到阅读数时不再重复采集
     if capture_read and list_reads is None:
-        tasks_echo("[step] 正在采集阅读数...")
+        log.info("[step] 正在采集阅读数...")
         log.info("[采集链路] 调用阅读数采集(列表无阅读数)")
         _collect_reads(collect_type, link, biz, art)
 
     # 6) 采集评论(3个采集参数不全0时, 在阅读数之后)
     if not (max_comments == 0 and max_level1 == 0 and max_level2 == 0):
-        tasks_echo("[step] 正在采集评论...")
+        log.info("[step] 正在采集评论...")
         log.info("[采集链路] 调用评论采集: max_comments=%s l1=%s l2=%s",
                  max_comments, max_level1, max_level2)
         _collect_comments(collect_type, link, art, biz,

@@ -39,12 +39,12 @@ def init():
     """OCR 初始化: 预加载引擎(幂等, 可多次调用)。
     用于程序启动时预热, 避免首次识别卡顿。返回 True=就绪"""
     try:
-        print("OCR: 正在加载识别引擎 ...", flush=True)
+        _logging.getLogger("ocr").info("OCR: 正在加载识别引擎 ...")
         get_ocr_engine()
-        print("OCR: 识别引擎加载完成", flush=True)
+        _logging.getLogger("ocr").info("OCR: 识别引擎加载完成")
         return True
     except Exception as e:
-        print(f"OCR: 引擎加载失败: {e}", flush=True)
+        _logging.getLogger("ocr").info(f"OCR: 引擎加载失败: {e}")
         return False
 
 

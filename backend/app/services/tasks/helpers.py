@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 """任务子包: 后台线程池 + 调试截图辅助"""
+import logging
+
+log = logging.getLogger("collect.helpers")
+
 from concurrent.futures import wait
 import os, shutil, time as _t
 import os, shutil, time as _t
@@ -32,7 +36,7 @@ def _save_debug_shot(shot_path, folder, tag):
         os.makedirs(dst_dir, exist_ok=True)
         name = f"{_t.strftime('%H%M%S')}_{tag.replace('#','_')}.png"
         shutil.copy(shot_path, os.path.join(dst_dir, name))
-        tasks_echo(f"[async:{tag}] 调试截图已存桌面/{folder}/{name}")
+        log.info(f"[async:{tag}] 调试截图已存桌面/{folder}/{name}")
     except Exception:
         pass
 
@@ -46,7 +50,7 @@ def _save_debug_shot_b64(shot_b64, folder, tag):
         sb = shot_b64.split(",", 1)[1] if "," in shot_b64 else shot_b64
         with open(os.path.join(dst_dir, name), "wb") as f:
             f.write(base64.b64decode(sb))
-        tasks_echo(f"[async:{tag}] 调试截图已存桌面/{folder}/{name}")
+        log.info(f"[async:{tag}] 调试截图已存桌面/{folder}/{name}")
     except Exception:
         pass
 

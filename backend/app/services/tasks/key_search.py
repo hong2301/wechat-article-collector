@@ -147,7 +147,7 @@ def gzh_query_page_article_loop(date_start="", date_end="", biz="",
     def echo(msg):
         """本轮日志: 存 logs 并实时转发到前端"""
         logs.append(msg)
-        tasks_echo(msg)
+        log.info(msg)
 
     while True:
         loop_n += 1

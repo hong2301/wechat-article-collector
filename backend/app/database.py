@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+import logging
+
+log = logging.getLogger("db")
+
 import json
 """SQLite 数据库连接 + 建表
 单文件: data/collector.db; 后续多表(设置/文章/评论等)在这里扩展"""
@@ -139,13 +143,13 @@ def init_db():
         try:
             _del = conn.execute("DELETE FROM points WHERE name IN ('复制链接左上','复制链接右下')").rowcount
             if _del:
-                print(f"migrate: 删除点位 28/29({_del} 行)")
+                log.info(f"migrate: 删除点位 28/29({_del} 行)")
             conn.execute("DELETE FROM sort_config WHERE type='point' AND record_id IN (28,29)")
             # 点位27 依赖更新: 移除 28/29
             conn.execute("UPDATE points SET depend_points='[11,12,9,14,18]' WHERE name='点击复制链接'")
             conn.commit()
         except Exception as _e:
-            print(f"migrate: 删除点位28/29失败: {_e}")
+            log.info(f"migrate: 删除点位28/29失败: {_e}")
         # 迁移: articles 补 biz 列
         _acols = [r[1] for r in conn.execute("PRAGMA table_info(articles)").fetchall()]
         if "biz" not in _acols:
@@ -156,7 +160,7 @@ def init_db():
         if "link" in cols and "biz" not in cols:
             conn.execute("ALTER TABLE accounts RENAME COLUMN link TO biz")
             conn.commit()
-            print("migrate: accounts.link -> biz")
+            log.info("migrate: accounts.link -> biz")
         # 迁移: articles.link -> art_biz (文章id, 清空旧数据)
         _newacols = [r[1] for r in conn.execute("PRAGMA table_info(articles)").fetchall()]
         if "link" in _newacols and "art_biz" not in _newacols:
@@ -167,7 +171,7 @@ def init_db():
                 pass
             conn.execute("ALTER TABLE articles RENAME COLUMN link TO art_biz")
             conn.commit()
-            print("migrate: articles.link -> art_biz (清空)")
+            log.info("migrate: articles.link -> art_biz (清空)")
         # 迁移: comments 补 is_first 列
         _ccols = [r[1] for r in conn.execute("PRAGMA table_info(comments)").fetchall()]
         if _ccols and "is_first" not in _ccols:
@@ -178,7 +182,7 @@ def init_db():
         if _pcols and "depend_points" not in _pcols:
             conn.execute("ALTER TABLE points ADD COLUMN depend_points TEXT DEFAULT '[]'")
             conn.commit()
-            print("migrate: points.depend_points")
+            log.info("migrate: points.depend_points")
         # 迁移: sort_config 加 type 列(account/point 共用排序表, 唯一(type, sort_order))
         _scols = [r[1] for r in conn.execute("PRAGMA table_info(sort_config)").fetchall()]
         if _scols and "type" not in _scols:
@@ -192,6 +196,6 @@ def init_db():
             conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_biz_art ON articles(biz, art_biz) WHERE art_biz IS NOT NULL AND art_biz<>''")
             conn.commit()
         except Exception as e:
-            print("articles unique index:", e)
+            log.info("articles unique index:", e)
     finally:
         conn.close()

@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+import logging
+
+log = logging.getLogger("collect.common")
+
 import base64
 import io, base64
 """backend.app.services.common: tasks 主函数共用的辅助工具
@@ -111,7 +115,7 @@ def _save_reads(biz, art, reads, logs=None):
         if logs is not None:
             logs.append(msg)
         else:
-            tasks_echo(msg)
+            log.info(msg)
     try:
         conn = get_conn()
         try:
