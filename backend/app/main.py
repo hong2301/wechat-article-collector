@@ -37,8 +37,9 @@ app.add_middleware(BaseHTTPMiddleware, dispatch=logkit.api_log_middleware)
 @app.on_event("startup")
 def startup():
     init_db()
-    # 打开程序时即预加载 OCR 引擎(线程内, 不阻塞启动)
-    threading.Thread(target=ocr_service.init, daemon=True).start()
+    # OCR 是核心能力: 启动时同步直接加载(不做懒加载/后台线程), 初始化完成即就绪;
+    # init 内部 try, 失败仅标志(ocr_ready=False), 不阻塞启动
+    ocr_service.init()
 
 
 @app.on_event("startup")

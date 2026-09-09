@@ -486,7 +486,9 @@ export default function Home() {
               } else if (d.type === "done") {
                 finished = true;
                 setCollectLogs((p) => [...p,
-                  d.ok ? "✅ 采集流程结束" : `❌ 采集失败: ${d.reason || ""}`]);
+                  d.ok ? "✅ 采集流程结束"
+                       : d.reason === "user_stopped" ? "⏹ 任务已终止（主动停止）"
+                       : `❌ 采集失败: ${d.reason || ""}`]);
               }            } catch { /* 忽略坏帧 */ }
           }
         }

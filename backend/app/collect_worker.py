@@ -30,6 +30,16 @@ def _log_hook(pipe):
     return hook
 
 
+
+
+def _normal_end(ok, text):
+    """正常流程结束判定(不算失败): 无更多文章 / 时间范围终止"""
+    if ok:
+        return True
+    t = text or ""
+    return ("无更多文章" in t) or ("日期范围" in t) or ("已过日期范围" in t)
+
+
 def _do_collect(pipe, payload):
     """公众号/关键词采集编排(原 collect.py worker 主分支)"""
     from .services import tasks as tasks_service
@@ -85,9 +95,9 @@ def _do_collect(pipe, payload):
                 max_level1=payload.get("max_level1"),
                 max_level2=payload.get("max_level2") or 0)
             emit(f"[公众号查询页文章列表循环] 结束 | {text2}")
-            tasks_service.wait_bg_done()
-            _send(pipe, "done", ok=ok2, reason=text2 or "关键词查询流程结束")
-            return 0 if ok2 else 1
+            tasks_service.wait_bg_done()   # 正常结束前等异步任务全部完成
+            _send(pipe, "done", ok=_normal_end(ok2, text2), reason=text2 or "关键词查询流程结束")
+            return 0 if _normal_end(ok2, text2) else 1
         # 5b) 旧流程: 文章列表识别循环(死循环, 被终止时整体强杀)
         emit("进入文章列表识别循环(按ESC/停止可整体终止)")
         ok, text = tasks_service.article_list_wait_stable(
@@ -103,9 +113,9 @@ def _do_collect(pipe, payload):
             max_level2=payload.get("max_level2") or 0)
         emit(f"[文章列表识别循环] {'成功' if ok else '失败'} | {text}")
         emit("等待后台异步任务完成...")
-        tasks_service.wait_bg_done()
-        _send(pipe, "done", ok=True, reason="采集流程结束")
-        return 0 if ok else 1
+        tasks_service.wait_bg_done()   # 正常结束前等异步任务全部完成
+        _send(pipe, "done", ok=_normal_end(ok, text), reason=text or "采集流程结束")
+        return 0 if _normal_end(ok, text) else 1
     except Exception as e:
         _send(pipe, "log", msg=f"[异常] {e}")
         _send(pipe, "done", ok=False, reason=str(e))
@@ -205,12 +215,11 @@ def run_collect(payload: dict, pipe):
     kind = str(payload.get("kind") or "collect")
     _send(pipe, "log", msg=f"[进程] 采集子进程启动 pid={multiprocessing.current_process().pid} kind={kind}")
     try:
+        # OCR 核心能力: 子进程启动阶段直接加载(静默, 不进前端日志; 加载错误由 ocr 模块内部记录)
         from .core import ocr as ocr_service
-        _send(pipe, "log", msg="[进程] 预热OCR引擎...")
-        ok = ocr_service.init()
-        _send(pipe, "log", msg=f"[进程] OCR引擎就绪:{'OK' if ok else '失败'}")
-    except Exception as e:
-        _send(pipe, "log", msg=f"[进程] OCR预热异常: {e}")
+        ocr_service.init()
+    except Exception:
+        pass
     try:
         try:
             from .core.logkit import setup_child

@@ -36,59 +36,76 @@ _WEEKDAY_CN = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日"
 
 
 def init():
-    """OCR 初始化: 预加载引擎(幂等, 可多次调用)。
-    用于程序启动时预热, 避免首次识别卡顿。返回 True=就绪"""
+    """OCR 引擎加载(同步, 幂等): 核心能力, 由后端/采集子进程启动时调用。
+    不做懒加载——初始化阶段直接构造 RapidOCR(加载模型+建推理会话)。
+    返回 True=就绪; 失败返回 False(不抛, 由调用方/ocr() 兜底)"""
+    global _ocr_engine
     try:
         _logging.getLogger("ocr").info("OCR: 正在加载识别引擎 ...")
-        get_ocr_engine()
+        with _ocr_lock:
+            if _ocr_engine is None:
+                from rapidocr_onnxruntime import RapidOCR
+                _ocr_engine = RapidOCR()
         _logging.getLogger("ocr").info("OCR: 识别引擎加载完成")
-        return True
+        return _ocr_engine is not None
     except Exception as e:
         _logging.getLogger("ocr").info(f"OCR: 引擎加载失败: {e}")
         return False
 
 
 def get_ocr_engine():
-    """懒加载 OCR 引擎（RapidOCR，线程安全）"""
-    global _ocr_engine
+    """返回已加载引擎(纯 getter, 不做懒加载); 未初始化抛 RuntimeError(由调用方 try 兜底)"""
     with _ocr_lock:
         if _ocr_engine is None:
-            from rapidocr_onnxruntime import RapidOCR
-            _ocr_engine = RapidOCR()
-            _logging.getLogger("ocr").info("OCR 引擎首次加载完成(懒加载)")
+            raise RuntimeError("OCR 引擎未初始化: 需先调用 init()(后端/子进程启动已完成)")
         return _ocr_engine
+
+
+def _run_ocr(img):
+    """识别主体(引擎已就绪时调用)"""
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    buf.seek(0)
+    engine = get_ocr_engine()
+    with _ocr_lock:            # onnxruntime Session 非线程安全
+        result, _ = engine(buf.read())
+    items = []
+    if result:
+        for box_pts, text, score in result:
+            xs = [p[0] for p in box_pts]
+            ys = [p[1] for p in box_pts]
+            cx = int(sum(xs) / len(xs))
+            cy = int(sum(ys) / len(ys))
+            sbox = [(int(p[0]), int(p[1])) for p in box_pts]
+            try:
+                crop = img.crop((min(xs), min(ys), max(xs), max(ys)))
+                brightness = _text_brightness(crop)
+            except Exception:
+                brightness = 255.0
+            items.append((cx, cy, text, score, sbox, brightness))
+    return items
 
 
 @obs.timed("ocr")
 def ocr(img):
-    """输入 PIL 图片, 输出 OCR 识别结果。
-    返回: [(中心x, 中心y, 文本, score, sbox, brightness), ...]
-      - 坐标为图片内相对坐标
-      - sbox 为文本框四点坐标
-      - brightness 为文字区域平均亮度(0-255)
-    失败返回 []"""
+    """输入 PIL 图片, 输出 OCR 识别结果(全项目唯一识别入口)。
+    返回: [(中心x, 中心y, 文本, score, sbox, brightness), ...] 失败返回 []
+    自愈: get_ocr_engine() 抛"未初始化"(后端/子进程启动加载未完成或引擎丢失)
+          -> 自动 init() 重新加载 -> 重试整个识别方法"""
     try:
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        buf.seek(0)
-        engine = get_ocr_engine()
-        with _ocr_lock:            # onnxruntime Session 非线程安全
-            result, _ = engine(buf.read())
-        items = []
-        if result:
-            for box_pts, text, score in result:
-                xs = [p[0] for p in box_pts]
-                ys = [p[1] for p in box_pts]
-                cx = int(sum(xs) / len(xs))
-                cy = int(sum(ys) / len(ys))
-                sbox = [(int(p[0]), int(p[1])) for p in box_pts]
-                try:
-                    crop = img.crop((min(xs), min(ys), max(xs), max(ys)))
-                    brightness = _text_brightness(crop)
-                except Exception:
-                    brightness = 255.0
-                items.append((cx, cy, text, score, sbox, brightness))
-        return items
+        return _run_ocr(img)
+    except RuntimeError:
+        # 引擎未初始化: 重新初始化后重试整个方法(核心能力保障)
+        _logging.getLogger("ocr").warning("OCR 引擎未初始化, 尝试重新加载...")
+        if not init():
+            _logging.getLogger("ocr").error("OCR 自愈失败: 引擎仍未就绪, 返回空结果")
+            return []
+        try:
+            return _run_ocr(img)
+        except Exception as e:
+            _logging.getLogger("ocr").error(
+                "OCR 识别失败: %s: %s", type(e).__name__, e)
+            return []
     except Exception as e:
         # 准确错误日志(ERROR -> 进 error.log): 区分"无文本"([] 正常返回)与"引擎故障"
         _logging.getLogger("ocr").error(

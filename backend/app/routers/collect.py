@@ -23,6 +23,7 @@ log = logkit.get_logger("collect.collect")   # 采集编排/接口业务日志(c
 
 # 采集子进程表(kind -> Process): 主进程统一管理生命周期, 停止=terminate
 _procs = {}
+_stopping = set()   # 主动终止中的 kind(reader 区分"任务终止"vs"管道断开")
 _procs_lock = threading.Lock()
 
 
@@ -38,23 +39,38 @@ def _pipe_reader(proc, conn, log_q, finished, kind):
                 msg = conn.recv()
                 typ = msg.get("type")
                 if typ == "log":
-                    log.info(msg.get("msg", ""))          # 主进程统一: run.log + sse handler->前端
+                    lv = msg.get("level", 20)
+                    txt = msg.get("msg", "")
+                    # 按级别转发: 主进程统一 -> run.log + sse handler->前端(ERROR/WARNING 带红黄色)
+                    if lv >= 40:
+                        log.error(txt)
+                    elif lv >= 30:
+                        log.warning(txt)
+                    else:
+                        log.info(txt)
                 elif typ == "done":
                     log_q.put(("done", bool(msg.get("ok")), msg.get("reason", "")))
                     break
             elif not proc.is_alive():
                 code = proc.exitcode
-                log_q.put(("done", False, "user_stopped" if code == 2 else f"采集进程退出(code={code})"))
+                if kind in _stopping or code == 2:
+                    log_q.put(("done", False, "user_stopped"))
+                else:
+                    log_q.put(("done", False, f"采集进程退出(code={code})"))
                 break
             elif finished.is_set():
                 break
             time.sleep(0.05)
-    except (EOFError, OSError):
-        log_q.put(("done", False, "子进程管道断开"))
+    except (EOFError, OSError) as e:
+        if kind in _stopping:
+            log_q.put(("done", False, "user_stopped"))        # 主动停止 -> 前端显示"任务已终止"
+        else:
+            log_q.put(("done", False, f"子进程管道断开({type(e).__name__})"))
     finally:
         _task_end()
         with _procs_lock:
             _procs.pop(kind, None)
+            _stopping.discard(kind)
         finished.set()
 
 # 运行中的采集任务计数(公众号采集/文章更新/评论采集; 全部归零=任务全部结束)
@@ -93,6 +109,7 @@ def _do_stop():
         pass
     with _procs_lock:
         procs = list(_procs.items())
+        _stopping.update(k for k, p in procs if p.is_alive())
     for kind, proc in procs:
         try:
             if proc.is_alive():

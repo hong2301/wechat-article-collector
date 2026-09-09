@@ -167,6 +167,9 @@ class _PipeHandler(logging.Handler):
 
     def emit(self, record):
         try:
+            # OCR 加载/预热类细节不推前端(核心加载由启动阶段完成); ERROR仍转发(进error.log)
+            if record.name.startswith("ocr") and record.levelno < logging.ERROR:
+                return
             self._pipe.send({"type": "log", "msg": record.getMessage(),
                              "level": record.levelno, "logger": record.name})
         except Exception:
