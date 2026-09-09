@@ -186,21 +186,6 @@ class UpdateStart(BaseModel):
     keyword: str = ""               # 要查询的关键词
 
 
-class CommentStart(BaseModel):
-    """评论采集触发: 初始化窗口 -> 搜一搜查询文章链接 -> article_data_collect(带评论参数)"""
-    biz: str = ""            # 公众号 biz
-    name: str = ""           # 公众号名称
-    link: str = ""           # 文章链接
-    capture_4metrics: bool = False  # 采集4指标
-    capture_read: bool = False       # 采集阅读数
-    save_html: bool = False          # 保存文章为本地HTML(含图片)
-    save_dir: str = ""              # 保存HTML根目录
-    max_comments: int | None = None # 文章最大评论采集数(空=无限)
-    max_level1: int | None = None   # 一级评论采集数(空=无限)
-    max_level2: int | None = 0      # 每级二级评论采集数(默认0=不采二级, null=无限)
-    capture_keyword: bool = False   # 关键词查询开关
-    keyword: str = ""               # 要查询的关键词
-
 
 def _sse(data: dict):
     """转 SSE data 帧"""
@@ -366,85 +351,6 @@ def _update_generate(payload: UpdateStart):
     tasks_service.bind_tasks_echo(prev_hook)   # 任务结束恢复日志钩子
 
 
-
-def _comment_generate(payload: CommentStart):
-    """评论采集流程: 窗口初始化 -> 搜一搜查询文章链接 -> article_data_collect(带评论参数)
-    独立于采集/更新流程, SSE 流式返回日志"""
-    log_q = queue.Queue()
-    lock = threading.Lock()
-    finished = threading.Event()
-
-    def hook(msg):
-        try:
-            log_q.put(("log", msg))
-        except Exception:
-            pass
-
-    def start_proc():
-        """spawn 采集子进程 + Pipe 读线程(日志回传主进程)"""
-        # 互斥: 一键设置进行中则拒绝启动采集
-        if auto_setup_svc.locked():
-            log_q.put(("log", "一键设置进行中, 无法启动采集"))
-            log_q.put(("done", False, "一键设置进行中"))
-            return
-        ctx = _mp.get_context("spawn")
-        parent_conn, child_conn = ctx.Pipe()
-        d = payload.model_dump() if hasattr(payload, "model_dump") else dict(payload)
-        d["kind"] = "comments"
-        proc = ctx.Process(target=run_collect, args=(d, child_conn),
-                           name="collect-comments", daemon=True)
-        proc.start()
-        child_conn.close()
-        with _procs_lock:
-            _procs["comments"] = proc
-        _task_begin()
-        threading.Thread(target=_pipe_reader,
-                         args=(proc, parent_conn, log_q, finished, "comments"), daemon=True).start()
-
-    prev_hook = tasks_service.bind_tasks_echo(hook)   # 子进程日志: sse handler -> 前端
-    tasks_service.clear_stop()
-    msg = (f"评论采集: {payload.name} | {payload.link[:50]} | "
-           f"文章评论数={payload.max_comments if payload.max_comments is not None else '无限'} | "
-           f"一级评论数={payload.max_level1 if payload.max_level1 is not None else '无限'} | "
-           f"每级二级评论数={payload.max_level2 if payload.max_level2 else '0'}")
-    log.info("评论采集启动")
-    log.info(msg)
-    yield _sse({"type": "task", "done": 0, "total": 1})
-    start_proc()
-
-    last_sent = time.monotonic()
-    try:
-        while not finished.is_set() or not log_q.empty():
-            try:
-                item = log_q.get(timeout=0.3)
-            except queue.Empty:
-                now = time.monotonic()
-                if now - last_sent >= 5:
-                    yield _sse({"type": "keepalive"})
-                    last_sent = now
-                continue
-            last_sent = time.monotonic()
-            with lock:
-                if item[0] == "log":
-                    yield _sse({"type": "log", "msg": item[1]})
-                elif item[0] == "done":
-                    yield _sse({"type": "done", "ok": item[1], "reason": item[2]})
-            if item[0] == "done":
-                break
-        while not log_q.empty():
-            item = log_q.get_nowait()
-            if item[0] == "log":
-                yield _sse({"type": "log", "msg": item[1]})
-    finally:
-        # 客户端断开/采集器窗口关闭等任意结束: 请求 worker 停止 -> finally 解锁键鼠
-        try:
-            tasks_service.request_stop()
-        except Exception:
-            pass
-    tasks_service.bind_tasks_echo(prev_hook)   # 任务结束恢复日志钩子
-
-
-
 @router.post("/stop")
 def collect_stop():
     """前端关闭采集窗口时调用: 强制中断采集线程(立即停止, 集中在此实现)"""
@@ -498,27 +404,6 @@ def collect_update(payload: UpdateStart):
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
-
-@router.post("/comments")
-def collect_comments(payload: CommentStart):
-    """评论采集: 独立流程(窗口初始化->搜一搜查询文章链接->article_data_collect带评论参数), SSE 返回日志"""
-    log.info("[collect.comments] link=%.40s 评论参数 l1=%s l2=%s",
-             payload.link, payload.max_level1, payload.max_level2)
-    pc.enable_dpi_awareness()
-    _start_esc_listener()
-    generator = _comment_generate(payload)
-
-    def wrap():
-        try:
-            yield from generator
-        finally:
-            _do_stop()                     # 前端断开 -> 终止采集子进程(整体强停)
-            _stop_esc_listener()
-    return StreamingResponse(
-        wrap(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
 
 @router.get("/task-state")
 def task_state():

@@ -6,7 +6,7 @@
   - 日志经 Pipe 回传主进程(主进程统一落盘 run.log + 转发 SSE, 单一写者)
   - 退出码: 0=正常完成 1=内部失败 2=被终止
 
-kind: collect(公众号/关键词采集) / update(单篇更新) / comments(评论采集)
+kind: collect(公众号/关键词采集) / update(单篇更新, 含评论采集=其它开关全关只开评论参数)
 """
 import multiprocessing
 import sys
@@ -164,51 +164,6 @@ def _do_update(pipe, payload):
         return 1
 
 
-def _do_comments(pipe, payload):
-    """评论采集编排(镜像原 worker: article_data_collect collect_type=2 带评论参数)"""
-    from .services import tasks as tasks_service
-    from .core import robot as robot_mod
-    robot_mod.bind_tasks_echo(_log_hook(pipe))
-    try:
-        ok, text = tasks_service.init_wechat_window()
-        _send(pipe, "log", msg=f"[微信窗口初始化] {'成功' if ok else '失败'} | {text}")
-        if not ok:
-            _send(pipe, "done", ok=False, reason="微信窗口初始化失败"); return 1
-        ok, text = tasks_service.init_app_window()
-        _send(pipe, "log", msg=f"[采集器窗口初始化] {'成功' if ok else '失败'} | {text}")
-        if not ok:
-            _send(pipe, "done", ok=False, reason="采集器窗口初始化失败"); return 1
-        ok, text = tasks_service.search_window_init()
-        _send(pipe, "log", msg=f"[搜一搜窗口初始化] {'成功' if ok else '失败'} | {text}")
-        if not ok:
-            _send(pipe, "done", ok=False, reason="搜一搜窗口初始化失败"); return 1
-        _send(pipe, "log", msg=f"[搜一搜查询](评论采集) {'成功' if payload.get('link') else '缺链接'}")
-        ok, text = tasks_service.search_query(payload.get("link") or "")
-        _send(pipe, "log", msg=f"[搜一搜查询] {'成功' if ok else '失败'} | {text}")
-        if not ok:
-            _send(pipe, "done", ok=False, reason="搜一搜查询失败"); return 1
-        _send(pipe, "log", msg="开始采集该文章评论...")
-        r = tasks_service.article_data_collect(
-            collect_type=2,
-            capture_4metrics=bool(payload.get("capture_4metrics")),
-            capture_read=bool(payload.get("capture_read")),
-            save_html=bool(payload.get("save_html")),
-            save_dir=payload.get("save_dir") or "",
-            biz=payload.get("biz") or "",
-            max_comments=payload.get("max_comments"),
-            max_level1=payload.get("max_level1"),
-            max_level2=payload.get("max_level2") or 0)
-        _send(pipe, "log", msg=f"[评论采集流程] {'成功' if r else '失败'} | {text}")
-        _send(pipe, "log", msg="等待后台异步任务完成...")
-        tasks_service.wait_bg_done()
-        _send(pipe, "done", ok=bool(r), reason="评论采集流程结束")
-        return 0 if r else 1
-    except Exception as e:
-        _send(pipe, "log", msg=f"[异常] {e}")
-        _send(pipe, "done", ok=False, reason=str(e))
-        return 1
-
-
 def run_collect(payload: dict, pipe):
     """spawn target: 子进程入口. payload: dict; pipe: multiprocessing Pipe 子端
     子进程启动即预热 OCR 引擎(确保采集识别阶段直接用已就绪引擎, 不在流程中途卡首次加载)"""
@@ -228,10 +183,8 @@ def run_collect(payload: dict, pipe):
             pass
         if kind == "update":
             code = _do_update(pipe, payload)
-        elif kind == "comments":
-            code = _do_comments(pipe, payload)
         else:
-            code = _do_collect(pipe, payload)
+            code = _do_collect(pipe, payload)   # collect / 未知归采集
         _send(pipe, "log", msg=f"[进程] 采集子进程结束 code={code}")
         return code
     except Exception as e:

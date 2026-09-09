@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""采集编排接口: task-state(读计数) / stop(无任务时安全) 可自动测; start/update/comments 动微信标 manual"""
+"""采集编排接口: task-state(读计数) / stop(无任务时安全) 可自动测; start/update(含评论采集) 动微信标 manual"""
 import pytest
 
 
@@ -30,4 +30,4 @@ def test_collect_update_manual(client):
 
 @pytest.mark.manual
 def test_collect_comments_manual(client):
-    """评论采集动微信, 手动跑"""
+    """评论采集=单篇更新(update 接口 + 仅评论参数), 手动跑"""

@@ -126,7 +126,7 @@ def _bg_ai_comments(shot_b64s, art_biz, max_level1, max_level2, shot_x=None):
         with ThreadPoolExecutor(max_workers=2) as ex:
             f_ai = ex.submit(_dec, _ai_b64, api_key)
             f_ocr = ex.submit(_ocr_levels)
-            comments = f_ai.result(timeout=60) or []
+            comments = f_ai.result(timeout=200) or []   # 放宽: doubao 单次 180s + 余量
             levels = f_ocr.result() or []
         for i, c in enumerate(comments):
             if i < len(levels):
@@ -145,7 +145,6 @@ def _bg_ai_comments(shot_b64s, art_biz, max_level1, max_level2, shot_x=None):
             return
         from ...core.common import save_comments
         wrote = save_comments(art_biz, comments)
-        log.info(f"[async:{tag}] 识别评论{len(comments)}条, 写入{wrote}条")
         # 更新采集计数(一级/二级/总数)
         with _comment_stats_lock:
             st = _comment_stats.setdefault(art_biz, {"l1": 0, "l2": 0, "total": 0})
@@ -156,6 +155,8 @@ def _bg_ai_comments(shot_b64s, art_biz, max_level1, max_level2, shot_x=None):
                 else:
                     st["l1"] += 1
             _total = st["total"]
+        # 写库结果与分级计数日志(供前端实时统计解析)
+        log.info(f"[async:{tag}] 识别评论{len(comments)}条, 写入{wrote}条(一级{st['l1']} 二级{st['l2']})")
         # 识别数持久化到 articles.comment_recog
         try:
             conn = get_conn()
