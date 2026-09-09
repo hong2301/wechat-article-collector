@@ -426,9 +426,25 @@ def _notice_block():
         pass
 
 
+_escalate_stop = None      # 进程化: 主进程注册的"终止自动设置子进程"回调(ESC 时调用)
+
+
+def set_stop_hook(fn):
+    """注册停止升级回调(router 层 terminate 自动设置子进程); fn=None 清除"""
+    global _escalate_stop
+    _escalate_stop = fn
+
+
 def _on_esc():
     _stop_requested[0] = True
-    # 向 run-all 执行线程注入 StopFlow: 无论点位流程在哪一步, 整流程直接放弃
+    # 进程化: 优先升级为主进程 terminate 子进程(一整个强停)
+    if _escalate_stop is not None:
+        try:
+            _escalate_stop()
+        except Exception:
+            pass
+        return
+    # 未进程化(回退): 向 run-all 执行线程注入 StopFlow
     tid = _flow_tid
     if tid:
         try:
