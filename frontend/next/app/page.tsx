@@ -423,7 +423,7 @@ export default function Home() {
       setCollectComments(0); setCollectCommentSpeed(0);
       setCollectLogs([`开始采集「${task.name || ""}」`]);
     } else {
-      setCollectLogs((p) => [...p, `--- 开始采集「${task.name || ""}」(${idx + 1}/${queue.length}) ---`]);
+      setCollectLogs((p) => [...p, `--- 开始采集「${task.name || ""}」(${idx + 1}/${queue.length}) ---`].slice(-2000));
     }
 
     const controller = new AbortController();
@@ -470,7 +470,7 @@ export default function Home() {
             try {
               const d = JSON.parse(block.slice(6));
               if (d.type === "log" && d.msg) {
-                setCollectLogs((p) => [...p, d.msg]);
+                setCollectLogs((p) => [...p, d.msg].slice(-2000));   // 限长: 长采集截断, 防DOM卡顿
                 if (d.msg.includes("禁用鼠标和键盘")) message.warning("⚠️ 采集期间禁用鼠标和键盘，按 ESC 可停止");
                 // 评论采集统计: 日志 '写入N条' 累加(速度由effect计算)
                 if (d.msg.includes("写入") && d.msg.includes("评论#")) {
@@ -994,15 +994,22 @@ export default function Home() {
                 <span style={{ color: "#888" }}>(暂无日志)</span>
               ) : (
                 collectLogs.map((l, i) => {
-                  // [async:任务名] 异步统一青色; [step]橙 [ok]绿 [fail]红 [warn]黄
-                  const mAsync = l.match(/^\[async:([^\]]+)\]\s?([\s\S]*)/);
+                  // 新格式级别前缀 [INFO]/[WARNING]/[ERROR]; 兼容旧标记 [async:任务] [step] [ok] [fail] [warn]
+                  const mm = l.match(/^\[(INFO|WARNING|ERROR|DEBUG)\]\s?([\s\S]*)/);
+                  const mAsync = mm ? null : l.match(/^\[async:([^\]]+)\]\s?([\s\S]*)/);
                   const m = mAsync || l.match(/^\[(step|ok|fail|warn)\]\s?([\s\S]*)/);
                   let text = l, color: string | undefined;
-                  if (mAsync) { color = "#36cfc9"; text = `[${mAsync[1]}] ${mAsync[2]}`; }
+                  if (mm) {
+                    color = { INFO: undefined, DEBUG: "#8a8a8a", WARNING: "#ffc53d", ERROR: "#ff4d4f" }[mm[1]];
+                    text = mm[2];
+                  } else if (mAsync) { color = "#36cfc9"; text = `[${mAsync[1]}] ${mAsync[2]}`; }
                   else if (m) {
                     color = { step: "#ffa940", ok: "#73d13d", fail: "#ff4d4f", warn: "#ffc53d" }[m[1]];
                     text = m[2];
                   }
+                  else if (/^✅/.test(l)) color = "#73d13d";
+                  else if (/^❌/.test(l)) color = "#ff4d4f";
+                  else if (/^⏹/.test(l)) color = "#69b1d6";
                   return <div key={i} style={color ? { color } : undefined}>{text}</div>;
                 })
               )}
