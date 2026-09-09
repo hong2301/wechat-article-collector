@@ -3,12 +3,13 @@ import ctypes
 """点位自动设置: 纯计算类点位(阅读数区域)
 不操作窗口, 依赖对应点位坐标直接计算"""
 from ...database import get_conn as _get_conn
-from .engine import POINT_FLOWS, log   # noqa: F401  (POINT_FLOWS 用于注册)
+from .engine import POINT_FLOWS, flow_points, log   # noqa: F401  (POINT_FLOWS 用于注册)
 
 
 # ---------------------------------------------------------------------------
 # 点位 21/22: 阅读数左/右下 (同一自动设置, 依赖点位19已设值, 纯计算不操作窗口)
 # ---------------------------------------------------------------------------
+@flow_points("阅读数左上", "阅读数右下")
 def _calc_reads_box(self_name):
     """32/33 纯计算: 阅读数区域(依赖4指标区域左上)
     依赖点位(与库 depend_points 同步): [30]"""
@@ -45,5 +46,3 @@ def _calc_reads_box(self_name):
     return fn
 
 
-POINT_FLOWS["阅读数左上"] = _calc_reads_box("阅读数左上")
-POINT_FLOWS["阅读数右下"] = _calc_reads_box("阅读数右下")

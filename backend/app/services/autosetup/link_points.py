@@ -5,7 +5,7 @@ import time as _time
 from PIL import Image, ImageGrab
 import numpy as np
 from ...database import get_conn as _get_conn
-from .engine import POINT_FLOWS, flow_point, log   # noqa: F401
+from .engine import POINT_FLOWS, flow_points, log   # noqa: F401
 
 
 # 点位 15/16: 文章列表左上角 / 文章列表右下角 (同一流程, 一次得到两个坐标)
@@ -96,6 +96,7 @@ def _flow_articles_list_find(ctx):
         return None
 
 
+@flow_points("文章列表左上角", "文章列表右下角")
 def _articles_list_entry(self_name):
     """包装: 识别矩形(含写库15/16) -> 按当前点位名返回坐标"""
     def fn(ctx):
@@ -121,8 +122,6 @@ def _articles_list_entry(self_name):
     return fn
 
 
-POINT_FLOWS["文章列表左上角"] = _articles_list_entry("文章列表左上角")
-POINT_FLOWS["文章列表右下角"] = _articles_list_entry("文章列表右下角")
 
 
 # ---------------------------------------------------------------------------

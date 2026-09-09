@@ -99,10 +99,21 @@ class FlowContext:
 
 
 def flow_point(name):
-    """装饰器: 注册点位流程函数(名称须与 points.name 一致)"""
+    """装饰器: 注册点位流程函数(名称须与 points.name 一致); 专属流程用"""
     def deco(fn):
         POINT_FLOWS[name] = fn
         return fn
+    return deco
+
+
+def flow_points(*names):
+    """装饰器: 批量注册区域类点位(同一工厂按点位名生成流程函数, 复用识别逻辑)
+    示例: @flow_points("阅读数左上", "阅读数右下")
+    """
+    def deco(factory):
+        for n in names:
+            POINT_FLOWS[n] = factory(n)
+        return factory
     return deco
 
 
