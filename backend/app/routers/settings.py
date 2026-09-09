@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """设置/系统控制路由: AI 模型、微信版本确认、任务栏、微信启动/登录检测"""
+import logging
+
 import os
 import subprocess
 import ctypes.wintypes as wt
@@ -10,11 +12,13 @@ from pydantic import BaseModel
 
 from ..database import default_html_dir
 from ..core import computer as pc
+from ..core import logkit
 from ..version_info import APP_VERSION, WECHAT_VERSION  # 硬编码版本(构建时由 .env 注入)
 from ..services import wechat_check as wx_check
 from ..repositories import settings_repo
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+log = logkit.get_logger("api.settings")   # 接口业务日志 -> api.log
 
 
 class AiSettings(BaseModel):
@@ -26,6 +30,7 @@ class AiSettings(BaseModel):
 @router.get("/wechat-version")
 def get_wechat_version():
     """读微信基准版本(硬编码内置, 不再存数据库)"""
+    log.info("[settings.wechat-version] 返回 %s", WECHAT_VERSION)
     return {"version": WECHAT_VERSION}
 
 
@@ -33,11 +38,14 @@ def get_wechat_version():
 def wechat_check_api():
     """微信版本确认: 读本地版本 + 网络试探更高版本(内置硬编码基准)
     返回 {db, local, online}"""
-    return wx_check.check(WECHAT_VERSION)
+    r = wx_check.check(WECHAT_VERSION)
+    log.info("[settings.wechat-check] local=%s online=%s", r.get("local"), r.get("online"))
+    return r
 
 
 @router.get("/ai")
 def get_ai_settings():
+    log.info("[settings.ai] 读取AI配置")
     return settings_repo.get_ai()
 
 
@@ -45,6 +53,7 @@ def get_ai_settings():
 def save_ai_settings(payload: AiSettings):
     """保存: 清空旧记录, 写入 (provider, api_key, 每个model_id) 一行一条"""
     n = settings_repo.save_ai(payload.provider, payload.api_key, payload.models)
+    log.info("[settings.ai] 保存 provider=%s models=%s (api_key不落日志)", payload.provider, payload.models)
     return {"ok": True, "count": n}
 
 
@@ -52,7 +61,9 @@ def save_ai_settings(payload: AiSettings):
 def get_save_dir():
     """读取存储路径(settings 表 save_dir)"""
     from ..repositories.settings_repo import get_setting
-    return {"dir": get_setting("save_dir")}
+    d = get_setting("save_dir")
+    log.info("[settings.save-dir] 读取: %r", d)
+    return {"dir": d}
 
 
 @router.post("/save-dir")
@@ -62,6 +73,7 @@ def save_dir_api(payload: dict = None):
     p = payload or {}
     d = (p.get("dir") or "").strip()
     set_setting("save_dir", d)
+    log.info("[settings.save-dir] 保存: %r", d)
     return {"ok": True, "dir": d}
 
 
@@ -75,8 +87,10 @@ def open_downloads(sub: str = ""):
     try:
         os.makedirs(d, exist_ok=True)
         os.startfile(d)
+        log.info("[settings.open-downloads] 打开: %s", d)
         return {"ok": True, "dir": d}
     except Exception as e:
+        log.error("[settings.open-downloads] %s 打开失败: %s", d, e)
         return {"ok": False, "error": str(e)}
 
 
@@ -94,6 +108,7 @@ def pick_dir(current: str = ""):
         chosen = filedialog.askdirectory(initialdir=current, title="选择保存HTML的根目录")
     finally:
         root.destroy()
+    log.info("[settings.pick-dir] %s -> %s", current, chosen or "(取消)")
     return {"ok": True, "dir": chosen or ""}
 
 
@@ -104,11 +119,14 @@ def save_article_html_api(payload: dict = None):
     p = payload or {}
     link = (p.get("link") or "").strip()
     if not link:
+        log.warning("[settings.save-article-html] 缺少链接")
         return {"ok": False, "error": "缺少链接"}
     path, info = save_article_html(link, account_name=(p.get("account_name") or ""),
                                    base_dir=(p.get("base_dir") or None))
     if path:
+        log.info("[settings.save-article-html] 保存成功 account=%s link=%.40s", p.get("account_name") or "", link)
         return {"ok": True, "path": path, "info": info}
+    log.warning("[settings.save-article-html] 保存失败: %.60s", info)
     return {"ok": False, "error": info}
 
 
@@ -129,9 +147,12 @@ def launch_wechat():
         if os.path.isfile(p):
             try:
                 subprocess.Popen([p], close_fds=True)
+                log.info("[settings.launch-wechat] 启动微信: %s", p)
                 return {"ok": True, "path": p}
             except Exception as e:
+                log.error("[settings.launch-wechat] %s 启动失败: %s", p, e)
                 return {"ok": False, "error": f"启动失败: {e}"}
+    log.warning("[settings.launch-wechat] 未找到微信安装路径")
     return {"ok": False, "error": "未找到微信安装路径"}
 
 
@@ -149,16 +170,16 @@ def _wx_win_width_check():
     # 只认微信主窗口: weixin.exe 且标题含"微信"(排除设置/聊天窗等)
     wins = pc.find_windows(exe=tasks_svc.WECHAT_MAIN, visible_only=True)
     wins = [w for w in wins if (w[1] or "").strip() == "微信" or "微信" in (w[1] or "")]
-    print(f"[wxcheck] 可见微信窗口数={len(wins)} 半屏宽={half}", flush=True)
+    logging.getLogger().info(f"[wxcheck] 可见微信窗口数={len(wins)} 半屏宽={half}")
     for hwnd, _t, _p, _vis in wins:
         pc.move_window(hwnd, 0, 0, half, sh)
         _time.sleep(0.3)
         r = wt.RECT()
         u32.GetWindowRect(hwnd, ctypes.byref(r))
-        print(f"[wxcheck] 移动后宽={r.right - r.left} (需>={half * 0.9:.0f})", flush=True)
+        logging.getLogger().info(f"[wxcheck] 移动后宽={r.right - r.left} (需>={half * 0.9:.0f})")
         if r.right - r.left >= half * 0.9:
             logged = True
-    print(f"[wxcheck] 判定 logged={logged}", flush=True)
+    logging.getLogger().info(f"[wxcheck] 判定 logged={logged}")
     return logged
 
 
@@ -188,6 +209,7 @@ _WX_WIN_CHECK_INTERVAL = 1.0      # 未确认登录时每1秒窗口移动+量宽
 @router.get("/app-version")
 def app_version():
     """程序版本: 硬编码内置常量(构建时由根 .env APP_VERSION 注入, 打包/开发一致)"""
+    log.info("[settings.app-version] 返回 %s", APP_VERSION)
     return {"version": APP_VERSION}
 
 

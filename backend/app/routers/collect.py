@@ -11,10 +11,13 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ..services import tasks as tasks_service
+from ..core import logkit
 from ..core import computer as pc
 from ..services import auto_setup as auto_setup_svc
 
 router = APIRouter(prefix="/api/collect", tags=["collect"])
+
+log = logkit.get_logger("collect.collect")   # 采集编排/接口业务日志(collect.* 前缀 -> run.log + 前端双路)
 
 # 当前采集 worker 线程 id(用于停止时注入异常强制中断)
 _worker_tid = {"tid": None}
@@ -507,6 +510,7 @@ def _comment_generate(payload: CommentStart):
 @router.post("/stop")
 def collect_stop():
     """前端关闭采集窗口时调用: 强制中断采集线程(立即停止, 集中在此实现)"""
+    log.info("[collect.stop] 收到停止请求")
     _do_stop()          # 复用统一停止(信号+注入异常)
     return {"ok": True}
 
@@ -514,6 +518,9 @@ def collect_stop():
 @router.post("/start")
 def collect_start(payload: CollectStart):
     """启动采集; SSE 流式返回日志与进度"""
+    log.info("[collect.start] 类型=%s 公众号=%r keyword=%r 4指标=%s 阅读数=%s 存html=%s",
+             payload.collect_type, payload.name, payload.keyword,
+             payload.capture_4metrics, payload.capture_read, payload.save_html)
     pc.enable_dpi_awareness()   # 确保坐标用物理像素(否则DPI缩放下点击偏移)
     _start_esc_listener()       # 采集开始: 监听 ESC(按ESC=停止流程)
     # 客户端断开时(生成器被close)请求停止死循环
@@ -535,6 +542,8 @@ def collect_start(payload: CollectStart):
 @router.post("/update")
 def collect_update(payload: UpdateStart):
     """单篇更新: 独立流程(窗口初始化->搜一搜查询文章链接->article_data_collect), SSE 返回日志"""
+    log.info("[collect.update] link=%.40s 4指标=%s 阅读数=%s 存html=%s",
+             payload.link, payload.capture_4metrics, payload.capture_read, payload.save_html)
     pc.enable_dpi_awareness()
     _start_esc_listener()
     generator = _update_generate(payload)
@@ -555,6 +564,8 @@ def collect_update(payload: UpdateStart):
 @router.post("/comments")
 def collect_comments(payload: CommentStart):
     """评论采集: 独立流程(窗口初始化->搜一搜查询文章链接->article_data_collect带评论参数), SSE 返回日志"""
+    log.info("[collect.comments] link=%.40s 评论参数 l1=%s l2=%s",
+             payload.link, payload.max_level1, payload.max_level2)
     pc.enable_dpi_awareness()
     _start_esc_listener()
     generator = _comment_generate(payload)
@@ -573,5 +584,6 @@ def collect_comments(payload: CommentStart):
 
 @router.get("/task-state")
 def task_state():
-    """采集任务状态: 正在运行的任务数(公众号采集/文章更新/评论采集)"""
+    """采集任务状态: 正在运行的任务数(公众号采集/文章更新/评论采集)
+    前端轮询(秒级) -> 高频, 不记日志避免刷屏"""
     return {"running_count": _task_running_count(), "running": _task_running_count() > 0}

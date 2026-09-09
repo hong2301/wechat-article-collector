@@ -8,31 +8,43 @@ from pydantic import BaseModel
 
 from ..models import Scroll, ScrollCreate, ScrollUpdate
 from ..repositories import scrolls_repo
+from ..core import logkit
 
 router = APIRouter(prefix="/api/scrolls", tags=["scrolls"])
+log = logkit.get_logger("api.scrolls")   # 接口业务日志 -> api.log
 
 
 @router.get("", response_model=list[Scroll])
 def list_scrolls():
-    return scrolls_repo.list_all()
+    log.info("[scrolls.list] 查询滚动配置")
+    rows = scrolls_repo.list_all()
+    log.info("[scrolls.list] 返回 %d 条", len(rows))
+    return rows
 
 
 @router.post("", response_model=Scroll, status_code=201)
 def create_scroll(payload: ScrollCreate):
+    log.info("[scrolls.create] name=%s dist=%s point=%s dir=%s",
+             payload.name, payload.distance, payload.point_id, payload.direction)
     return scrolls_repo.create(payload.name, payload.distance, payload.point_id,
                                payload.direction, payload.remark)
 
 
 @router.put("/{sid}", response_model=Scroll)
 def update_scroll(sid: int, payload: ScrollUpdate):
+    upd = payload.model_dump(exclude_unset=True)
+    log.info("[scrolls.update] id=%s 字段=%s", sid, list(upd.keys()))
     if not scrolls_repo.get(sid):
+        log.warning("[scrolls.update] id=%s 不存在", sid)
         raise HTTPException(404, "滚动配置不存在")
-    return scrolls_repo.update(sid, payload.model_dump(exclude_unset=True))
+    return scrolls_repo.update(sid, upd)
 
 
 @router.delete("/{sid}", status_code=204)
 def delete_scroll(sid: int):
+    log.info("[scrolls.delete] id=%s", sid)
     if not scrolls_repo.delete(sid):
+        log.warning("[scrolls.delete] id=%s 不存在", sid)
         raise HTTPException(404, "滚动配置不存在")
 
 
@@ -108,8 +120,10 @@ def import_scrolls(file: UploadFile = File(...)):
     raw = file.file.read() if hasattr(file, "file") else file.read()
     rows = _parse_scroll_file(file.filename or "", raw)
     if not rows:
+        log.warning("[scrolls.import] 文件为空或无法解析: %s", file.filename)
         raise HTTPException(400, "文件为空或无法解析")
     added, updated = scrolls_repo.import_upsert(rows)
+    log.info("[scrolls.import] %s: 新增 %d, 更新 %d, 共 %d", file.filename, added, updated, len(rows))
     return {"ok": True, "added": added, "updated": updated, "total": len(rows)}
 
 
@@ -119,9 +133,11 @@ def run_scroll(sid: int):
     from ..core import computer as pc
     s = scrolls_repo.get(sid)
     if not s:
+        log.warning("[scrolls.run] id=%s 不存在", sid)
         raise HTTPException(404, "滚动配置不存在")
     pt = scrolls_repo.get_point_xy(s.get("point_id") or 0)
     if not pt:
+        log.warning("[scrolls.run] id=%s 点位缺失或未配置坐标", sid)
         return {"ok": False, "reason": "滚动点位不存在或未配置坐标"}
 
     pc.enable_dpi_awareness()
@@ -131,8 +147,11 @@ def run_scroll(sid: int):
         dist = int(float((s.get("distance") or 0)))
         direction = s.get("direction") or "down"
         pc.scroll(x, y, dist, direction=direction)
+        log.info("[scrolls.run] id=%s 滚动(%s,%s) 距离=%s 方向=%s", sid, x, y, dist, direction)
         return {"ok": True, "x": x, "y": y, "distance": dist, "direction": direction}
     except (TypeError, ValueError):
+        log.warning("[scrolls.run] id=%s 坐标或距离无效", sid)
         return {"ok": False, "reason": "坐标或距离无效"}
     except Exception as e:
+        log.error("[scrolls.run] id=%s 执行异常: %s", sid, e)
         return {"ok": False, "reason": str(e)}

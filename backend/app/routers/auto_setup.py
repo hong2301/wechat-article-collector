@@ -9,10 +9,12 @@ import json
 from fastapi import APIRouter, HTTPException
 
 from ..services import auto_setup as as_svc
+from ..core import logkit
 from ..core.computer import enable_dpi_awareness
 from ..repositories import points_repo, scrolls_repo
 
 router = APIRouter(prefix="/api/auto-setup", tags=["auto-setup"])
+log = logkit.get_logger("api.auto_setup")
 
 
 # 统一 DPI 感知(打包版进程默认非 DPI aware, 缩放下 GetSystemMetrics 返回虚拟像素导致坐标偏差)
@@ -33,13 +35,16 @@ def auto_setup_point(pid: int):
             owned = as_svc.lock()
         row = points_repo.get(pid)
         if not row:
+            log.warning("[auto-setup.point] id=%s 不存在", pid)
             raise HTTPException(404, f"点位不存在 id={pid}")
         name = row["name"]
         x, y, remark, err = as_svc.run_point_flow(name)
         if x is None:
+            log.warning("[auto-setup.point] 识别失败: %s (%s)", name, err or "?")
             return {"ok": False, "name": name, "error": err or "识别失败"}
         # 点位9: 非99999(真实识别到坐标)时清除备注; 99999 待定保留备注(set_coords 内部处理)
         points_repo.set_coords(pid, x, y, remark if x == 99999 else "")
+        log.info("[auto-setup.point] %s -> (%s,%s)", name, x, y)
         return {"ok": True, "name": name, "x": x, "y": y, "remark": remark}
     finally:
         if owned:
@@ -72,6 +77,7 @@ def auto_setup_scroll(sid: int):
         return {"ok": False, "name": row["name"], "error": f"点位{p1}/{p2} 坐标未设置(需先一键设置校准), 无法计算滚动距离"}
     dist = int(abs(int(y2s) - int(y1s)) * 0.95)   # 区域高度(y绝对值差)再小5%(与 id3/5 一致)
     scrolls_repo.set_distance(sid, dist)
+    log.info("[auto-setup.scroll] %s distance=%s (点位%s/%s)", row["name"], dist, p1, p2)
     return {"ok": True, "name": row["name"], "distance": dist, "from": f"点位{p1}/{(p2)}"}
 
 @router.post("/run-all")
@@ -79,7 +85,7 @@ def auto_setup_run_all(names: str = ""):
     _dpi()
     """一键设置: 按依赖顺序执行全部点位(names为空)或仅指定点位(逗号分隔, 单点位自动设置用), SSE流式逐点位提示"""
     from fastapi.responses import StreamingResponse
-
+    log.info("[auto-setup.run-all] 开始一键设置 names=%r", names)
     _dbg = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "..", "..", "auto_setup_dbg.log")
     try:
         if _os.path.exists(_dbg):
@@ -108,14 +114,18 @@ def auto_setup_run_all(names: str = ""):
 def auto_setup_lock():
     """前端点击一键设置: 开启输入锁定(人工键鼠拦截+提示); 采集进行中则拒绝"""
     if not as_svc.lock():
+        log.warning("[auto-setup.lock] 采集进行中, 拒绝一键设置")
         return {"ok": False, "error": "采集进行中，无法开始一键设置"}
+    log.info("[auto-setup.lock] 已开启输入锁定")
     return {"ok": True}
 
 
 @router.post("/unlock")
 def auto_setup_unlock():
     """前端任务结束: 停止输入锁定"""
-    return {"ok": as_svc.unlock()}
+    r = as_svc.unlock()
+    log.info("[auto-setup.unlock] 释放锁=%s", r)
+    return {"ok": r}
 
 
 @router.post("/stop")
@@ -123,7 +133,9 @@ def auto_setup_stop():
     """立即停止当前点位自动设置(供前端ESC/快速开始调用): 置停止标记 + 注入StopFlow到执行线程"""
     try:
         as_svc._on_esc()
+        log.info("[auto-setup.stop] 已请求停止")
         return {"ok": True}
     except Exception:
+        log.error("[auto-setup.stop] 停止调用异常")
         return {"ok": False}
 
