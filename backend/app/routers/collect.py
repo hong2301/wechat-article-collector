@@ -202,7 +202,6 @@ def _collect_generate(payload: CollectStart):
             log_q.put(("log", msg))
         except Exception:
             pass
-    tasks_service.bind_tasks_echo(prev_hook)   # 任务结束恢复日志钩子
 
     def start_proc():
         """spawn 采集子进程 + Pipe 读线程(日志回传主进程)"""
@@ -226,6 +225,12 @@ def _collect_generate(payload: CollectStart):
                          args=(proc, parent_conn, log_q, finished, "collect"), daemon=True).start()
 
     prev_hook = tasks_service.bind_tasks_echo(hook)   # 子进程日志: sse handler -> 前端
+    tasks_service.clear_stop()
+    msg = (f"任务: {payload.name} | biz={payload.biz} | "
+           f"日期 {payload.date_start} ~ {payload.date_end} | "
+           f"4指标={'开' if payload.capture_4metrics else '关'} | "
+           f"阅读数={'开' if payload.capture_read else '关'} | "
+           f"保存Html={'开' if payload.save_html else '关'}")
     log.info("采集启动")
     log.info(msg)
     yield _sse({"type": "task", "done": 0, "total": 1})
@@ -302,6 +307,11 @@ def _update_generate(payload: UpdateStart):
                          args=(proc, parent_conn, log_q, finished, "update"), daemon=True).start()
 
     prev_hook = tasks_service.bind_tasks_echo(hook)   # 子进程日志: sse handler -> 前端
+    tasks_service.clear_stop()
+    msg = (f"更新: {payload.name} | {payload.link[:50]} | "
+           f"4指标={'开' if payload.capture_4metrics else '关'} | "
+           f"阅读数={'开' if payload.capture_read else '关'} | "
+           f"保存Html={'开' if payload.save_html else '关'}")
     log.info("更新启动")
     log.info(msg)
     yield _sse({"type": "task", "done": 0, "total": 1})
@@ -375,6 +385,11 @@ def _comment_generate(payload: CommentStart):
                          args=(proc, parent_conn, log_q, finished, "comments"), daemon=True).start()
 
     prev_hook = tasks_service.bind_tasks_echo(hook)   # 子进程日志: sse handler -> 前端
+    tasks_service.clear_stop()
+    msg = (f"评论采集: {payload.name} | {payload.link[:50]} | "
+           f"文章评论数={payload.max_comments if payload.max_comments is not None else '无限'} | "
+           f"一级评论数={payload.max_level1 if payload.max_level1 is not None else '无限'} | "
+           f"每级二级评论数={payload.max_level2 if payload.max_level2 else '0'}")
     log.info("评论采集启动")
     log.info(msg)
     yield _sse({"type": "task", "done": 0, "total": 1})

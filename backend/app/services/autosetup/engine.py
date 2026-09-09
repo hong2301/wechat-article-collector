@@ -58,9 +58,13 @@ class FlowContext:
         return pc.screenshot(x1, y1, x2, y2, as_base64=True)
 
     def ocr(self, b64):
-        """本地 OCR 初筛: 返回 [(text, x, y, w, h), ...]"""
+        """本地 OCR 初筛: 返回 [(text, x, y, w, h), ...]; 引擎异常返回空(不中断流程)"""
         from ...core import ocr as _ocr
-        return _ocr.ocr(b64) if _ocr.get_ocr_engine() else []
+        try:
+            return _ocr.ocr(b64) if _ocr.get_ocr_engine() else []
+        except Exception:
+            log.error("[FlowContext.ocr] 引擎异常: %s", "?")
+            return []
 
     def ocr_box(self, pil_img):
         """本地 OCR: 输入 PIL 图片, 返回 [(cx, cy, text, score, sbox, brightness), ...]"""

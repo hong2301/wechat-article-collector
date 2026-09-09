@@ -32,8 +32,8 @@ def _log_hook(pipe):
 
 def _do_collect(pipe, payload):
     """公众号/关键词采集编排(原 collect.py worker 主分支)"""
-    from ..services import tasks as tasks_service
-    from ..core import robot as robot_mod
+    from .services import tasks as tasks_service
+    from .core import robot as robot_mod
 
     def emit(msg):
         _send(pipe, "log", msg=msg)
@@ -114,8 +114,8 @@ def _do_collect(pipe, payload):
 
 def _do_update(pipe, payload):
     """单篇更新编排"""
-    from ..services import tasks as tasks_service
-    from ..core import robot as robot_mod
+    from .services import tasks as tasks_service
+    from .core import robot as robot_mod
     robot_mod.bind_tasks_echo(_log_hook(pipe))
     try:
         ok, text = tasks_service.init_wechat_window()
@@ -134,7 +134,7 @@ def _do_update(pipe, payload):
         _send(pipe, "log", msg=f"[搜一搜查询] {'成功' if ok else '失败'} | {text}")
         if not ok:
             _send(pipe, "done", ok=False, reason="搜一搜查询失败"); return 1
-        from ..services.tasks import article_data_collect
+        from .services.tasks import article_data_collect
         r = article_data_collect(
             collect_type=2,
             capture_4metrics=bool(payload.get("capture_4metrics")),
@@ -156,8 +156,8 @@ def _do_update(pipe, payload):
 
 def _do_comments(pipe, payload):
     """评论采集编排(镜像原 worker: article_data_collect collect_type=2 带评论参数)"""
-    from ..services import tasks as tasks_service
-    from ..core import robot as robot_mod
+    from .services import tasks as tasks_service
+    from .core import robot as robot_mod
     robot_mod.bind_tasks_echo(_log_hook(pipe))
     try:
         ok, text = tasks_service.init_wechat_window()
@@ -200,12 +200,20 @@ def _do_comments(pipe, payload):
 
 
 def run_collect(payload: dict, pipe):
-    """spawn target: 子进程入口. payload: dict; pipe: multiprocessing Pipe 子端"""
+    """spawn target: 子进程入口. payload: dict; pipe: multiprocessing Pipe 子端
+    子进程启动即预热 OCR 引擎(确保采集识别阶段直接用已就绪引擎, 不在流程中途卡首次加载)"""
     kind = str(payload.get("kind") or "collect")
     _send(pipe, "log", msg=f"[进程] 采集子进程启动 pid={multiprocessing.current_process().pid} kind={kind}")
     try:
+        from .core import ocr as ocr_service
+        _send(pipe, "log", msg="[进程] 预热OCR引擎...")
+        ok = ocr_service.init()
+        _send(pipe, "log", msg=f"[进程] OCR引擎就绪:{'OK' if ok else '失败'}")
+    except Exception as e:
+        _send(pipe, "log", msg=f"[进程] OCR预热异常: {e}")
+    try:
         try:
-            from ..core.logkit import setup_child
+            from .core.logkit import setup_child
             setup_child(pipe)   # 子进程日志只有 Pipe 通道(不写文件, 单一写者=主进程)
         except ImportError:
             pass

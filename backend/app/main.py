@@ -70,8 +70,11 @@ async def frontend_log_report(request: Request):
 
 @app.get("/api/ocr/ready")
 def ocr_ready():
-    """查询 OCR 引擎是否已就绪"""
-    return {"ready": ocr_service.get_ocr_engine() is not None}
+    """查询 OCR 引擎是否已就绪(引擎故障/加载失败时返回 ready=False, 不抛500)"""
+    try:
+        return {"ready": ocr_service.get_ocr_engine() is not None}
+    except Exception:
+        return {"ready": False}
 
 
 app.include_router(accounts.router)
