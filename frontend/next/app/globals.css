@@ -120,8 +120,8 @@ tr[class*="drop-"] { cursor: grabbing; }
 
 /* ===== antd cssinjs 偶发未注入兜底: Modal 弹窗关键样式(常规CSS文件永不丢, 防透明/边距丢失) =====
    正常时 antd 的 cssinjs 样式(hash类名)在后, 优先级相同先输, 此处仅作兜底不缺样式 */
-.ant-modal-root { position: fixed; inset: 0; z-index: 1000; }
-.ant-modal-wrap { position: absolute; inset: 0; overflow: auto; }
+.ant-modal-root { position: fixed; inset: 0; z-index: 1000; pointer-events: none; }
+.ant-modal-wrap { position: absolute; inset: 0; overflow: auto; pointer-events: none; }
 .ant-modal { margin: 100px auto; pointer-events: auto; max-width: calc(100vw - 40px); }
 .ant-modal-mask { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); }
 .ant-modal-content { position: relative; background: #fff; background-clip: padding-box;

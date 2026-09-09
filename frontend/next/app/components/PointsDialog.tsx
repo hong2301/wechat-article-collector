@@ -375,7 +375,7 @@ export default function PointsDialog({
   ];
 
   return (
-    <Modal mask={{ closable: false }}
+    <Modal destroyOnHidden mask={{ closable: false }}
       title="点位设置" open={open}
       onCancel={onClose}
       keyboard={false}
@@ -437,7 +437,7 @@ export default function PointsDialog({
       </div>
 
       {/* 新增/修改弹窗 */}
-      <Modal mask={{ closable: false }}
+      <Modal destroyOnHidden mask={{ closable: false }}
         title={edit.isNew ? "新增点位" : "修改点位"} open={edit.open}
         onOk={saveEdit} okText="保存" confirmLoading={saving}
         onCancel={() => setEdit({ open: false, isNew: false, id: null, name: "", x: "", y: "", remark: "" })}

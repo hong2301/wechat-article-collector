@@ -302,7 +302,7 @@ export default function ScrollsDialog({
   ];
 
   return (
-    <Modal mask={{ closable: false }} title="滚动设置" open={open} onCancel={onClose}
+    <Modal destroyOnHidden mask={{ closable: false }} title="滚动设置" open={open} onCancel={onClose}
       footer={<Button onClick={onClose}>关闭</Button>} width={900}
       style={{ maxHeight: "80vh" }}>
       <div
@@ -338,7 +338,7 @@ export default function ScrollsDialog({
       </div>
 
       {/* 新增/修改弹窗 */}
-      <Modal mask={{ closable: false }} title={edit.isNew ? "新增滚动" : "修改滚动"} open={edit.open}
+      <Modal destroyOnHidden mask={{ closable: false }} title={edit.isNew ? "新增滚动" : "修改滚动"} open={edit.open}
         onOk={saveEdit} okText="保存" confirmLoading={saving}
         onCancel={() => setEdit({ open: false, isNew: false, id: null, name: "",
           distance: null, point_id: null, direction: "down", remark: "" })}

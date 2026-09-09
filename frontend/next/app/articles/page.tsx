@@ -1,5 +1,6 @@
 "use client";
 
+import CollectDialog from "../components/CollectDialog";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { API_BASE } from "../lib/api";
 import dayjs from "dayjs";
@@ -843,7 +844,7 @@ export default function ArticlePage() {
         </div>
       </div>
       {/* 导入进度/失败弹窗 */}
-      <Modal mask={{ closable: false }} title={failedLinks.length || dupRows.length ? "导入结果" : "正在导入"} open={importing}
+      <Modal destroyOnHidden mask={{ closable: false }} title={failedLinks.length || dupRows.length ? "导入结果" : "正在导入"} open={importing}
         footer={(failedLinks.length || dupRows.length) ? <Button type="primary" onClick={() => setImporting(false)}>关闭</Button> : null}
         closable={(failedLinks.length || dupRows.length) > 0} onCancel={() => setImporting(false)} width={520}>
         {(failedLinks.length || dupRows.length) ? (
@@ -878,7 +879,7 @@ export default function ArticlePage() {
       </Modal>
 
       {/* 下载选中进度弹窗 */}
-      <Modal title={`下载进度 ${dlCount}/${dlItems.length}`} open={dlOpen}
+      <Modal destroyOnHidden title={`下载进度 ${dlCount}/${dlItems.length}`} open={dlOpen}
         footer={dlRun ? <Button danger onClick={() => { dlAbortRef.current?.abort(); setDlRun(false); setDlOpen(false); }}>取消</Button>
                       : <Button type="primary" onClick={() => setDlOpen(false)}>关闭</Button>}
         closable={false} mask={{ closable: false }} width={520}>
@@ -895,7 +896,7 @@ export default function ArticlePage() {
         </div>
       </Modal>
 
-      <Modal mask={{ closable: false }} title="新增文章" open={addOpen} onOk={saveNew} confirmLoading={saving} onCancel={() => setAddOpen(false)}
+      <Modal destroyOnHidden mask={{ closable: false }} title="新增文章" open={addOpen} onOk={saveNew} confirmLoading={saving} onCancel={() => setAddOpen(false)}
         okText="保存" cancelText="取消">
         <Space vertical style={{ width: "100%" }}>
           <div>请输入文章链接，保存后显示在标题列（无标题则显示链接）。</div>
@@ -904,100 +905,39 @@ export default function ArticlePage() {
       </Modal>
 
       {/* 更新弹窗: 确认阶段 -> 更新进行中 */}
-      <Modal mask={{ closable: false }}
+            <CollectDialog
         open={updOpen}
         title={updStarted ? `正在更新「${updTask?.title || updTask?.art_biz || ""}」 (${updIdx}/${updQueue.length || 1})` : updQueue.length > 1 ? `确认更新设置 (共 ${updQueue.length} 个)` : "确认更新设置"}
+        started={updStarted}
+        stopped={updStopped}
+        confirmFields={[
+          { label: "采集4指标", value: capture4metrics ? "开" : "关" },
+          { label: "采集阅读数", value: captureRead ? "开" : "关" },
+          { label: "保存Html", value: saveHtml ? "开" : "关" },
+          { label: "评论采集", value: captureComments ? "开" : "关" },
+          { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
+          { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
+          { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
+        ]}
+        startedFields={[
+          { label: "采集4指标", value: capture4metrics ? "开" : "关" },
+          { label: "采集阅读数", value: captureRead ? "开" : "关" },
+          { label: "保存Html", value: saveHtml ? "开" : "关" },
+          { label: "评论采集", value: captureComments ? "开" : "关" },
+          { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
+          { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
+          { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
+        ]}
+        stats={updQueue.length > 1 ? [
+          { label: "开始时间", value: updStartTime },
+          { label: "已更新文章", value: `${updCount} 篇` },
+          { label: "更新速度", value: `${updSpeed} 篇/分` },
+        ] : []}
+        logs={updLogs}
         onCancel={() => { if (updStarted) { stopUpdate(); return; } closeUpd(); }}
-        footer={updStarted ? (
-          updStopped ? (
-            <Button type="primary" onClick={closeUpd}>关闭</Button>
-          ) : (
-            <Button danger onClick={stopUpdate}>按 ESC 停止</Button>
-          )
-        ) : (
-          <>
-            <Button onClick={closeUpd}>取消</Button>
-            <Button type="primary" onClick={confirmUpdate}>确认</Button>
-          </>
-        )}
-        width={updStarted ? 880 : 520}
-      >
-        {updStarted ? (
-          <div style={{ display: "flex", gap: 12 }}>
-            <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
-              <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0" }}>更新设置</div>
-              {[
-                { label: "采集4指标", value: capture4metrics ? "开" : "关" },
-                { label: "采集阅读数", value: captureRead ? "开" : "关" },
-                { label: "保存Html", value: saveHtml ? "开" : "关" },
-                { label: "评论采集", value: captureComments ? "开" : "关" },
-                { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
-                { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
-                { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
-              ].map((row) => (
-                <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
-                  <span style={{ width: 110, color: "#888", whiteSpace: "nowrap" }}>{row.label}</span>
-                  <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
-                </div>
-              ))}
-            </div>
-            {updQueue.length > 1 && (
-            <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
-              <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0" }}>更新情况</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 14px", fontSize: 13, color: "#555" }}>
-                <div>开始时间: <span style={{ color: "#333" }}>{updStartTime}</span></div>
-                <div>已更新文章: <span style={{ color: "#333", fontWeight: 600 }}>{updCount} 篇</span></div>
-                <div>更新速度: <span style={{ color: "#333" }}>{updSpeed} 篇/分</span></div>
-              </div>
-            </div>
-            )}
-          </div>
-        ) : (
-          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
-            {[
-              { label: "采集4指标", value: capture4metrics ? "开" : "关" },
-              { label: "采集阅读数", value: captureRead ? "开" : "关" },
-              { label: "保存Html", value: saveHtml ? "开" : "关" },
-              { label: "评论采集", value: captureComments ? "开" : "关" },
-              { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
-              { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
-              { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
-            ].map((row) => (
-              <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
-                <span style={{ width: 110, color: "#888", whiteSpace: "nowrap" }}>{row.label}</span>
-                <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        {updStarted && (
-          <div style={{ background: "#fafafa", border: "1px solid #eee", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
-            <Typography.Text strong style={{ fontSize: 13 }}>日志</Typography.Text>
-            <div ref={updLogRef} style={{
-              marginTop: 8, height: 220, overflow: "auto",
-              background: "#1e1e1e", borderRadius: 6, padding: 8,
-              fontFamily: "Consolas, monospace", fontSize: 12, color: "#d4d4d4", whiteSpace: "pre-wrap",
-            }}>
-              {updLogs.length === 0 ? (
-                <span style={{ color: "#888" }}>(暂无日志)</span>
-              ) : (
-                updLogs.map((l, i) => {
-                  // [async:任务名] 异步统一青色; [step]橙 [ok]绿 [fail]红 [warn]黄
-                  const mAsync = l.match(/^\[async:([^\]]+)\]\s?([\s\S]*)/);
-                  const m = mAsync || l.match(/^\[(step|ok|fail|warn)\]\s?([\s\S]*)/);
-                  let text = l, color: string | undefined;
-                  if (mAsync) { color = "#36cfc9"; text = `[${mAsync[1]}] ${mAsync[2]}`; }
-                  else if (m) {
-                    color = { step: "#ffa940", ok: "#73d13d", fail: "#ff4d4f", warn: "#ffc53d" }[m[1]];
-                    text = m[2];
-                  }
-                  return <div key={i} style={color ? { color } : undefined}>{text}</div>;
-                })
-              )}
-            </div>
-          </div>
-        )}
-      </Modal>
+        onConfirm={confirmUpdate}
+        onCloseFinish={closeUpd}
+      />
     </div>
   );
 }
