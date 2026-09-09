@@ -467,6 +467,7 @@ def lock():
     except Exception:
         pass
     from ...core.inputlock import InputLock
+    log.info("[autosetup.lock] 开启输入锁定")
     if _input_lock is None:
         _input_lock = InputLock()
         _input_lock.on_esc = _on_esc
@@ -480,6 +481,7 @@ def lock():
 def unlock():
     """任务结束: 停止输入锁定 + 清标记 + 清提示队列"""
     global _input_lock
+    log.info("[autosetup.unlock] 释放输入锁定")
     _stop_requested[0] = False
     _lock_notices.clear()
     if _input_lock is not None:

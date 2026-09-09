@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+from ..core import logkit
+
+log = logkit.get_logger("collect.doubao")   # 豆包API失败日志
+
 import json as _json
 """backend.app.services.doubao_api: 豆包识图(4指标识别)
 
@@ -67,9 +71,11 @@ def recognize_interact(shot_b64, api_key, model, timeout=30):
                 if c.get("type") == "output_text":
                     text += (c.get("text") or "")
         if not text.strip():
+            log.warning("[doubao] 识图无输出文本")
             return None
         return _parse_interact_text(text)
-    except Exception:
+    except Exception as e:
+        log.warning("[doubao] recognize_interact 异常: %s", e)
         return None
 
 
@@ -168,7 +174,8 @@ def doubao_extract_comments(shot_b64s, api_key, timeout=30):
                 "回复文本": (item.get("回复文本") or "").strip(),
             })
         return cleaned
-    except Exception:
+    except Exception as e:
+        log.warning("[doubao] extract_comments 异常: %s", e)
         return []
 
 
@@ -212,5 +219,6 @@ def doubao_locate(shot_b64, desc, api_key, model, timeout=30):
             return None
         x, y = text.split(",", 1)
         return int(float(x.strip())), int(float(y.strip()))
-    except Exception:
+    except Exception as e:
+        log.warning("[doubao] locate 异常: %s", e)
         return None

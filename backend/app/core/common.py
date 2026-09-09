@@ -262,6 +262,8 @@ def save_comments(art_biz, comment_list):
             conn.commit()
         finally:
             conn.close()
+        log.info("[comments.save] art=%.16s 写入 %d 条", art_biz, len(fresh))
         return len(fresh)
-    except Exception:
+    except Exception as e:
+        log.warning("[comments.save] art=%.16s 失败: %s", art_biz, e)
         return 0

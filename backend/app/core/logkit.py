@@ -66,7 +66,7 @@ def _file_handlers(logdir, fmt):
                                 maxBytes=_LOG_MAX, backupCount=_LOG_KEEP, encoding="utf-8")
     run_h.setLevel(logging.INFO)
     run_h.setFormatter(fmt)
-    run_h.addFilter(_PrefixFilter(("collect", "ocr", "perf", "auto_setup", "")))
+    run_h.addFilter(_PrefixFilter(("collect", "ocr", "perf", "auto_setup", "repo", "")))   # repo=数据层审计日志
     api_h = RotatingFileHandler(os.path.join(logdir, "api.log"),
                                 maxBytes=_LOG_MAX, backupCount=_LOG_KEEP, encoding="utf-8")
     api_h.setLevel(logging.INFO)

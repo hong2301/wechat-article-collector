@@ -55,6 +55,7 @@ def get_ocr_engine():
         if _ocr_engine is None:
             from rapidocr_onnxruntime import RapidOCR
             _ocr_engine = RapidOCR()
+            _logging.getLogger("ocr").info("OCR 引擎首次加载完成(懒加载)")
         return _ocr_engine
 
 

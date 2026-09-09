@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+from ..core import logkit
+
+log = logkit.get_logger("collect.fetch")   # 网络抓取失败日志
+
 import hashlib
 import os
 """文章元信息抓取: 输入微信文章链接, 提取 标题/发布时间/是否原创/IP属地/公众号名
@@ -93,7 +97,8 @@ def _request_and_parse(url):
                 ip_location = m.group(1).strip()
         return {"title": title, "pub_time": pub_time, "original": original,
                 "ip": ip_location, "site_name": site_name, "html": html}
-    except Exception:
+    except Exception as e:
+        log.warning("[fetch] 文章解析失败 %.60s: %s", url, e)
         return None
 
 
@@ -165,7 +170,8 @@ def localize_article_images(html_path, timeout=20):
             with open(html_path, "w", encoding="utf-8") as f:
                 f.write(html)
         return n
-    except Exception:
+    except Exception as e:
+        log.warning("[fetch] 图片本地化异常: %s", e)
         return 0
 
 

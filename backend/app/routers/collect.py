@@ -30,11 +30,13 @@ _task_count_lock = threading.Lock()
 def _task_begin():
     with _task_count_lock:
         _task_count[0] += 1
+    log.info("[collect.task] begin count=%d", _task_count[0])
 
 
 def _task_end():
     with _task_count_lock:
         _task_count[0] = max(0, _task_count[0] - 1)
+    log.info("[collect.task] end count=%d", _task_count[0])
 
 
 
@@ -49,6 +51,7 @@ _last_block_notice = [0.0]
 
 def _do_stop():
     """停止采集: 信号兜底 + 向 worker 线程注入异常立即中断"""
+    log.info("[collect.stop] 信号+注入SystemExit")
     tasks_service.request_stop()
     tid = _worker_tid.get("tid")
     if tid:

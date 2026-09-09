@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 """点位(points) 数据访问层: 所有 points 相关 SQL 集中于此, 路由只调函数"""
 from ..database import get_conn
+from ..core import logkit
+
+log = logkit.get_logger("repo.points")
+
 
 
 def list_with_sort():
@@ -43,6 +47,7 @@ def set_coords(pid: int, x, y, remark: str = ""):
         else:
             conn.execute("UPDATE points SET remark=? WHERE id=?", (remark, pid))
         conn.commit()
+        log.info("[repo] points.set_coords id=%s -> (%s,%s)", pid, x, y)
     finally:
         conn.close()
 
@@ -56,6 +61,7 @@ def create(name: str, x, y, remark: str):
             (name, x, y, remark))
         conn.commit()
         row = conn.execute("SELECT * FROM points WHERE id=?", (cur.lastrowid,)).fetchone()
+        log.info("[repo] points.create id=%s name=%r", cur.lastrowid, name)
         return dict(row)
     finally:
         conn.close()
@@ -70,6 +76,7 @@ def update(pid: int, fields: dict):
             conn.execute(f"UPDATE points SET {sets} WHERE id=?", (*fields.values(), pid))
             conn.commit()
         row = conn.execute("SELECT * FROM points WHERE id=?", (pid,)).fetchone()
+        log.info("[repo] points.update id=%s fields=%s", pid, list(fields))
         return dict(row)
     finally:
         conn.close()
@@ -81,6 +88,7 @@ def delete(pid: int) -> bool:
     try:
         cur = conn.execute("DELETE FROM points WHERE id=?", (pid,))
         conn.commit()
+        log.info("[repo] points.delete id=%s -> %s", pid, cur.rowcount > 0)
         return cur.rowcount > 0
     finally:
         conn.close()
@@ -93,6 +101,7 @@ def delete_many(ids: list) -> int:
         marks = ",".join("?" * len(ids))
         cur = conn.execute(f"DELETE FROM points WHERE id IN ({marks})", ids)
         conn.commit()
+        log.info("[repo] points.delete_many %d 条", cur.rowcount)
         return cur.rowcount
     finally:
         conn.close()
@@ -132,6 +141,7 @@ def import_upsert(rows: list) -> tuple:
                                  (name, x, y, remark))
                     added += 1
         conn.commit()
+        log.info("[repo] points.import 新增 %d 更新 %d", added, updated)
         return added, updated
     finally:
         conn.close()

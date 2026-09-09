@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 """设置数据访问层: settings 表(key-value) + ai_model 表(厂商/key/模型id)"""
 from ..database import get_conn
+from ..core import logkit
+
+log = logkit.get_logger("repo.settings")
+
 
 
 def get_setting(key: str) -> str:
@@ -18,6 +22,7 @@ def set_setting(key: str, value: str) -> None:
         conn.execute("INSERT INTO settings(key,value) VALUES(?,?)"
                      " ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
         conn.commit()
+        log.info("[repo] settings.set key=%r -> %r", key, str(value)[:60])
     finally:
         conn.close()
 
@@ -50,6 +55,7 @@ def save_ai(provider: str, api_key: str, models: list) -> int:
                 "INSERT INTO ai_model(provider, api_key, model_id) VALUES(?,?,?)",
                 (provider, api_key, m))
         conn.commit()
+        log.info("[repo] settings.save_ai provider=%s models=%d (api_key不落日志)", provider, len(models))
         return len(models)
     finally:
         conn.close()
