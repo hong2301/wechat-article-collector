@@ -34,29 +34,6 @@ export default function Header() {
   const wxLogged = useWechatStatus();
   const wxOn = wxLogged === true;
   const [qsOpen, setQsOpen] = useState(false);
-  // 存储路径(保存HTML根目录): 记录在数据库(settings 表), 启动时读取; 修改后提交库并通知采集页面
-  const [saveDir, setSaveDir] = useState("");
-  useEffect(() => {
-    (async () => {
-      try {
-        const r = await (await fetch(API_BASE + "/api/settings/save-dir")).json();
-        if (r && r.dir) setSaveDir(r.dir);
-      } catch { /* 后端不可达 */ }
-    })();
-  }, []);
-  // 选目录: 弹系统文件夹选择器 -> 存数据库 -> 广播给采集页面(更新 payload 变量)
-  async function pickSaveDir() {
-    try {
-      const d = await (await fetch(API_BASE + "/api/settings/pick-dir?current=" + encodeURIComponent(saveDir), { method: "POST" })).json();
-      if (d.dir) {
-        setSaveDir(d.dir);
-        await fetch(API_BASE + "/api/settings/save-dir", {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: d.dir }),
-        }).catch(() => {});
-        window.dispatchEvent(new CustomEvent("save-dir-changed", { detail: d.dir }));
-      }
-    } catch { /* 无法连接后端 */ }
-  }
   // 微信版本确认: db=数据库基准, local=本地实际, online=网络最新(有则返回); 页面加载即调用
   const [wxc, setWxc] = useState<{ db: string; local: string; online: string }>({ db: "", local: "", online: "" });
   const [appVer, setAppVer] = useState("");
@@ -146,9 +123,6 @@ export default function Header() {
         <Tooltip title="GitHub 仓库">
           <a href="https://github.com/hong2301/wechat-article-collector" target="_blank" rel="noreferrer"
              style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", border: "1px solid #d0d7de", color: "#57606a", display: "flex", alignItems: "center", justifyContent: "center" }}><GithubIcon /></a>
-        </Tooltip>
-        <Tooltip title={saveDir || "默认: 程序数据目录/article_data"} placement="bottom">
-          <Button onClick={pickSaveDir}>修改存储路径</Button>
         </Tooltip>
       </div>
       <QuickStartDialog open={qsOpen} onClose={() => setQsOpen(false)} />

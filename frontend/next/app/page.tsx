@@ -533,6 +533,20 @@ export default function Home() {
     load();
   }
   // 导出公众号列表为 xlsx
+  // 修改存储路径: 弹系统目录选择器 -> 存库 -> 广播(Header 原逻辑移入页面); 与采集 payload save_dir 联动
+  async function pickSaveDir() {
+    try {
+      const d = await (await fetch(API_BASE + "/api/settings/pick-dir?current=" + encodeURIComponent(saveDir), { method: "POST" })).json();
+      if (d.dir) {
+        setSaveDir(d.dir);
+        await fetch(API_BASE + "/api/settings/save-dir", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: d.dir }),
+        }).catch(() => {});
+        window.dispatchEvent(new CustomEvent("save-dir-changed", { detail: d.dir }));
+      }
+    } catch { /* 后端不可达 */ }
+  }
+
   async function exportExcel() {
     message.info("正在导出全部数据...");
     try {
@@ -771,6 +785,9 @@ export default function Home() {
             <Button danger={si.ai.length > 0}
               icon={si.ai.length > 0 ? <ExclamationCircleOutlined /> : <RobotOutlined />}
               onClick={() => setAiOpen(true)}>AI模型</Button>
+          </Tooltip>
+          <Tooltip title={saveDir || "默认: 程序数据目录/article_data"} placement="bottom">
+            <Button icon={<FolderOpenOutlined />} onClick={pickSaveDir}>修改存储路径</Button>
           </Tooltip>
         </div>
       </div>
