@@ -45,7 +45,7 @@ from .wx_window import (init_wechat_window, search_window_init, search_query,
 @obs.timed("collect.list")
 def article_list_wait_stable(date_start="", date_end="", biz="",
                              capture_4metrics=False, capture_read=False,
-                             save_html=False, save_dir="",
+                             save_formats=None, save_dir="",
                              max_comments=None, max_level1=None, max_level2=0):
     """文章列表识别循环: 进入 while 循环, 每次循环第一步检查页面稳定。
     前提: 搜一搜查询(search_query)已加载出公众号链接(本函数不判定, 但依赖其结果)。
@@ -54,7 +54,7 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
       biz              所属公众号 biz 代码(点击文章后数据采集用)
       capture_4metrics 是否采集4指标
       capture_read     是否采集阅读数量
-      save_html        是否保存文章为本地HTML(含图片)
+      save_formats     保存格式列表(html/pdf/txt/md/word; None/空=不保存)
       save_dir         保存HTML根目录(空=默认D:/article_data)
     逻辑:
       while 循环(目前为占位, 后续补结束条件):
@@ -307,7 +307,7 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             # 点击后: 采集该文章数据(获取链接+写文章表)
             ok_c, text_c = article_data_collect(
                 collect_type=1, capture_4metrics=capture_4metrics,
-                capture_read=capture_read, save_html=save_html, save_dir=save_dir, biz=biz,
+                capture_read=capture_read, save_formats=save_formats, save_dir=save_dir, biz=biz,
                 list_reads=pdata.get("reads"), list_likes=pdata.get("likes"),
                 max_comments=max_comments, max_level1=max_level1, max_level2=max_level2)
             echo(f"  文章数据采集: {'成功' if ok_c else '失败'} | {text_c}")
@@ -436,7 +436,7 @@ def _save_article_base(link, biz, list_reads=None, list_likes=None):
     return new_id, name, art, "; ".join(logs)
 
 
-def _save_html_block(link, name="", tag="", base_dir=None):
+def _save_html_block(link, name="", tag="", base_dir=None, formats=None):
     """步骤3: 保存文章为本地HTML(公众号分类目录, 含图片本地化) - 独立流程
     后台异步执行(save_article_html 内含网络请求), 完成后回调日志"""
     if not tag:
@@ -447,7 +447,7 @@ def _save_html_block(link, name="", tag="", base_dir=None):
     log.info(f"[async:{tag}] 正在保存...")
     log.info("[存HTML] 开始: tag=%s link=%s", tag, link[:90])
     try:
-        html_path, info = save_article_html(link, account_name=name, base_dir=base_dir)
+        html_path, info = save_article_html(link, account_name=name, base_dir=base_dir, formats=formats)
         ok_txt = "成功: " + info if html_path else "失败: " + info
         log.info(f"[async:{tag}] {ok_txt}")
         if html_path:
@@ -601,12 +601,12 @@ def _collect_reads(collect_type, link, biz, art):
 
 @obs.timed("collect.article")
 def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=False,
-                         save_html=False, save_dir="", biz="", list_reads=None, list_likes=None,
+                         save_formats=None, save_dir="", biz="", list_reads=None, list_likes=None,
                          max_comments=None, max_level1=None, max_level2=0):
     """文章数据采集(编排主函数, 各块拆分到 _save_article_base
     /_collect_metrics/_collect_reads/_collect_comments; 复制链接逻辑留本函数)。
     参数:
-      collect_type / capture_4metrics / capture_read / save_html / save_dir
+      collect_type / capture_4metrics / capture_read / save_formats / save_dir
       biz / list_reads / list_likes 同前
       max_comments     文章最大评论采集数(None=无限)
       max_level1       一级评论采集数(None=无限)
@@ -700,9 +700,9 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
     _submit_bg(_save_article_base, link, biz, list_reads, list_likes)
 
     # 3) 保存Html(独立流程, 并行异步)
-    if save_html:
+    if save_formats:
         log.info("[采集链路] 提交保存HTML异步: art=%s", art[:10])
-        _submit_bg(_save_html_block, link, base_dir=save_dir)  # 开始/完成日志由后台函数输出
+        _submit_bg(_save_html_block, link, base_dir=save_dir, formats=save_formats)  # 开始/完成日志由后台函数输出
 
     # 4) 4指标(开启时)
     if capture_4metrics:

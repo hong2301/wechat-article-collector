@@ -47,6 +47,8 @@ def main():
         "--exclude-module", "Pythonwin",
         "--exclude-module", "onnxruntime.quantization",
         "--hidden-import", "PIL.ImageGrab",
+        "--hidden-import", "docx",              # word(docx) 转换(函数内惰性导入)
+        "--collect-data", "docx",               # python-docx 模板 default.docx
         "--hidden-import", "uvicorn.logging",
         "--hidden-import", "uvicorn.loops.auto",
         "--hidden-import", "uvicorn.protocols.http.auto",

@@ -175,7 +175,7 @@ def localize_article_images(html_path, timeout=20):
         return 0
 
 
-def save_article_html(link, account_name="", base_dir=None):
+def save_article_html(link, account_name="", base_dir=None, formats=None):
     """抓取文章并保存为本地HTML(含图片本地化), 按公众号分类存目录。
     只是链接即可: 公众号名/标题/日期都从链接抓取的数据里提取(account_name可选覆盖)。
     目录: <base_dir>/<公众号名>/<日期>_<标题>/<日期>_<标题>.html + images/
@@ -183,7 +183,10 @@ def save_article_html(link, account_name="", base_dir=None):
       link         微信文章链接
       account_name 公众号名称(可选; 空则从链接抓取数据提取)
       base_dir     根目录(默认 <数据目录>/article_data)
-    返回: (保存路径 或 None, 说明文本)
+      formats      保存格式列表 ["html","pdf","txt","md","word"];
+                   None/空 = 仅 html(兼容旧行为); html 是中间产物, 其他格式由它转换
+                   未选 html 时: 转换完成后删除 html + images/(md 选了则保留 mdimgs)
+    返回: (主路径 或 None, 说明文本)  # 结构不变
     """
     base_dir = base_dir or default_html_dir()
     try:
@@ -207,6 +210,23 @@ def save_article_html(link, account_name="", base_dir=None):
         with open(html_path, "w", encoding="utf-8") as f:
             f.write(data["html"])
         img_n = localize_article_images(html_path)
-        return html_path, f"已保存: {html_path} (图片{img_n}张)"
+        # ---- 多格式转换: html 是中间产物 ----
+        fmts = [str(x).strip().lower() for x in (formats or []) if str(x).strip()]
+        keep_html = (not fmts) or ("html" in fmts)
+        others = [x for x in fmts if x != "html"]
+        conv = {}
+        if others:
+            from .article_formats import convert_html, cleanup_html
+            conv = convert_html(html_path, others)
+            if not keep_html:
+                cleanup_html(html_path, keep_md_imgs=("md" in others))
+        # 主路径: 选html=html路径; 否则第一个格式的产物路径
+        if keep_html:
+            main = html_path
+        else:
+            main = conv.get(others[0]) if others else None
+        made = (["html"] if keep_html else []) + [f for f in others if f in conv]
+        info = f"已保存: {main} | 格式: {','.join(made)} (图片{img_n}张)"
+        return main, info
     except Exception as e:
         return None, f"保存HTML失败: {e}"

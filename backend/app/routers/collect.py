@@ -161,7 +161,7 @@ class CollectStart(BaseModel):
     date_end: str = ""       # 采集结束日期
     capture_4metrics: bool = False  # 采集4指标
     capture_read: bool = False       # 采集阅读数
-    save_html: bool = False          # 保存文章为本地HTML(含图片)
+    save_formats: list[str] = []     # 保存格式: html/pdf/txt/md/word 多选(数组; 空=不保存)
     save_dir: str = ""              # 保存HTML根目录(空=默认D:/article_data)
     max_comments: int | None = None # 文章最大评论采集数(空=无限, 3个全0=不采评论)
     max_level1: int | None = None   # 一级评论采集数(空=无限)
@@ -177,7 +177,7 @@ class UpdateStart(BaseModel):
     link: str = ""           # 文章链接(前端拼好传)
     capture_4metrics: bool = False  # 采集4指标
     capture_read: bool = False       # 采集阅读数
-    save_html: bool = False          # 保存文章为本地HTML(含图片)
+    save_formats: list[str] = []     # 保存格式: html/pdf/txt/md/word 多选(数组; 空=不保存)
     save_dir: str = ""              # 保存HTML根目录(空=默认D:/article_data)
     max_comments: int | None = None # 文章最大评论采集数(空=无限, 3个全0=不采评论)
     max_level1: int | None = None   # 一级评论采集数(空=无限)
@@ -232,7 +232,7 @@ def _collect_generate(payload: CollectStart):
            f"日期 {payload.date_start} ~ {payload.date_end} | "
            f"4指标={'开' if payload.capture_4metrics else '关'} | "
            f"阅读数={'开' if payload.capture_read else '关'} | "
-           f"保存Html={'开' if payload.save_html else '关'}")
+           f"保存格式={','.join(payload.save_formats) or '关'}")
     log.info("采集启动")
     log.info(msg)
     yield _sse({"type": "task", "done": 0, "total": 1})
@@ -313,7 +313,7 @@ def _update_generate(payload: UpdateStart):
     msg = (f"更新: {payload.name} | {payload.link[:50]} | "
            f"4指标={'开' if payload.capture_4metrics else '关'} | "
            f"阅读数={'开' if payload.capture_read else '关'} | "
-           f"保存Html={'开' if payload.save_html else '关'}")
+           f"保存格式={','.join(payload.save_formats) or '关'}")
     log.info("更新启动")
     log.info(msg)
     yield _sse({"type": "task", "done": 0, "total": 1})
@@ -362,9 +362,9 @@ def collect_stop():
 @router.post("/start")
 def collect_start(payload: CollectStart):
     """启动采集; SSE 流式返回日志与进度"""
-    log.info("[collect.start] 类型=%s 公众号=%r keyword=%r 4指标=%s 阅读数=%s 存html=%s",
+    log.info("[collect.start] 类型=%s 公众号=%r keyword=%r 4指标=%s 阅读数=%s 保存格式=%s",
              payload.collect_type, payload.name, payload.keyword,
-             payload.capture_4metrics, payload.capture_read, payload.save_html)
+             payload.capture_4metrics, payload.capture_read, payload.save_formats)
     pc.enable_dpi_awareness()   # 确保坐标用物理像素(否则DPI缩放下点击偏移)
     _start_esc_listener()       # 采集开始: 监听 ESC(按ESC=停止流程)
     pc.hide_taskbar()             # 采集期间隐藏任务栏(全屏布局与点位假设一致)
@@ -389,7 +389,7 @@ def collect_start(payload: CollectStart):
 def collect_update(payload: UpdateStart):
     """单篇更新: 独立流程(窗口初始化->搜一搜查询文章链接->article_data_collect), SSE 返回日志"""
     log.info("[collect.update] link=%.40s 4指标=%s 阅读数=%s 存html=%s",
-             payload.link, payload.capture_4metrics, payload.capture_read, payload.save_html)
+             payload.link, payload.capture_4metrics, payload.capture_read, payload.save_formats)
     pc.enable_dpi_awareness()
     _start_esc_listener()
     generator = _update_generate(payload)

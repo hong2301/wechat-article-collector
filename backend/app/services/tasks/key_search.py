@@ -109,7 +109,7 @@ def _extract_article_points(ocr_items, shot_path, region):
 
 def gzh_query_page_article_loop(date_start="", date_end="", biz="",
                                 capture_4metrics=False, capture_read=False,
-                                save_html=False, save_dir="",
+                                save_formats=None, save_dir="",
                                 max_comments=None, max_level1=None, max_level2=0):
     """公众号查询页文章列表循环(关键词查询分支第二步)。
 
@@ -222,7 +222,7 @@ def gzh_query_page_article_loop(date_start="", date_end="", biz="",
                 _time.sleep(0.3)
                 ok_c, text_c = article_data_collect(
                     collect_type=1, capture_4metrics=capture_4metrics,
-                    capture_read=capture_read, save_html=save_html,
+                    capture_read=capture_read, save_formats=save_formats,
                     save_dir=save_dir, biz=biz,
                     list_reads=pt["reads"], list_likes=None,
                     max_comments=max_comments, max_level1=max_level1,
