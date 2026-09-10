@@ -177,7 +177,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
         collect_type: 1, name: nme, biz,
         link: `https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=${encodeURIComponent(biz || "")}`,
         date_start: today, date_end: today,
-        capture_4metrics: false, capture_read: false, save_html: false, save_dir: "",
+        capture_4metrics: false, capture_read: false, save_formats: [], save_dir: "",
         max_comments: 0, max_level1: 0, max_level2: 0,
       };
       const cResp = await fetch(API_BASE + "/api/collect/start", {

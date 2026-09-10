@@ -271,7 +271,7 @@ export default function CommentsPage() {
     const payload = {
       name: name || "", biz: biz || "", link,
  capture_4metrics: false, capture_read: false,
-      save_html: false, save_dir: "",
+      save_formats: [], save_dir: "",
       max_comments: maxComments, max_level1: maxLevel1, max_level2: maxLevel2,
     };
     (async () => {

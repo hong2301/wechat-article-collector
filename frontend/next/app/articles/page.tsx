@@ -1,6 +1,7 @@
 "use client";
 
 import CollectDialog from "../components/CollectDialog";
+import SaveFormatSelect, { fmtLabel } from "../components/SaveFormatSelect";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { API_BASE } from "../lib/api";
 import dayjs from "dayjs";
@@ -80,7 +81,7 @@ export default function ArticlePage() {
   // 更新设置(与公众号页共享配置): 窗口分离/4指标/阅读数/保存Html
   const [capture4metrics, setCapture4metrics] = useState(false);
   const [captureRead, setCaptureRead] = useState(false);
-  const [saveHtml, setSaveHtml] = useState(false);
+  const [saveFormats, setSaveFormats] = useState<string[]>([]);
   // 评论采集设置(独立key updateConfig)
   const [captureComments, setCaptureComments] = useState(false);
   const [maxComments, setMaxComments] = useState<number | null>(null);
@@ -93,7 +94,8 @@ export default function ArticlePage() {
       const d = JSON.parse(localStorage.getItem("updateConfig") || "{}");
             if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
       if (typeof d.capture_read === "boolean") setCaptureRead(d.capture_read);
-      if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
+      if (Array.isArray(d.save_formats)) setSaveFormats(d.save_formats);
+      else if (typeof d.save_html === "boolean") setSaveFormats(d.save_html ? ["html"] : []);   // 旧配置兼容
       if (typeof d.capture_comments === "boolean") setCaptureComments(d.capture_comments);
       if ("max_comments" in d) setMaxComments(d.max_comments);
       if ("max_level1" in d) setMaxLevel1(d.max_level1);
@@ -109,7 +111,7 @@ export default function ArticlePage() {
     try {
       const d = JSON.parse(localStorage.getItem("updateConfig") || "{}");
       d.capture_4metrics = capture4metrics;
-      d.capture_read = captureRead; d.save_html = saveHtml;
+      d.capture_read = captureRead; d.save_formats = saveFormats;
       d.capture_comments = captureComments; d.max_comments = maxComments;
       d.max_level1 = maxLevel1; d.max_level2 = maxLevel2;
       d.date_start = dateRange ? dateRange[0].format("YYYY-MM-DD") : "";
@@ -117,7 +119,7 @@ export default function ArticlePage() {
       d.quick = quickActive;
       localStorage.setItem("updateConfig", JSON.stringify(d));
     } catch { /* 忽略 */ }
-  }, [cfgLoaded, capture4metrics, captureRead, saveHtml, captureComments, maxComments, maxLevel1, maxLevel2, dateRange, quickActive]);
+  }, [cfgLoaded, capture4metrics, captureRead, saveFormats, captureComments, maxComments, maxLevel1, maxLevel2, dateRange, quickActive]);
   const NUM_FIELDS = [
     { key: "reads", label: "阅读" },
     { key: "likes", label: "点赞" },
@@ -374,7 +376,7 @@ export default function ArticlePage() {
       link,
       capture_4metrics: capture4metrics,
       capture_read: captureRead,
-      save_html: saveHtml,
+      save_formats: saveFormats,
       save_dir: "",
       max_comments: captureComments ? maxComments : 0,
       max_level1: captureComments ? maxLevel1 : 0,
@@ -632,8 +634,8 @@ export default function ArticlePage() {
           </Tooltip>
           <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集阅读数</span>
           <Switch checked={captureRead} onChange={setCaptureRead} />
-          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存Html</span>
-          <Switch checked={saveHtml} onChange={setSaveHtml} />
+          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存格式</span>
+          <SaveFormatSelect value={saveFormats} onChange={setSaveFormats} />
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，评论采集不可用:\n${si.ai.join("\n")}` : undefined}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
@@ -913,7 +915,7 @@ export default function ArticlePage() {
         confirmFields={[
           { label: "采集4指标", value: capture4metrics ? "开" : "关" },
           { label: "采集阅读数", value: captureRead ? "开" : "关" },
-          { label: "保存Html", value: saveHtml ? "开" : "关" },
+          { label: "保存格式", value: fmtLabel(saveFormats) },
           { label: "评论采集", value: captureComments ? "开" : "关" },
           { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
           { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
@@ -922,7 +924,7 @@ export default function ArticlePage() {
         startedFields={[
           { label: "采集4指标", value: capture4metrics ? "开" : "关" },
           { label: "采集阅读数", value: captureRead ? "开" : "关" },
-          { label: "保存Html", value: saveHtml ? "开" : "关" },
+          { label: "保存格式", value: fmtLabel(saveFormats) },
           { label: "评论采集", value: captureComments ? "开" : "关" },
           { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
           { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },

@@ -14,6 +14,7 @@ import PointsDialog from "./components/PointsDialog";
 import PaginationBar, { calcPageSize } from "./components/PaginationBar";
 import { hideTaskbar, showTaskbar } from "./components/taskbar";
 import CollectDialog from "./components/CollectDialog";
+import SaveFormatSelect, { fmtLabel } from "./components/SaveFormatSelect";
 import { useSettingsIssues } from "./components/useSettingsIssues";
 import { useWechatStatus } from "./components/useWechatStatus";
 import ScrollsDialog from "./components/ScrollsDialog";
@@ -178,7 +179,7 @@ export default function Home() {
   const [capture4metrics, setCapture4metrics] = useState(false);
   const [captureRead, setCaptureRead] = useState(false);
   // 采集时保存HTML到本地(默认关)
-  const [saveHtml, setSaveHtml] = useState(false);
+  const [saveFormats, setSaveFormats] = useState<string[]>([]);
   // 评论采集设置
   const [captureComments, setCaptureComments] = useState(false);   // 评论采集开关
   const [maxComments, setMaxComments] = useState<number | null>(null);   // 文章最大评论采集数(空=无限)
@@ -198,7 +199,8 @@ export default function Home() {
         const d = JSON.parse(saved);
                 if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
         if (typeof d.capture_read === "boolean") setCaptureRead(d.capture_read);
-        if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
+        if (Array.isArray(d.save_formats)) setSaveFormats(d.save_formats);
+        else if (typeof d.save_html === "boolean") setSaveFormats(d.save_html ? ["html"] : []);   // 旧配置兼容
         if (typeof d.capture_comments === "boolean") setCaptureComments(d.capture_comments);
         if ("max_comments" in d) setMaxComments(d.max_comments);
         if ("max_level1" in d) setMaxLevel1(d.max_level1);
@@ -232,7 +234,7 @@ export default function Home() {
       localStorage.setItem("collectConfig", JSON.stringify({
           capture_4metrics: capture4metrics,
         capture_read: captureRead,
-        save_html: saveHtml,
+        save_formats: saveFormats,
         capture_comments: captureComments,
         max_comments: maxComments,
         max_level1: maxLevel1,
@@ -242,7 +244,7 @@ export default function Home() {
       }));
     } catch { /* 忽略写入失败 */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [capture4metrics, captureRead, saveHtml, captureComments, maxComments, maxLevel1, maxLevel2, dateRange]);
+  }, [capture4metrics, captureRead, saveFormats, captureComments, maxComments, maxLevel1, maxLevel2, dateRange]);
 
   useEffect(() => {
     const probe = document.createElement("div");
@@ -445,7 +447,7 @@ export default function Home() {
       date_end: dateRange ? dateRange[1].format("YYYY-MM-DD") : "",
       capture_4metrics: capture4metrics,
       capture_read: captureRead,
-      save_html: saveHtml,
+      save_formats: saveFormats,
       save_dir: saveDir,
       max_comments: captureComments ? maxComments : 0,
       max_level1: captureComments ? maxLevel1 : 0,
@@ -724,8 +726,8 @@ export default function Home() {
           </Tooltip>
           <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集阅读数</span>
           <Switch checked={captureRead} onChange={setCaptureRead} />
-          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存Html</span>
-          <Switch checked={saveHtml} onChange={setSaveHtml} />
+          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存格式</span>
+          <SaveFormatSelect value={saveFormats} onChange={setSaveFormats} />
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，评论采集不可用:\n${si.ai.join("\n")}` : undefined}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
@@ -942,7 +944,7 @@ export default function Home() {
           { label: "时间范围", value: dateRange ? `${dateRange[0].format("YYYY-MM-DD")} ~ ${dateRange[1].format("YYYY-MM-DD")}` : "全部" },
           { label: "采集4指标", value: capture4metrics ? "开" : "关" },
           { label: "采集阅读数", value: captureRead ? "开" : "关" },
-          { label: "保存Html", value: saveHtml ? "开" : "关" },
+          { label: "保存格式", value: fmtLabel(saveFormats) },
           { label: "评论采集", value: captureComments ? "开" : "关" },
           { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
           { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
@@ -953,7 +955,7 @@ export default function Home() {
           { label: "时间范围", value: dateRange ? `${dateRange[0].format("YYYY-MM-DD")} ~ ${dateRange[1].format("YYYY-MM-DD")}` : "全部" },
           { label: "采集4指标", value: capture4metrics ? "开" : "关" },
           { label: "采集阅读数", value: captureRead ? "开" : "关" },
-          { label: "保存Html", value: saveHtml ? "开" : "关" },
+          { label: "保存格式", value: fmtLabel(saveFormats) },
           { label: "评论采集", value: captureComments ? "开" : "关" },
           { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
           { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
