@@ -83,76 +83,105 @@ def _extract_biz_from_link(link):
 
 def _import_stream(rows):
     """解析后的行 -> 逐条入库, 生成器逐条 yield 进度用于 SSE
-    each: {"done": 处理数, "total": 总数, "name": 名称, "ok": 是否成功}"""
+    分类: ok=成功 / dup=重复(已存在) / unrecog=无法识别(缺信息或解析失败)
+    解析阶段多线程并发(resolve_account 网络请求), 入库串行(sqlite 安全)
+    each: {"done","total","name","ok","kind","reason"}"""
+    from concurrent.futures import ThreadPoolExecutor
     total = len(rows)
     done = 0
+    # 1) 预处理: 本地提取 biz; 归集需要网络解析的行
+    prep = []
+    todo = []                     # (idx, src_link)
     for item in rows:
         name = (item.get("name") or "").strip()
         biz = (item.get("biz") or "").strip()
         link = (item.get("link") or "").strip()
         article_link = (item.get("article_link") or "").strip()
-        # 公众号链接(含 __biz)本地提取 biz, 不发网络请求
         if not biz:
             biz = _extract_biz_from_link(link)
-        # 数据完整性: 完整 = 有名称 + 有 biz
         need_name = not name
         need_biz = not biz
-        full_ok = True
-        err_reason = None
         if need_name or need_biz:
-            # 用文章链接提取(只有文章链接才能解析出名称/biz)
             src_link = article_link
             if not src_link:
                 from ..services.importer import _is_article_link as _is_art
                 src_link = link if _is_art(link) else ""
             if src_link:
-                r = resolve_account(src_link)
-                if r:
-                    if need_name and r.get("name"):
-                        name = r["name"]
-                    if need_biz and r.get("biz"):
-                        biz = r["biz"]
-                    full_ok = True
-                else:
-                    full_ok = False
-                    err_reason = "文章链接解析失败"
-            else:
-                full_ok = False
-                err_reason = "缺" + (("名称" if need_name else "") + ("biz" if need_biz else "")) + "且文件无文章链接, 跳过"
-        ok = True
-        if not name:
-            ok = False
-            err_reason = err_reason or "缺公众号名称"
-        elif not biz:
-            ok = False
-            err_reason = err_reason or "缺biz"
-        elif not full_ok:
-            ok = False
-        if ok:
+                todo.append((len(prep), src_link))
+        prep.append({"name": name, "biz": biz, "need_name": need_name, "need_biz": need_biz})
+    # 2) 并发解析(多线程; 网络 I/O 密集)
+    resolved = {}
+    if todo:
+        def _one(ij):
+            idx, src = ij
             try:
-                accounts_repo.create(name, biz, "pending", "")
+                r = resolve_account(src)
+                return idx, (r or {})
             except Exception:
-                ok = False
-                err_reason = "入库失败(可能已存在)"
+                return idx, None
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            for idx, r in ex.map(_one, todo):
+                resolved[idx] = r
+    # 3) 逐条分类入库(串行)
+    for i, it in enumerate(prep):
+        r = resolved.get(i)
+        name, biz = it["name"], it["biz"]
+        need_name, need_biz = it["need_name"], it["need_biz"]
+        resolved_ok = False
+        if need_name or need_biz:
+            if r:
+                if need_name and r.get("name"):
+                    name = r["name"]
+                    need_name = False
+                if need_biz and r.get("biz"):
+                    biz = r["biz"]
+                    need_biz = False
+                resolved_ok = not (need_name or need_biz)
+        full_ok = not (need_name or need_biz)
+        err_reason = None
+        kind = ""
+        if not full_ok:
+            kind = "unrecog"
+            err_reason = "缺" + (("公众号名称" if need_name else "") + ("/biz" if need_biz else "") or "") + (" 且文章链接解析失败" if (need_name or need_biz) and not resolved_ok else "")
+        else:
+            exist = accounts_repo.get_by_biz(biz)
+            if exist:
+                kind = "dup"
+                err_reason = "已存在(重复公众号)"
+            else:
+                try:
+                    accounts_repo.create(name, biz, "pending", "")
+                    kind = "ok"
+                except Exception:
+                    kind = "unrecog"
+                    err_reason = "入库失败"
         done += 1
-        yield {"done": done, "total": total, "name": name, "ok": ok, "reason": err_reason}
+        yield {"done": done, "total": total, "name": name, "ok": kind == "ok",
+               "kind": kind, "reason": err_reason}
 
 
 def _import_sse(rows):
     """SSE 生成器: 逐条 yield 导入进度, done 带失败汇总(供前端最后提示)"""
     total = len(rows)
     failed = 0
+    dup_n = 0
+    unrecog_n = 0
     reasons = []
     yield 'event: start' + chr(10) + 'data: ' + _json.dumps({'total': total}) + chr(10) + chr(10)
     for evt in _import_stream(rows):
         if not evt.get('ok'):
             failed += 1
+            if evt.get('kind') == 'dup':
+                dup_n += 1
+            else:
+                unrecog_n += 1
             r = evt.get('reason')
             if r:
-                reasons.append(f"{(evt.get('name') or '?')[:12]}: {r}")
+                tag = "重复" if evt.get('kind') == 'dup' else "无法识别"
+                reasons.append(f"[{tag}] {(evt.get('name') or '?')[:12]}: {r}")
         yield 'event: progress' + chr(10) + 'data: ' + _json.dumps(evt) + chr(10) + chr(10)
     yield 'event: done' + chr(10) + 'data: ' + _json.dumps(
-        {"failed": failed, "reasons": reasons[:10]}) + chr(10) + chr(10)
+        {"failed": failed, "dup": dup_n, "unrecog": unrecog_n, "reasons": reasons[:10]}) + chr(10) + chr(10)
 
 @router.post("/import")
 def import_accounts(file: UploadFile = File(...)):

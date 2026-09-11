@@ -122,8 +122,8 @@ tr[class*="drop-"] { cursor: grabbing; }
    正常时 antd 的 cssinjs 样式(hash类名)在后, 优先级相同先输, 此处仅作兜底不缺样式 */
 .ant-modal-root { position: fixed; inset: 0; z-index: 1000; pointer-events: none; }
 .ant-modal-wrap { position: absolute; inset: 0; overflow: auto; pointer-events: none; }
-.ant-modal { margin: 100px auto; pointer-events: auto; max-width: calc(100vw - 40px); }
-.ant-modal-mask { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); }
+.ant-modal { margin: 100px auto; pointer-events: auto; max-width: calc(100vw - 40px); position: relative; z-index: 10; }
+.ant-modal-mask { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.45); pointer-events: none; }
 .ant-modal-content { position: relative; background: #fff; background-clip: padding-box;
   border: 0; border-radius: 8px; padding: 20px 24px;
   box-shadow: 0 3px 6px -4px rgba(0, 0, 0, .12), 0 6px 16px 0 rgba(0, 0, 0, .08), 0 9px 28px 8px rgba(0, 0, 0, .05);

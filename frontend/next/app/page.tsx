@@ -141,7 +141,7 @@ export default function Home() {
   const [importing, setImporting] = useState(false);
   const [importingPct, setImportingPct] = useState(0);
   const [dragOver, setDragOver] = useState(false);
-  const [failedRows, setFailedRows] = useState<{ name: string }[]>([]);
+  const [failedRows, setFailedRows] = useState<{ name: string; kind: string }[]>([]);
   const [sbWidth, setSbWidth] = useState(6);
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [query, setQuery] = useState("");
@@ -328,7 +328,7 @@ export default function Home() {
     const fd = new FormData();
     fd.append("file", f);
     let total = 0, addedCount = 0;
-    let fails: { name: string }[] = [];
+    let fails: { name: string; kind: string }[] = [];
     try {
       const r = await fetch(`${API}/import`, { method: "POST", body: fd });
       if (!r.body) throw 0;
@@ -348,7 +348,7 @@ export default function Home() {
           if (d.total) total = d.total;
           if (d.done !== undefined) {
             setImportingPct(Math.round((d.done / (total || 1)) * 100));
-            if (d.ok) addedCount++; else fails.push({ name: d.name || "(未知)" });
+            if (d.ok) addedCount++; else fails.push({ name: d.name || "(未知)", kind: d.kind || "unrecog" });
           }
         }
       }
@@ -357,7 +357,8 @@ export default function Home() {
     setFailedRows(fails);
     load();
     if (fails.length > 0) {
-      message.warning(`导入完成: 新增${addedCount}, 失败${fails.length}`);
+      const dupN = fails.filter((x) => x.kind === "dup").length;
+      message.warning(`导入完成: 新增${addedCount}${dupN ? `, 重复${dupN}` : ""}${fails.length - dupN ? `, 无法识别${fails.length - dupN}` : ""}`);
     } else {
       setTimeout(() => { setImporting(false); message.success(`导入完成: 新增${addedCount}`); }, 1000);
     }
@@ -915,9 +916,20 @@ export default function Home() {
         closable={failedRows.length > 0} onCancel={() => setImporting(false)} width={420}>
         {failedRows.length ? (
           <div>
-            <Typography.Paragraph strong style={{ color: "#c62828" }}>有 {failedRows.length} 行导入失败（无法识别公众号），需手动处理：</Typography.Paragraph>
-            <Table size="small" rowKey={(r) => r.name} pagination={false} dataSource={failedRows}
-              columns={[{ title: "失败项", dataIndex: "name" }]} />
+            {failedRows.filter((r) => r.kind !== "dup").length > 0 && (
+              <>
+                <Typography.Paragraph strong style={{ color: "#c62828" }}>无法识别公众号（{failedRows.filter((r) => r.kind !== "dup").length} 行，缺名称/biz 或解析失败）：</Typography.Paragraph>
+                <Table size="small" rowKey={(r) => r.name + r.kind} pagination={false} dataSource={failedRows.filter((r) => r.kind !== "dup")}
+                  columns={[{ title: "失败项", dataIndex: "name" }]} />
+              </>
+            )}
+            {failedRows.filter((r) => r.kind === "dup").length > 0 && (
+              <>
+                <Typography.Paragraph strong style={{ color: "#ed6c02", marginTop: 12 }}>重复公众号（{failedRows.filter((r) => r.kind === "dup").length} 行，已存在，未重复导入）：</Typography.Paragraph>
+                <Table size="small" rowKey={(r) => r.name + r.kind} pagination={false} dataSource={failedRows.filter((r) => r.kind === "dup")}
+                  columns={[{ title: "失败项", dataIndex: "name" }]} />
+              </>
+            )}
           </div>
         ) : (
           <div style={{ textAlign: "center", padding: "8px 0" }}>
