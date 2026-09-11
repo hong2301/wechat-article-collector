@@ -69,7 +69,7 @@ class _TextExtract(HTMLParser):
             self.parts.append("\n")
         if tag == "img":
             src = a.get("src") or a.get("data-src") or ""
-            if src and "images/" in src:
+            if src and (src.startswith("images/") or src.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"))):
                 self.imgs.append(src)
 
     def handle_endtag(self, tag):
@@ -159,27 +159,31 @@ def html_to_md(html_path, md_path=None, html=None, keep_imgs=True):
     if meta:
         lines.append("> " + " | ".join(meta))
         lines.append("")
-    # 图片复制到 mdimgs/(去重保序)
-    src_dir = os.path.join(art_dir, "images")
+    # 图片复制到 mdimgs/(去重保序); 源目录兼容 images/ 与 <stem>_files/
     dst_dir = os.path.join(art_dir, "mdimgs")
     seen = []
     for s in imgs:
         fn = os.path.basename(s)
         if fn and fn not in seen:
             seen.append(fn)
-    if seen and os.path.isdir(src_dir):
+    img_srcs = []
+    for s in imgs:
+        p_f = os.path.join(art_dir, s)
+        if os.path.isfile(p_f):
+            img_srcs.append(p_f)
+    img_srcs = list(dict.fromkeys(img_srcs))   # 保序去重
+    if img_srcs:
         if keep_imgs:
             os.makedirs(dst_dir, exist_ok=True)
-        for fn in seen:
-            src = os.path.join(src_dir, fn)
-            if os.path.isfile(src):
-                if keep_imgs:
-                    try:
-                        shutil.copy2(src, os.path.join(dst_dir, fn))
-                    except Exception as e:
-                        log.warning("[md] 图片复制失败 %s: %s", fn, e)
-                lines.append(f"![{fn}](mdimgs/{fn})")
-                lines.append("")
+        for p_src in img_srcs:
+            fn = os.path.basename(p_src)
+            if keep_imgs:
+                try:
+                    shutil.copy2(p_src, os.path.join(dst_dir, fn))
+                except Exception as e:
+                    log.warning("[md] 图片复制失败 %s: %s", fn, e)
+            lines.append(f"![{fn}](mdimgs/{fn})")
+            lines.append("")
     lines.append(txt)
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
@@ -276,9 +280,14 @@ def cleanup_html(html_path, keep_md_imgs=True):
     try:
         if os.path.isfile(html_path):
             os.remove(html_path)
-        img_dir = os.path.join(art_dir, "images")
-        if os.path.isdir(img_dir):
-            shutil.rmtree(img_dir, ignore_errors=True)
-        log.info("[formats] 已清理中间html+images: %s", art_dir)
+        for sub in ("images", "assets"):
+            dd = os.path.join(art_dir, sub)
+            if os.path.isdir(dd):
+                shutil.rmtree(dd, ignore_errors=True)
+        # Edge 整页保存的 *_files 目录
+        for _d in os.listdir(art_dir) if os.path.isdir(art_dir) else []:
+            if _d.endswith("_files") and os.path.isdir(os.path.join(art_dir, _d)):
+                shutil.rmtree(os.path.join(art_dir, _d), ignore_errors=True)
+        log.info("[formats] 已清理中间html+images+assets: %s", art_dir)
     except Exception as e:
         log.warning("[formats] 清理失败: %s", e)
