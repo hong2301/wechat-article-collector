@@ -224,14 +224,14 @@ def localize_article_images(html_path, timeout=20):
             else:
                 fail += 1
         if n:
-            # 把 data-src 复制到 src(离线时JS懒加载不执行, 需静态可见)
-            html = re.sub(
-                r'<img\s+([^>]*?)data-src="([^"]+)"([^>]*?)>',
-                lambda m: (
-                    m.group(0) if re.search(r"src\s*=", m.group(1) + m.group(3))
-                    else '<img %(a)ssrc="%(d)s" data-src="%(d)s"%(c)s>' % {
-                        "a": m.group(1), "d": m.group(2), "c": m.group(3)}
-                ), html)
+            # data-src 强制覆盖到 src(style 里可能有 src= 字样导致误判已有; 本地化后 data-src 必是本地文件)
+            def _copy_src(m):
+                a, d, c = m.group(1), m.group(2), m.group(3)
+                if d.startswith(("images/", "assets/", "./")):
+                    return '<img %(a)ssrc="%(d)s" data-src="%(d)s"%(c)s>' % {
+                        "a": a, "d": d, "c": c}
+                return m.group(0)
+            html = re.sub(r'<img\s+([^>]*?)data-src="([^"]+)"([^>]*?)>', _copy_src, html)
             with open(html_path, "w", encoding="utf-8") as f:
                 f.write(html)
         if fail:
