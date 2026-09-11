@@ -4,6 +4,7 @@ from ..core import logkit
 log = logkit.get_logger("collect.fetch")   # 网络抓取失败日志
 
 import hashlib
+import html as html_lib
 import os
 """文章元信息抓取: 输入微信文章链接, 提取 标题/发布时间/是否原创/IP属地/公众号名
 来自旧程序 core/utils.py 的 fetch_article, 新后端独立版本(不依赖老目录)。
@@ -142,22 +143,39 @@ def localize_article_images(html_path, timeout=20):
         headers = {"User-Agent": "Mozilla/5.0",
                    "Referer": "https://mp.weixin.qq.com/"}
         n = 0
+        fail = 0
+        seen = set()
         for u in imgs:
+            if u in seen or u.startswith("images/"):
+                continue                     # 去重 / 已本地化
+            seen.add(u)
+            if not u.startswith(("http", "//")):
+                continue                     # 跳过 base64 / 已本地 / JS模板伪URL
+            # 微信 html 里的图片 URL 是 HTML 转义形式(&amp;), 请求前必须反转义
+            fetch_url = html_lib.unescape(u).replace("&amp;", "&")
+            if fetch_url.startswith("//"):
+                fetch_url = "https:" + fetch_url
             try:
-                r = requests.get(u, headers=headers, timeout=timeout)
+                r = requests.get(fetch_url, headers=headers, timeout=timeout)
                 if r.status_code != 200:
+                    fail += 1
                     continue
-                ext = os.path.splitext(u.split("?")[0])[1]
+                ext = os.path.splitext(fetch_url.split("?")[0])[1]
                 if not ext or len(ext) > 5:
-                    ext = ".jpg"
+                    m = re.search(r"wx_fmt=([a-zA-Z]+)", fetch_url)
+                    ext = "." + m.group(1).lower() if m else ".jpg"
                 _h = hashlib.md5(u.encode()).hexdigest()[:8]
                 _fname = _h + ext
                 with open(os.path.join(img_dir, _fname), "wb") as f:
                     f.write(r.content)
                 html = html.replace(u, "images/" + _fname)
                 n += 1
-            except Exception:
+            except Exception as e:
+                fail += 1
+                log.debug("[fetch] 图片下载失败 %s: %s", u[:70], e)
                 continue
+        if fail:
+            log.info("[fetch] 图片本地化: 成功%d张, 失败%d张 (共%d)", n, fail, n + fail)
         if n:
             # 把 data-src 复制到 src(离线时JS懒加载不执行, 需静态可见)
             html = re.sub(
