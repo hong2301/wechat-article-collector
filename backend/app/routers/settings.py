@@ -114,17 +114,22 @@ def pick_dir(current: str = ""):
 
 @router.post("/save-article-html")
 def save_article_html_api(payload: dict = None):
-    """保存单篇文章为本地HTML(公众号分类目录, 含图片); payload: {link, account_name, base_dir}"""
+    """保存单篇文章(公众号分类目录, 含图片);
+    payload: {link, account_name, base_dir, formats=["html","pdf","txt","md","word"]}
+    formats 为空/缺省 = 仅 html(兼容旧行为)"""
     from ..services.fetch_article import save_article_html
     p = payload or {}
     link = (p.get("link") or "").strip()
+    fmts = p.get("formats")
+    fmts = [str(x) for x in fmts if str(x).strip()] if isinstance(fmts, list) and fmts else None
     if not link:
         log.warning("[settings.save-article-html] 缺少链接")
         return {"ok": False, "error": "缺少链接"}
     path, info = save_article_html(link, account_name=(p.get("account_name") or ""),
-                                   base_dir=(p.get("base_dir") or None))
+                                   base_dir=(p.get("base_dir") or None), formats=fmts)
     if path:
-        log.info("[settings.save-article-html] 保存成功 account=%s link=%.40s", p.get("account_name") or "", link)
+        log.info("[settings.save-article-html] 保存成功 account=%s formats=%s link=%.40s",
+                 p.get("account_name") or "", fmts or ["html"], link)
         return {"ok": True, "path": path, "info": info}
     log.warning("[settings.save-article-html] 保存失败: %.60s", info)
     return {"ok": False, "error": info}

@@ -246,7 +246,7 @@ export default function ArticlePage() {
     }
     finally { setLoading(false); }
   }
-  // 下载当前文章为本地HTML(保存到对应公众号文件夹)
+  // 下载当前文章(按当前保存格式, 未选格式默认html; 保存到对应公众号文件夹)
   async function downloadHtml(a: Article) {
     if (!a.art_biz) { message.warning("该文章无art_biz"); return; }
     if (dlKey) { message.info("正在下载其他文章, 请稍候"); return; }
@@ -256,7 +256,7 @@ export default function ArticlePage() {
     try {
       const d = await (await fetch(API_BASE + "/api/settings/save-article-html", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ link, account_name: name || "" }),
+        body: JSON.stringify({ link, account_name: name || "", formats: saveFormats.length ? saveFormats : ["html"] }),
       })).json();
       hint();
       if (d.ok) message.success("已保存: " + (d.info || d.path || ""));
@@ -266,7 +266,7 @@ export default function ArticlePage() {
       message.error("无法连接后端");
     } finally { setDlKey(""); }
   }
-  // 下载选中文章: 弹窗显示进度, 逐篇保存HTML到公众号文件夹
+  // 下载选中文章: 弹窗显示进度, 逐篇按当前保存格式保存到公众号文件夹
   async function downloadSelected() {
     if (selectedKeys.length === 0) { message.warning("请先勾选要下载的文章"); return; }
     const rows = shown.filter((s) => selectedKeys.includes(s.id));
@@ -288,7 +288,7 @@ export default function ArticlePage() {
         const link = `https://mp.weixin.qq.com/s/${a.art_biz}`;
         const resp = await fetch(API_BASE + "/api/settings/save-article-html", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ link, account_name: name || "" }),
+          body: JSON.stringify({ link, account_name: name || "", formats: saveFormats.length ? saveFormats : ["html"] }),
           signal: dlAbortRef.current?.signal,
         });
         const d = await resp.json();
