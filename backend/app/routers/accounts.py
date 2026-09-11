@@ -14,8 +14,10 @@ from pydantic import BaseModel
 from ..services.importer import parse_file, extract_art_biz
 from ..services.resolve import resolve_account
 from ..repositories import accounts_repo
+from ..core import logkit
 
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
+log = logkit.get_logger("api.accounts")   # 接口业务日志 -> api.log
 
 # ---------- 列表接口同参去重缓存(400ms): 防止前端快速重复请求打爆后端 ----------
 _req_cache = {}
@@ -52,6 +54,7 @@ def _row_to_dict(row):
 
 @router.get("")
 def list_accounts(page: int = 0, page_size: int = 20, q: str = ""):
+    log.info("[accounts.list] page=%s size=%s q=%r", page, page_size, q)
     _key = _cache_key((page, page_size, q))
 
     def _b():
@@ -80,90 +83,122 @@ def _extract_biz_from_link(link):
 
 def _import_stream(rows):
     """解析后的行 -> 逐条入库, 生成器逐条 yield 进度用于 SSE
-    each: {"done": 处理数, "total": 总数, "name": 名称, "ok": 是否成功}"""
+    分类: ok=成功 / dup=重复(已存在) / unrecog=无法识别(缺信息或解析失败)
+    解析阶段多线程并发(resolve_account 网络请求), 入库串行(sqlite 安全)
+    each: {"done","total","name","ok","kind","reason"}"""
+    from concurrent.futures import ThreadPoolExecutor
     total = len(rows)
     done = 0
+    # 1) 预处理: 本地提取 biz; 归集需要网络解析的行
+    prep = []
+    todo = []                     # (idx, src_link)
     for item in rows:
         name = (item.get("name") or "").strip()
         biz = (item.get("biz") or "").strip()
         link = (item.get("link") or "").strip()
         article_link = (item.get("article_link") or "").strip()
-        # 公众号链接(含 __biz)本地提取 biz, 不发网络请求
         if not biz:
             biz = _extract_biz_from_link(link)
-        # 数据完整性: 完整 = 有名称 + 有 biz
         need_name = not name
         need_biz = not biz
-        full_ok = True
-        err_reason = None
         if need_name or need_biz:
-            # 用文章链接提取(只有文章链接才能解析出名称/biz)
             src_link = article_link
             if not src_link:
                 from ..services.importer import _is_article_link as _is_art
                 src_link = link if _is_art(link) else ""
             if src_link:
-                r = resolve_account(src_link)
-                if r:
-                    if need_name and r.get("name"):
-                        name = r["name"]
-                    if need_biz and r.get("biz"):
-                        biz = r["biz"]
-                    full_ok = True
-                else:
-                    full_ok = False
-                    err_reason = "文章链接解析失败"
-            else:
-                full_ok = False
-                err_reason = "缺" + (("名称" if need_name else "") + ("biz" if need_biz else "")) + "且文件无文章链接, 跳过"
-        ok = True
-        if not name:
-            ok = False
-            err_reason = err_reason or "缺公众号名称"
-        elif not biz:
-            ok = False
-            err_reason = err_reason or "缺biz"
-        elif not full_ok:
-            ok = False
-        if ok:
+                todo.append((len(prep), src_link))
+        prep.append({"name": name, "biz": biz, "need_name": need_name, "need_biz": need_biz})
+    # 2) 并发解析(多线程; 网络 I/O 密集)
+    resolved = {}
+    if todo:
+        def _one(ij):
+            idx, src = ij
             try:
-                accounts_repo.create(name, biz, "pending", "")
+                r = resolve_account(src)
+                return idx, (r or {})
             except Exception:
-                ok = False
-                err_reason = "入库失败(可能已存在)"
+                return idx, None
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            for idx, r in ex.map(_one, todo):
+                resolved[idx] = r
+    # 3) 逐条分类入库(串行)
+    for i, it in enumerate(prep):
+        r = resolved.get(i)
+        name, biz = it["name"], it["biz"]
+        need_name, need_biz = it["need_name"], it["need_biz"]
+        resolved_ok = False
+        if need_name or need_biz:
+            if r:
+                if need_name and r.get("name"):
+                    name = r["name"]
+                    need_name = False
+                if need_biz and r.get("biz"):
+                    biz = r["biz"]
+                    need_biz = False
+                resolved_ok = not (need_name or need_biz)
+        full_ok = not (need_name or need_biz)
+        err_reason = None
+        kind = ""
+        if not full_ok:
+            kind = "unrecog"
+            err_reason = "缺" + (("公众号名称" if need_name else "") + ("/biz" if need_biz else "") or "") + (" 且文章链接解析失败" if (need_name or need_biz) and not resolved_ok else "")
+        else:
+            exist = accounts_repo.get_by_biz(biz)
+            if exist:
+                kind = "dup"
+                err_reason = "已存在(重复公众号)"
+            else:
+                try:
+                    accounts_repo.create(name, biz, "pending", "")
+                    kind = "ok"
+                except Exception:
+                    kind = "unrecog"
+                    err_reason = "入库失败"
         done += 1
-        yield {"done": done, "total": total, "name": name, "ok": ok, "reason": err_reason}
+        yield {"done": done, "total": total, "name": name, "ok": kind == "ok",
+               "kind": kind, "reason": err_reason}
 
 
 def _import_sse(rows):
     """SSE 生成器: 逐条 yield 导入进度, done 带失败汇总(供前端最后提示)"""
     total = len(rows)
     failed = 0
+    dup_n = 0
+    unrecog_n = 0
     reasons = []
     yield 'event: start' + chr(10) + 'data: ' + _json.dumps({'total': total}) + chr(10) + chr(10)
     for evt in _import_stream(rows):
         if not evt.get('ok'):
             failed += 1
+            if evt.get('kind') == 'dup':
+                dup_n += 1
+            else:
+                unrecog_n += 1
             r = evt.get('reason')
             if r:
-                reasons.append(f"{(evt.get('name') or '?')[:12]}: {r}")
+                tag = "重复" if evt.get('kind') == 'dup' else "无法识别"
+                reasons.append(f"[{tag}] {(evt.get('name') or '?')[:12]}: {r}")
         yield 'event: progress' + chr(10) + 'data: ' + _json.dumps(evt) + chr(10) + chr(10)
     yield 'event: done' + chr(10) + 'data: ' + _json.dumps(
-        {"failed": failed, "reasons": reasons[:10]}) + chr(10) + chr(10)
+        {"failed": failed, "dup": dup_n, "unrecog": unrecog_n, "reasons": reasons[:10]}) + chr(10) + chr(10)
 
 @router.post("/import")
 def import_accounts(file: UploadFile = File(...)):
     """上传表格文件, 解析+识别, 流式返回导入进度(SSE)"""
     raw = file.file.read() if hasattr(file, "file") else file.read()
     rows = parse_file(file.filename or "", raw) or []
+    log.info("[accounts.import] %s 解析 %d 行", file.filename, len(rows))
     return StreamingResponse(_import_sse(rows), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache"})
 
 @router.post("", response_model=Account, status_code=201)
 def create_account(payload: AccountCreate):
+    log.info("[accounts.create] name=%r biz=%r", payload.name, payload.biz)
     try:
         return accounts_repo.create(payload.name, payload.biz, payload.status, payload.remark)
     except Exception:
+        log.warning("[accounts.create] biz 重复: %r", payload.biz)
         raise HTTPException(400, "biz 代码已存在，不能重复添加")
 
 
@@ -175,16 +210,20 @@ class SortPayload(BaseModel):
 def sort_accounts(payload: SortPayload):
     """按拖拽后的 id 顺序重写 sort_config, 持久化排序"""
     accounts_repo.set_sort(payload.ids)
+    log.info("[accounts.sort] 保存排序 %d 个", len(payload.ids))
     return {"ok": True, "count": len(payload.ids)}
 
 
 @router.put("/{aid}", response_model=Account)
 def update_account(aid: int, payload: AccountUpdate):
-    if not accounts_repo.get(aid):
-        raise HTTPException(404, "账号不存在")
     fields = payload.model_dump(exclude_unset=True)
+    log.info("[accounts.update] id=%s 字段=%s", aid, list(fields.keys()))
+    if not accounts_repo.get(aid):
+        log.warning("[accounts.update] id=%s 不存在", aid)
+        raise HTTPException(404, "账号不存在")
     if "biz" in fields and fields["biz"]:
         if accounts_repo.get_dup_biz(fields["biz"], aid):
+            log.warning("[accounts.update] id=%s biz重复: %r", aid, fields["biz"])
             raise HTTPException(400, "biz 代码已存在，不能重复")
     return accounts_repo.update(aid, fields)
 
@@ -216,6 +255,7 @@ def _order_sql(order_by, order_dir):
 @router.get("/articles-by-biz")
 def account_articles_by_biz(biz: str = "", page: int = 0, page_size: int = 20, date_start: str = "", date_end: str = "", kw: str = "", min_reads: str = "", max_reads: str = "", min_likes: str = "", max_likes: str = "", min_forwards: str = "", max_forwards: str = "", min_favorites: str = "", max_favorites: str = "", min_comments: str = "", max_comments: str = "", ips: str = "", accs: str = "", order_by: str = "date", order_dir: str = "desc"):
     _key = _cache_key((biz, page, page_size, date_start, date_end, kw, min_reads, max_reads, min_likes, max_likes, min_forwards, max_forwards, min_favorites, max_favorites, min_comments, max_comments, ips, accs, order_by, order_dir))
+    log.info("[accounts.articles-by-biz] biz=%s page=%s kw=%r 日期=%s~%s", biz or "all", page, kw, date_start, date_end)
 
     def _b():
         """biz=该公众号返其文章; biz=all或空 返回全部文章(含公众号名)
@@ -263,6 +303,7 @@ def account_articles_by_biz(biz: str = "", page: int = 0, page_size: int = 20, d
                  "original": d["original"], "ip": d["ip"], "acc_name": d["name"] or "",
                  "comment_count": cnt_map.get(d["art_biz"], 0),   # 实际采集评论数(comments表)
                  "comment_recog": int(d["comment_recog"] or 0),  # 识别的评论数
+                 "saved_formats": d["saved_formats"] or "",      # 已保存到本地的文件格式(下载/查看文件时更新)
                  } for d in rows]
         if page <= 0:
             return {"biz": biz, "name": name, "articles": arts}
@@ -278,6 +319,7 @@ def account_articles_by_biz(biz: str = "", page: int = 0, page_size: int = 20, d
 @router.get("/comments")
 def article_comments(art_biz: str = "", page: int = 0, page_size: int = 20, date_start: str = "", date_end: str = "", kw: str = "", min_likes: str = "", max_likes: str = "", ips: str = "", levels: str = "", order_by: str = "time", order_dir: str = "desc"):
     _key = _cache_key((art_biz, page, page_size, date_start, date_end, kw, min_likes, max_likes, ips, levels, order_by, order_dir))
+    log.info("[accounts.comments] art_biz=%s page=%s kw=%r", art_biz, page, kw)
 
     def _b():
         """按文章id(art_biz)返回评论列表; page>0 返回 {total, items}; 支持日期/关键词/点赞/IP/层级筛选; 后端排序"""
@@ -328,7 +370,9 @@ def article_comments(art_biz: str = "", page: int = 0, page_size: int = 20, date
 @router.delete("/articles-by-biz/{artid}", status_code=204)
 def delete_article_by_biz(artid: int, biz: str = ""):
     """删除文章; biz=all/空 按id直接删, 否则限定公众号"""
+    log.info("[accounts.delete-article-by-biz] artid=%s biz=%s", artid, biz)
     if not accounts_repo.article_delete(artid, biz):
+        log.warning("[accounts.delete-article-by-biz] artid=%s 不存在", artid)
         raise HTTPException(404, "文章不存在")
 
 class ArticleSave(BaseModel):
@@ -365,6 +409,7 @@ def save_article(payload: ArticleSave):
     vals.append(p["biz"])
     vals.extend([p["biz"], art])
     updated = accounts_repo.article_update_by_biz_art(p["biz"], art, sets, vals)
+    log.info("[accounts.save-article] art=%s 更新 %d 字段, 命中 %d 行", art, len(sets), updated)
     return {"ok": True, "updated": updated}
 
 class ArticleCreate(BaseModel):
@@ -381,6 +426,7 @@ def create_article(payload: ArticleCreate):
         raise HTTPException(400, "文章链接不能为空")
     art = extract_art_biz(link)
     title = payload.title.strip() or art
+    log.info("[accounts.create-article] biz=%s art=%s", payload.biz, str(art)[:20])
     try:
         acc = accounts_repo.get_by_biz(payload.biz)
         name = acc["name"] if acc else ""
@@ -436,7 +482,9 @@ def import_articles(biz: str = "", file: UploadFile = File(...)):
     try:
         rows = parse_article_rows(file.filename or "", raw)
     except ValueError as e:
+        log.warning("[accounts.import-articles] 解析失败: %s", e)
         raise HTTPException(400, str(e))
+    log.info("[accounts.import-articles] biz=%s %s 解析 %d 行", biz, file.filename, len(rows))
     return StreamingResponse(_article_import_sse(rows, biz), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache"})
 
@@ -480,7 +528,9 @@ def import_comments(art_biz: str = "", file: UploadFile = File(...)):
     try:
         rows = parse_comment_rows(file.filename or "", raw)
     except ValueError as e:
+        log.warning("[accounts.import-comments] 解析失败: %s", e)
         raise HTTPException(400, str(e))
+    log.info("[accounts.import-comments] art=%s %s 解析 %d 行", str(art_biz)[:20], file.filename, len(rows))
     return StreamingResponse(_comment_import_sse(rows, art_biz), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache"})
 
@@ -490,8 +540,11 @@ def delete_comments(ids: str = "", art_biz: str = ""):
     """按 id 批量删除评论(可选限定art_biz)"""
     id_list = [int(x) for x in (ids or "").split(",") if x.strip().isdigit()]
     if not id_list:
+        log.warning("[accounts.delete-comments] 缺少评论id")
         raise HTTPException(400, "缺少评论id")
-    return {"ok": True, "deleted": accounts_repo.comments_delete(id_list, art_biz)}
+    n = accounts_repo.comments_delete(id_list, art_biz)
+    log.info("[accounts.delete-comments] %d 条(art=%s)", n, str(art_biz)[:20])
+    return {"ok": True, "deleted": n}
 
 
 @router.get("/calendar/{aid}")
@@ -500,8 +553,10 @@ def account_calendar(aid: int, year: int = None, month: int = None):
     from ..services.stats import get_account_collect
     r = accounts_repo.get(aid)
     if not r:
+        log.warning("[accounts.calendar] aid=%s 不存在", aid)
         raise HTTPException(404, "账号不存在")
     st = get_account_collect(biz=r["biz"] or "", name=r["name"] or "")
+    log.info("[accounts.calendar] aid=%s %s 共 %d 篇", aid, r["name"], st["count"])
     daily = st["daily"]
     if year is not None and month is not None:
         # 该月每日(含0)
@@ -516,8 +571,10 @@ def account_articles(aid: int):
     """该公众号的文章列表(从 SQLite articles 表)"""
     r = accounts_repo.get(aid)
     if not r:
+        log.warning("[accounts.articles] aid=%s 不存在", aid)
         raise HTTPException(404, "账号不存在")
     rows = accounts_repo.articles_by_account(aid, r["biz"] or "")
+    log.info("[accounts.articles] aid=%s %s 返回 %d 篇", aid, r["name"], len(rows))
     arts = []
     for row in rows:
         d = dict(row)
@@ -532,17 +589,23 @@ def account_articles(aid: int):
 @router.delete("/{aid}/articles/{artid}", status_code=204)
 def delete_article(aid: int, artid: int):
     """删除某公众号下的一篇文章"""
+    log.info("[accounts.delete-article] aid=%s artid=%s", aid, artid)
     if not accounts_repo.article_delete_by_account(artid, aid):
+        log.warning("[accounts.delete-article] aid=%s artid=%s 不存在", aid, artid)
         raise HTTPException(404, "文章不存在")
 
 
 @router.delete("/clear", status_code=200)
 def clear_accounts():
     """清空所有公众号"""
-    return {"deleted": accounts_repo.clear()}
+    n = accounts_repo.clear()
+    log.warning("[accounts.clear] 清空 %d 个公众号(高危操作)", n)
+    return {"deleted": n}
 
 
 @router.delete("/{aid}", status_code=204)
 def delete_account(aid: int):
+    log.info("[accounts.delete] aid=%s", aid)
     if not accounts_repo.delete(aid):
+        log.warning("[accounts.delete] aid=%s 不存在", aid)
         raise HTTPException(404, "账号不存在")

@@ -178,6 +178,15 @@ try {
   // ---- 0. 预检: release 是否被占用(提前失败, 避免白打包) ----
   preflightCheck();
 
+  // ---- 0.2 版本同步(构建前): 根 package.json 为唯一版本来源, 强制同步 electron/next/frontend/backend/.env
+  // 否则 electron-builder 打包 WeChatCollector.exe 会读到旧的 electron/package.json 版本(历史踩坑)
+  try {
+    require(path.join(__dirname, 'sync-version.js'))
+    console.log('  版本已同步: 根 package.json 版本驱动全部子包')
+  } catch (e) {
+    console.log('  (版本同步跳过: ' + (e && e.message || e) + ')')
+  }
+
   // ---- 0.5 生成内置版本文件 version_info.py: 读根 .env(APP_VERSION/WECHAT_VERSION), 缺失回退根 package.json
   (() => {
     const envPath = path.join(ROOT, '.env')
@@ -230,11 +239,20 @@ WECHAT_VERSION = "${wxVer}"  # 微信基准版本(单一来源: 根 .env WECHAT_
   fs.copyFileSync(TPL_DB, path.join(RELEASE, 'data', 'collector.db'))
   console.log('   template_collector.db -> release/data/collector.db')
 
+  // 2.3a 任务栏恢复工具 -> release/data/任务栏恢复.bat(异常时手动恢复任务栏; 与模板库同源 scripts/)
+  const tbBat = path.join(ROOT, 'scripts', '任务栏恢复.bat')
+  if (fs.existsSync(tbBat)) {
+    fs.copyFileSync(tbBat, path.join(RELEASE, 'data', '任务栏恢复.bat'))
+    console.log('   任务栏恢复.bat -> release/data/任务栏恢复.bat (异常手动恢复任务栏)')
+  } else {
+    console.log('   (无 scripts/任务栏恢复.bat, 跳过任务栏恢复工具)')
+  }
+
   // 2.3b 客人卡密 -> release/guest.key(存在即永久授权; 与模板库同源 scripts/)
   const guestKey = path.join(ROOT, 'scripts', 'guest.key')
   if (fs.existsSync(guestKey)) {
-    fs.copyFileSync(guestKey, path.join(RELEASE, 'guest.key'))
-    console.log('   guest.key -> release/guest.key (客人卡密/永久授权)')
+    fs.copyFileSync(guestKey, path.join(RELEASE, 'data', 'guest.key'))  // 与数据库同目录
+    console.log('   guest.key -> release/data/guest.key (客人卡密/永久授权, 与库同目录)')
   } else {
     console.log('   (无 scripts/guest.key, 跳过客人卡密——正式版需卡密激活)')
   }

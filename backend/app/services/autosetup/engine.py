@@ -58,9 +58,13 @@ class FlowContext:
         return pc.screenshot(x1, y1, x2, y2, as_base64=True)
 
     def ocr(self, b64):
-        """本地 OCR 初筛: 返回 [(text, x, y, w, h), ...]"""
+        """本地 OCR 初筛: 返回 [(text, x, y, w, h), ...]; 引擎异常返回空(不中断流程)"""
         from ...core import ocr as _ocr
-        return _ocr.ocr(b64) if _ocr.get_ocr_engine() else []
+        try:
+            return _ocr.ocr(b64) if _ocr.get_ocr_engine() else []
+        except Exception:
+            log.error("[FlowContext.ocr] 引擎异常: %s", "?")
+            return []
 
     def ocr_box(self, pil_img):
         """本地 OCR: 输入 PIL 图片, 返回 [(cx, cy, text, score, sbox, brightness), ...]"""
@@ -95,10 +99,21 @@ class FlowContext:
 
 
 def flow_point(name):
-    """装饰器: 注册点位流程函数(名称须与 points.name 一致)"""
+    """装饰器: 注册点位流程函数(名称须与 points.name 一致); 专属流程用"""
     def deco(fn):
         POINT_FLOWS[name] = fn
         return fn
+    return deco
+
+
+def flow_points(*names):
+    """装饰器: 批量注册区域类点位(同一工厂按点位名生成流程函数, 复用识别逻辑)
+    示例: @flow_points("阅读数左上", "阅读数右下")
+    """
+    def deco(factory):
+        for n in names:
+            POINT_FLOWS[n] = factory(n)
+        return factory
     return deco
 
 
@@ -422,9 +437,25 @@ def _notice_block():
         pass
 
 
+_escalate_stop = None      # 进程化: 主进程注册的"终止自动设置子进程"回调(ESC 时调用)
+
+
+def set_stop_hook(fn):
+    """注册停止升级回调(router 层 terminate 自动设置子进程); fn=None 清除"""
+    global _escalate_stop
+    _escalate_stop = fn
+
+
 def _on_esc():
     _stop_requested[0] = True
-    # 向 run-all 执行线程注入 StopFlow: 无论点位流程在哪一步, 整流程直接放弃
+    # 进程化: 优先升级为主进程 terminate 子进程(一整个强停)
+    if _escalate_stop is not None:
+        try:
+            _escalate_stop()
+        except Exception:
+            pass
+        return
+    # 未进程化(回退): 向 run-all 执行线程注入 StopFlow
     tid = _flow_tid
     if tid:
         try:
@@ -467,6 +498,7 @@ def lock():
     except Exception:
         pass
     from ...core.inputlock import InputLock
+    log.info("[autosetup.lock] 开启输入锁定")
     if _input_lock is None:
         _input_lock = InputLock()
         _input_lock.on_esc = _on_esc
@@ -480,6 +512,7 @@ def lock():
 def unlock():
     """任务结束: 停止输入锁定 + 清标记 + 清提示队列"""
     global _input_lock
+    log.info("[autosetup.unlock] 释放输入锁定")
     _stop_requested[0] = False
     _lock_notices.clear()
     if _input_lock is not None:

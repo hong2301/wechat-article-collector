@@ -255,6 +255,23 @@ function createWindow() {
   } else {
     win.loadFile(path.join(__dirname, 'out', 'index.html'))
   }
+
+  // 前端崩溃/异常上报 -> 后端 /api/logs/report(落 error.log, 打包版排查现场)
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.executeJavaScript(`(function(){
+      var report = function(t){ try{ fetch('http://127.0.0.1:${BACKEND_PORT}/api/logs/report', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({src:'renderer', text:String(t).slice(0,2000)})
+      }).catch(function(){}) }catch(e){} };
+      window.addEventListener('error', function(ev){
+        report('window.onerror: '+(ev.message||'')+' @ '+(ev.filename||'')+':'+(ev.lineno||''));
+      });
+      window.addEventListener('unhandledrejection', function(ev){
+        var r=ev.reason||{}; report('unhandledrejection: '+(r.message||String(r)));
+      });
+      console.log('[logkit] 前端错误上报已启用');
+    })();`).catch(function(){})
+  })
 }
 
 app.whenReady().then(async () => {

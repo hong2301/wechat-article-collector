@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+from ..core import logkit
+
+log = logkit.get_logger("collect.doubao")   # 豆包API失败日志
+
 import json as _json
 """backend.app.services.doubao_api: 豆包识图(4指标识别)
 
@@ -67,9 +71,11 @@ def recognize_interact(shot_b64, api_key, model, timeout=30):
                 if c.get("type") == "output_text":
                     text += (c.get("text") or "")
         if not text.strip():
+            log.warning("[doubao] 识图无输出文本")
             return None
         return _parse_interact_text(text)
-    except Exception:
+    except Exception as e:
+        log.warning("[doubao] recognize_interact 异常: %s", e)
         return None
 
 
@@ -107,69 +113,87 @@ COMMENTS_PROMPT = """\
 只输出JSON数组，不要输出其他说明文字。数组为空时输出[]。"""
 
 
-def doubao_extract_comments(shot_b64s, api_key, timeout=30):
+def doubao_extract_comments(shot_b64s, api_key, timeout=180, retries=0):
     """豆包识图从评论区截图提取评论
     shot_b64s: 单张base64 或 多张base64列表(交错截图拼接读取, 避免截断)
+    timeout 180s(用户要求单次3分钟), 不重试(retries=0)
     返回: list[dict]; 失败返回 []"""
-    try:
-        import requests as _req
-        if isinstance(shot_b64s, str):
-            shot_b64s = [shot_b64s]
-        contents = []
-        for b64 in shot_b64s:
-            b = b64
-            if "," in b:
-                b = b.split(",", 1)[1]
-            contents.append({"type": "input_image", "image_url": "data:image/webp;base64," + b})
-        contents.append({"type": "input_text", "text": COMMENTS_PROMPT})
-        payload = {
-            "model": "doubao-seed-2-0-mini-260428",
-            "input": [{"role": "user", "content": contents}],
-        }
-        headers = {"Authorization": "Bearer " + api_key,
-                   "Content-Type": "application/json"}
-        resp = _req.post(DOUBAO_URL, headers=headers, json=payload, timeout=timeout)
-        if resp.status_code != 200:
-            return []
-        data = resp.json()
-        text = ""
-        for out in data.get("output", []):
-            for c in out.get("content", []):
-                if c.get("type") == "output_text":
-                    text += (c.get("text") or "")
-        text = text.strip()
-        if not text:
-            return []
-        m = re.search(r"\[.*\]", text, re.S)
-        if not m:
-            return []
-        result = _json.loads(m.group(0))
-        if not isinstance(result, list):
-            return []
-        cleaned = []
-        for item in result:
-            if not isinstance(item, dict):
-                continue
-            name = (item.get("名称") or "").strip()
-            if not name:
-                continue
-            cleaned.append({
-                "名称": name,
-                "地区": (item.get("地区") or "").strip(),
-                "时间": (item.get("时间") or "").strip(),
-                "点赞数量": str(item.get("点赞数量") or "0"),
-                "正文": (item.get("正文") or "").strip(),
-                "层级": int(item.get("层级") or 1) if str(item.get("层级")).isdigit() else 1,
-                "是否置顶": (item.get("是否置顶") or "否"),
-                "是否首评": (item.get("是否首评") or "否"),
-                "是否作者": (item.get("是否作者") or "否"),
-                "是否作者回复": (item.get("是否作者回复") or "否"),
-                "是否作者点赞": (item.get("是否作者点赞") or "否"),
-                "回复文本": (item.get("回复文本") or "").strip(),
-            })
-        return cleaned
-    except Exception:
-        return []
+    import time as _t
+    import requests as _req
+    if isinstance(shot_b64s, str):
+        shot_b64s = [shot_b64s]
+    last_err = None
+    for attempt in range(retries + 1):
+        try:
+            contents = []
+            for b64 in shot_b64s:
+                b = b64
+                if "," in b:
+                    b = b.split(",", 1)[1]
+                contents.append({"type": "input_image", "image_url": "data:image/webp;base64," + b})
+            contents.append({"type": "input_text", "text": COMMENTS_PROMPT})
+            payload = {
+                "model": "doubao-seed-2-0-mini-260428",
+                "input": [{"role": "user", "content": contents}],
+            }
+            headers = {"Authorization": "Bearer " + api_key,
+                       "Content-Type": "application/json"}
+            resp = _req.post(DOUBAO_URL, headers=headers, json=payload, timeout=timeout)
+            if resp.status_code != 200:
+                last_err = f"HTTP {resp.status_code}"
+                log.warning("[doubao] extract_comments 非200(%s) 第%d次", resp.status_code, attempt + 1)
+                if attempt < retries:
+                    _t.sleep(2 + attempt * 1.5)
+                    continue
+                return []
+            data = resp.json()
+            text = ""
+            for out in data.get("output", []):
+                for c in out.get("content", []):
+                    if c.get("type") == "output_text":
+                        text += (c.get("text") or "")
+            text = text.strip()
+            if not text:
+                last_err = "无输出文本"
+                if attempt < retries:
+                    _t.sleep(2 + attempt * 1.5)
+                    continue
+                return []
+            m = re.search(r"\[.*\]", text, re.S)
+            if not m:
+                return []
+            result = _json.loads(m.group(0))
+            if not isinstance(result, list):
+                return []
+            cleaned = []
+            for item in result:
+                if not isinstance(item, dict):
+                    continue
+                name = (item.get("名称") or "").strip()
+                if not name:
+                    continue
+                cleaned.append({
+                    "名称": name,
+                    "地区": (item.get("地区") or "").strip(),
+                    "时间": (item.get("时间") or "").strip(),
+                    "点赞数量": str(item.get("点赞数量") or "0"),
+                    "正文": (item.get("正文") or "").strip(),
+                    "层级": int(item.get("层级") or 1) if str(item.get("层级")).isdigit() else 1,
+                    "是否置顶": (item.get("是否置顶") or "否"),
+                    "是否首评": (item.get("是否首评") or "否"),
+                    "是否作者": (item.get("是否作者") or "否"),
+                    "是否作者回复": (item.get("是否作者回复") or "否"),
+                    "是否作者点赞": (item.get("是否作者点赞") or "否"),
+                    "回复文本": (item.get("回复文本") or "").strip(),
+                })
+            return cleaned
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+            log.warning("[doubao] extract_comments 第%d次异常: %s", attempt + 1, e)
+            if attempt < retries:
+                _t.sleep(2 + attempt * 1.5)
+    log.warning("[doubao] extract_comments 重试%d次后仍失败: %s", retries, last_err)
+    return []
 
 
 LOCATE_PROMPT = (
@@ -212,5 +236,6 @@ def doubao_locate(shot_b64, desc, api_key, model, timeout=30):
             return None
         x, y = text.split(",", 1)
         return int(float(x.strip())), int(float(y.strip()))
-    except Exception:
+    except Exception as e:
+        log.warning("[doubao] locate 异常: %s", e)
         return None

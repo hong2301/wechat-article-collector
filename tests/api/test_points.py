@@ -51,3 +51,12 @@ def test_point_import_empty_400(client):
 def test_point_preview_motion(client):
     """预览/截屏会动屏幕, 仅手动跑"""
     ...
+
+@pytest.mark.manual
+def test_point_capture_manual(client):
+    """坐标捕获阻塞等人工点击屏幕, 手动跑"""
+
+
+@pytest.mark.manual
+def test_point_capture_preview_manual(client):
+    """遮罩轮询 get_latest_click(依赖capture过程), 手动跑"""

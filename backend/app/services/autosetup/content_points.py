@@ -8,7 +8,7 @@ import numpy as np
 """点位自动设置: 文章内容区点位 30/31(4指标) 34(评论按钮) 35/36(评论区)
 依赖前置点位搜索出文章后 OCR/截图识别"""
 from ...database import get_conn as _get_conn
-from .engine import POINT_FLOWS, flow_point, log   # noqa: F401  (POINT_FLOWS 注册 / flow_point 装饰器)
+from .engine import POINT_FLOWS, flow_point, flow_points, log   # noqa: F401  (POINT_FLOWS 注册 / flow_point 装饰器)
 
 
 ARTICLE_LINK_DEMO = "https://mp.weixin.qq.com/s/X7fAdvvZ-Gq_2SW19OKfVw"
@@ -89,6 +89,7 @@ def _flow_article_bar_find(ctx):
     return x_left, y_top, x_right, y_bot
 
 
+@flow_points("4指标区域左上", "4指标区域右下")
 def _article_bar_entry(self_name):
     def fn(ctx):
         res = _flow_article_bar_find(ctx)
@@ -108,8 +109,6 @@ def _article_bar_entry(self_name):
     return fn
 
 
-POINT_FLOWS["4指标区域左上"] = _article_bar_entry("4指标区域左上")
-POINT_FLOWS["4指标区域右下"] = _article_bar_entry("4指标区域右下")
 
 
 
@@ -356,6 +355,7 @@ def _flow_comment_left_find(ctx):
     return None
 
 
+@flow_points("评论区右下")
 def _comment_area_entry(self_name):
     def fn(ctx):
         res = _flow_comment_area_find(ctx)
@@ -375,6 +375,7 @@ def _comment_area_entry(self_name):
     return fn
 
 
+@flow_points("评论区左上")
 def _comment_left_entry(self_name):
     def fn(ctx):
         res = _flow_comment_left_find(ctx)
@@ -390,6 +391,3 @@ def _comment_left_entry(self_name):
         return bx, by
     return fn
 
-
-POINT_FLOWS["评论区左上"] = _comment_left_entry("评论区左上")
-POINT_FLOWS["评论区右下"] = _comment_area_entry("评论区右下")

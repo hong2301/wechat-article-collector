@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 """把 data/collected.csv 迁移到 SQLite articles 表(按公众号名称匹配 account_id)"""
+import logging
+
 import csv
 import os
 

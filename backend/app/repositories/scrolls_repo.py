@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 """滚动(scrolls) 数据访问层"""
 from ..database import get_conn
+from ..core import logkit
+
+log = logkit.get_logger("repo.scrolls")
+
 
 
 def list_all():
@@ -38,6 +42,7 @@ def create(name, distance, point_id, direction, remark):
             (name, distance, point_id, direction, remark))
         conn.commit()
         row = conn.execute("SELECT * FROM scrolls WHERE id=?", (cur.lastrowid,)).fetchone()
+        log.info("[repo] scrolls.create id=%s name=%r", cur.lastrowid, name)
         return dict(row)
     finally:
         conn.close()
@@ -51,6 +56,7 @@ def update(sid: int, fields: dict):
             conn.execute(f"UPDATE scrolls SET {sets} WHERE id=?", (*fields.values(), sid))
             conn.commit()
         row = conn.execute("SELECT * FROM scrolls WHERE id=?", (sid,)).fetchone()
+        log.info("[repo] scrolls.update id=%s fields=%s", sid, list(fields))
         return dict(row)
     finally:
         conn.close()
@@ -61,6 +67,7 @@ def delete(sid: int) -> bool:
     try:
         cur = conn.execute("DELETE FROM scrolls WHERE id=?", (sid,))
         conn.commit()
+        log.info("[repo] scrolls.delete id=%s -> %s", sid, cur.rowcount > 0)
         return cur.rowcount > 0
     finally:
         conn.close()
@@ -71,6 +78,7 @@ def set_distance(sid: int, distance) -> None:
     try:
         conn.execute("UPDATE scrolls SET distance=? WHERE id=?", (distance, sid))
         conn.commit()
+        log.info("[repo] scrolls.set_distance id=%s -> %s", sid, distance)
     finally:
         conn.close()
 
@@ -116,6 +124,7 @@ def import_upsert(rows: list) -> tuple:
                         (name, distance, point_id, direction, remark))
                     added += 1
         conn.commit()
+        log.info("[repo] scrolls.import 新增 %d 更新 %d", added, updated)
         return added, updated
     finally:
         conn.close()

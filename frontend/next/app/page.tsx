@@ -13,6 +13,8 @@ import * as XLSX from "xlsx";
 import PointsDialog from "./components/PointsDialog";
 import PaginationBar, { calcPageSize } from "./components/PaginationBar";
 import { hideTaskbar, showTaskbar } from "./components/taskbar";
+import CollectDialog from "./components/CollectDialog";
+import SaveFormatSelect, { fmtLabel } from "./components/SaveFormatSelect";
 import { useSettingsIssues } from "./components/useSettingsIssues";
 import { useWechatStatus } from "./components/useWechatStatus";
 import ScrollsDialog from "./components/ScrollsDialog";
@@ -133,12 +135,13 @@ export default function Home() {
   const fileRef = useRef<HTMLInputElement>(null);
   const tasksRef = useRef<Task[]>([]);
   const collectAbortRef = useRef<AbortController | null>(null);  // 采集SSE控制器
+  const collectStoppedRef = useRef(false);                 // 主动停止标记(ESC/按钮): 剩余队列跳过
   const collectLogRef = useRef<HTMLDivElement>(null);            // 日志区(自动滚动)
   const collectStartTsRef = useRef<number>(0);                  // 采集开始时间戳(毫秒)
   const [importing, setImporting] = useState(false);
   const [importingPct, setImportingPct] = useState(0);
   const [dragOver, setDragOver] = useState(false);
-  const [failedRows, setFailedRows] = useState<{ name: string }[]>([]);
+  const [failedRows, setFailedRows] = useState<{ name: string; kind: string }[]>([]);
   const [sbWidth, setSbWidth] = useState(6);
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [query, setQuery] = useState("");
@@ -176,12 +179,15 @@ export default function Home() {
   const [capture4metrics, setCapture4metrics] = useState(false);
   const [captureRead, setCaptureRead] = useState(false);
   // 采集时保存HTML到本地(默认关)
-  const [saveHtml, setSaveHtml] = useState(false);
+  const [saveFormats, setSaveFormats] = useState<string[]>([]);
   // 评论采集设置
   const [captureComments, setCaptureComments] = useState(false);   // 评论采集开关
   const [maxComments, setMaxComments] = useState<number | null>(null);   // 文章最大评论采集数(空=无限)
   const [maxLevel1, setMaxLevel1] = useState<number | null>(null);      // 一级评论数(空=无限)
   const [maxLevel2, setMaxLevel2] = useState<number | null>(0);               // 每级二级评论采集数(默认0, 空=无限)
+  // 关键词查询设置
+  const [captureKeyword, setCaptureKeyword] = useState(false);   // 关键词查询开关
+  const [keywordQuery, setKeywordQuery] = useState("");         // 要查询的关键词
   // 保存HTML根目录(存储路径, 空=默认 <数据目录>/article_data)
   const [saveDir, setSaveDir] = useState("");
 
@@ -193,9 +199,8 @@ export default function Home() {
         const d = JSON.parse(saved);
                 if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
         if (typeof d.capture_read === "boolean") setCaptureRead(d.capture_read);
-        if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
-        // 存储路径: 旧默认 D:/article_data 视为未设置(改用新默认 <数据目录>/article_data)
-        if (typeof d.save_dir === "string" && d.save_dir && d.save_dir !== "D:/article_data") setSaveDir(d.save_dir);
+        if (Array.isArray(d.save_formats)) setSaveFormats(d.save_formats);
+        else if (typeof d.save_html === "boolean") setSaveFormats(d.save_html ? ["html"] : []);   // 旧配置兼容
         if (typeof d.capture_comments === "boolean") setCaptureComments(d.capture_comments);
         if ("max_comments" in d) setMaxComments(d.max_comments);
         if ("max_level1" in d) setMaxLevel1(d.max_level1);
@@ -208,15 +213,28 @@ export default function Home() {
     setCfgLoaded(true);
   }, []);
 
+  // 存储路径(保存HTML根目录): 记录在数据库(settings 表), 启动时读取, 并同步 Header 里的修改
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await (await fetch(API_BASE + "/api/settings/save-dir")).json();
+        if (r && r.dir) setSaveDir(r.dir);
+      } catch { /* 后端不可达 */ }
+    })();
+    const onSd = (e: Event) => setSaveDir(((e as CustomEvent<string>).detail) || "");
+    window.addEventListener("save-dir-changed", onSd);
+    return () => window.removeEventListener("save-dir-changed", onSd);
+  }, []);
+
   // 保存采集配置到 localStorage(加载完成后生效, 避免初始默认覆盖记忆)
+  // 说明: 存储路径 save_dir 已改由数据库记录, 不再进 localStorage
   useEffect(() => {
     if (!cfgLoaded) return;
     try {
       localStorage.setItem("collectConfig", JSON.stringify({
           capture_4metrics: capture4metrics,
         capture_read: captureRead,
-        save_html: saveHtml,
-        save_dir: saveDir,
+        save_formats: saveFormats,
         capture_comments: captureComments,
         max_comments: maxComments,
         max_level1: maxLevel1,
@@ -226,7 +244,7 @@ export default function Home() {
       }));
     } catch { /* 忽略写入失败 */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [capture4metrics, captureRead, saveHtml, saveDir, captureComments, maxComments, maxLevel1, maxLevel2, dateRange]);
+  }, [capture4metrics, captureRead, saveFormats, captureComments, maxComments, maxLevel1, maxLevel2, dateRange]);
 
   useEffect(() => {
     const probe = document.createElement("div");
@@ -310,7 +328,7 @@ export default function Home() {
     const fd = new FormData();
     fd.append("file", f);
     let total = 0, addedCount = 0;
-    let fails: { name: string }[] = [];
+    let fails: { name: string; kind: string }[] = [];
     try {
       const r = await fetch(`${API}/import`, { method: "POST", body: fd });
       if (!r.body) throw 0;
@@ -330,7 +348,7 @@ export default function Home() {
           if (d.total) total = d.total;
           if (d.done !== undefined) {
             setImportingPct(Math.round((d.done / (total || 1)) * 100));
-            if (d.ok) addedCount++; else fails.push({ name: d.name || "(未知)" });
+            if (d.ok) addedCount++; else fails.push({ name: d.name || "(未知)", kind: d.kind || "unrecog" });
           }
         }
       }
@@ -339,7 +357,8 @@ export default function Home() {
     setFailedRows(fails);
     load();
     if (fails.length > 0) {
-      message.warning(`导入完成: 新增${addedCount}, 失败${fails.length}`);
+      const dupN = fails.filter((x) => x.kind === "dup").length;
+      message.warning(`导入完成: 新增${addedCount}${dupN ? `, 重复${dupN}` : ""}${fails.length - dupN ? `, 无法识别${fails.length - dupN}` : ""}`);
     } else {
       setTimeout(() => { setImporting(false); message.success(`导入完成: 新增${addedCount}`); }, 1000);
     }
@@ -388,6 +407,7 @@ export default function Home() {
   // 确认采集: 确认设置后按队列启动采集(每个任务完整走流程)
   function confirmCollect() {
     if (queue.length === 0) return;
+    collectStoppedRef.current = false;
     setCollectStopped(false);
     setCollectStarted(true);
     runOne(0);
@@ -395,6 +415,11 @@ export default function Home() {
   // 采集队列第 idx 个: 拼接链接 -> POST 后端启动(完整采集流程) -> SSE 接收
   // 任务完成后自动执行下一个; 全部完成关闭弹窗
   function runOne(idx: number) {
+    if (collectStoppedRef.current) {                    // 主动停止后: 跳过剩余队列
+      setQueueIdx(queue.length);
+      setCollectDone(true);
+      return;
+    }
     const task = queue[idx];
     if (!task) { setQueueIdx(queue.length); message.success("全部采集完成"); setCollectDone(true); return; }
     setCollectDone(false);
@@ -409,7 +434,7 @@ export default function Home() {
       setCollectComments(0); setCollectCommentSpeed(0);
       setCollectLogs([`开始采集「${task.name || ""}」`]);
     } else {
-      setCollectLogs((p) => [...p, `--- 开始采集「${task.name || ""}」(${idx + 1}/${queue.length}) ---`]);
+      setCollectLogs((p) => [...p, `--- 开始采集「${task.name || ""}」(${idx + 1}/${queue.length}) ---`].slice(-2000));
     }
 
     const controller = new AbortController();
@@ -423,11 +448,13 @@ export default function Home() {
       date_end: dateRange ? dateRange[1].format("YYYY-MM-DD") : "",
       capture_4metrics: capture4metrics,
       capture_read: captureRead,
-      save_html: saveHtml,
+      save_formats: saveFormats,
       save_dir: saveDir,
       max_comments: captureComments ? maxComments : 0,
       max_level1: captureComments ? maxLevel1 : 0,
       max_level2: captureComments ? maxLevel2 : 0,
+      capture_keyword: captureKeyword,
+      keyword: keywordQuery.trim(),
     };
 
     (async () => {
@@ -454,7 +481,7 @@ export default function Home() {
             try {
               const d = JSON.parse(block.slice(6));
               if (d.type === "log" && d.msg) {
-                setCollectLogs((p) => [...p, d.msg]);
+                setCollectLogs((p) => [...p, d.msg].slice(-2000));   // 限长: 长采集截断, 防DOM卡顿
                 if (d.msg.includes("禁用鼠标和键盘")) message.warning("⚠️ 采集期间禁用鼠标和键盘，按 ESC 可停止");
                 // 评论采集统计: 日志 '写入N条' 累加(速度由effect计算)
                 if (d.msg.includes("写入") && d.msg.includes("评论#")) {
@@ -469,15 +496,25 @@ export default function Home() {
                 if (d.done >= 1) setCollectCount(d.done);
               } else if (d.type === "done") {
                 finished = true;
+                if (d.reason === "user_stopped") { collectStoppedRef.current = true; setCollectStopped(true); }
                 setCollectLogs((p) => [...p,
-                  d.ok ? "✅ 采集流程结束" : `❌ 采集失败: ${d.reason || ""}`]);
+                  d.ok ? "✅ 采集流程结束"
+                       : d.reason === "user_stopped" ? "⏹ 任务已终止（主动停止）"
+                       : `❌ 采集失败: ${d.reason || ""}`]);
               }            } catch { /* 忽略坏帧 */ }
           }
         }
         setCollectLogs((p) => [...p, "⏹ 采集连接已断开"]);
-        // 队列: 本任务结束 -> 下一个(仍完整流程)
+        // 队列: 正常结束 -> 下一个; 主动停止(ESC/按钮) -> 跳过剩余整个队列
         if (finished && collectAbortRef.current === controller) {
-          runOne(idx + 1);
+          if (collectStoppedRef.current) {
+            setCollectLogs((p) => [...p, `⏹ 已停止, 剩余 ${Math.max(0, queue.length - idx - 1)} 个任务跳过`].slice(-2000));
+            setQueueIdx(queue.length);
+            setCollectDone(true);
+            message.info("已停止采集");
+          } else {
+            runOne(idx + 1);
+          }
         }
       } catch (e: unknown) {
         if ((e as Error)?.name !== "AbortError") {
@@ -488,6 +525,7 @@ export default function Home() {
   }
   // 停止采集: 通知后端中止 + 断开SSE, 按钮变关闭
   function stopCollect() {
+    collectStoppedRef.current = true;
     fetch(API_BASE + "/api/collect/stop", { method: "POST" }).catch(() => {});
     collectAbortRef.current?.abort();
     setCollectStopped(true);
@@ -498,6 +536,20 @@ export default function Home() {
     load();
   }
   // 导出公众号列表为 xlsx
+  // 修改存储路径: 弹系统目录选择器 -> 存库 -> 广播(Header 原逻辑移入页面); 与采集 payload save_dir 联动
+  async function pickSaveDir() {
+    try {
+      const d = await (await fetch(API_BASE + "/api/settings/pick-dir?current=" + encodeURIComponent(saveDir), { method: "POST" })).json();
+      if (d.dir) {
+        setSaveDir(d.dir);
+        await fetch(API_BASE + "/api/settings/save-dir", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ dir: d.dir }),
+        }).catch(() => {});
+        window.dispatchEvent(new CustomEvent("save-dir-changed", { detail: d.dir }));
+      }
+    } catch { /* 后端不可达 */ }
+  }
+
   async function exportExcel() {
     message.info("正在导出全部数据...");
     try {
@@ -515,18 +567,11 @@ export default function Home() {
       XLSX.writeFile(wb, `公众号列表.xlsx`);
     } catch { message.error("导出失败"); }
   }
-  // 打开下载数据文件夹(D:/article_data)
+  // 打开下载数据文件夹(默认 <数据目录>/article_data)
   async function openDownloads() {
     try {
       const d = await (await fetch(API_BASE + "/api/settings/open-downloads", { method: "POST" })).json();
       if (!d.ok) message.error(d.error || "打开失败");
-    } catch { message.error("无法连接后端"); }
-  }
-  // 选择存储路径(保存HTML根目录): 弹系统文件夹选择器(从当前路径打开)
-  async function pickSaveDir() {
-    try {
-      const d = await (await fetch(API_BASE + "/api/settings/pick-dir?current=" + encodeURIComponent(saveDir), { method: "POST" })).json();
-      if (d.dir) setSaveDir(d.dir);
     } catch { message.error("无法连接后端"); }
   }
 
@@ -682,14 +727,21 @@ export default function Home() {
           </Tooltip>
           <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集阅读数</span>
           <Switch checked={captureRead} onChange={setCaptureRead} />
-          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存Html</span>
-          <Switch checked={saveHtml} onChange={setSaveHtml} />
+          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存格式</span>
+          <SaveFormatSelect value={saveFormats} onChange={setSaveFormats} />
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，评论采集不可用:\n${si.ai.join("\n")}` : undefined}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
               <span style={{ fontSize: 14, color: si.ai.length > 0 ? "#ff4d4f" : "#555" }}>评论采集</span>
               {si.ai.length > 0 && <ExclamationCircleOutlined style={{ color: "#ff4d4f" }} />}
               <Switch checked={captureComments} disabled={si.ai.length > 0} onChange={setCaptureComments} />
+            </span>
+          </Tooltip>
+          <Tooltip
+            title={captureKeyword ? "开启后按关键词筛选要采集的文章" : undefined}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+              <span style={{ fontSize: 14, color: "#555" }}>关键词查询</span>
+              <Switch checked={captureKeyword} onChange={setCaptureKeyword} />
             </span>
           </Tooltip>
         </div>
@@ -705,6 +757,13 @@ export default function Home() {
             <span style={{ fontSize: 13, color: "#555" }}>每级二级评论数</span>
             <InputNumber min={0} placeholder="无限" value={maxLevel2}
               onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 90 }} />
+          </div>
+        )}
+        {/* 关键词查询设置行(开关开时显示) */}
+        {captureKeyword && (
+          <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap", minHeight: 32 }}>
+            <Input placeholder="请输入要查询的关键词" value={keywordQuery} allowClear
+              onChange={(e) => setKeywordQuery(e.target.value)} style={{ width: 280 }} />
           </div>
         )}
         {/* 设置按钮行(第三行) */}
@@ -731,7 +790,7 @@ export default function Home() {
               onClick={() => setAiOpen(true)}>AI模型</Button>
           </Tooltip>
           <Tooltip title={saveDir || "默认: 程序数据目录/article_data"} placement="bottom">
-            <Button onClick={pickSaveDir}>存储路径修改</Button>
+            <Button icon={<FolderOpenOutlined />} onClick={pickSaveDir}>修改存储路径</Button>
           </Tooltip>
         </div>
       </div>
@@ -852,14 +911,25 @@ export default function Home() {
       </div>
 
       {/* 导入进度/失败弹窗 */}
-      <Modal mask={{ closable: false }} title={failedRows.length ? "导入结果" : "正在导入"} open={importing}
+      <Modal destroyOnHidden mask={{ closable: false }} title={failedRows.length ? "导入结果" : "正在导入"} open={importing}
         footer={failedRows.length ? <Button type="primary" onClick={() => setImporting(false)}>关闭</Button> : null}
         closable={failedRows.length > 0} onCancel={() => setImporting(false)} width={420}>
         {failedRows.length ? (
           <div>
-            <Typography.Paragraph strong style={{ color: "#c62828" }}>有 {failedRows.length} 行导入失败（无法识别公众号），需手动处理：</Typography.Paragraph>
-            <Table size="small" rowKey={(r) => r.name} pagination={false} dataSource={failedRows}
-              columns={[{ title: "失败项", dataIndex: "name" }]} />
+            {failedRows.filter((r) => r.kind !== "dup").length > 0 && (
+              <>
+                <Typography.Paragraph strong style={{ color: "#c62828" }}>无法识别公众号（{failedRows.filter((r) => r.kind !== "dup").length} 行，缺名称/biz 或解析失败）：</Typography.Paragraph>
+                <Table size="small" rowKey={(r) => r.name + r.kind} pagination={false} dataSource={failedRows.filter((r) => r.kind !== "dup")}
+                  columns={[{ title: "失败项", dataIndex: "name" }]} />
+              </>
+            )}
+            {failedRows.filter((r) => r.kind === "dup").length > 0 && (
+              <>
+                <Typography.Paragraph strong style={{ color: "#ed6c02", marginTop: 12 }}>重复公众号（{failedRows.filter((r) => r.kind === "dup").length} 行，已存在，未重复导入）：</Typography.Paragraph>
+                <Table size="small" rowKey={(r) => r.name + r.kind} pagination={false} dataSource={failedRows.filter((r) => r.kind === "dup")}
+                  columns={[{ title: "失败项", dataIndex: "name" }]} />
+              </>
+            )}
           </div>
         ) : (
           <div style={{ textAlign: "center", padding: "8px 0" }}>
@@ -871,126 +941,56 @@ export default function Home() {
       </Modal>
 
       {/* 采集日历弹窗 */}
-      <Modal mask={{ closable: false }} title={calData ? `${calData.name} · 采集日历` : "采集日历"} open={calOpen}
+      <Modal destroyOnHidden mask={{ closable: false }} title={calData ? `${calData.name} · 采集日历` : "采集日历"} open={calOpen}
         footer={null} onCancel={() => setCalOpen(false)} width={760} style={{ maxHeight: "80vh", overflow: "auto" }}>
         {calData && <CollectCalendar daily={calData.daily} monthKey={calMonthKey} onMonthChange={(m) => loadCalendar(calData.id, m)} />}
       </Modal>
 
-      {/* 采集弹窗: 确认阶段 -> 采集进行中(停止由后端ESC监听) */}
-      <Modal mask={{ closable: false }}
+      {/* 采集弹窗(通用组件 CollectDialog): SSE/队列/统计由上方逻辑维护 */}
+      <CollectDialog
         open={collectOpen}
         title={collectStarted ? `正在采集「${collectTask?.name || ""}」 (${queueIdx}/${queue.length})` : queue.length > 1 ? `确认采集设置 (共 ${queue.length} 个)` : "确认采集设置"}
-        onCancel={() => {
-          if (collectStarted) { stopCollect(); return; }
-          closeCollect();
-        }}
-        footer={collectStarted ? (
-          collectStopped || collectDone ? (
-            <Button type="primary" onClick={closeCollect}>关闭</Button>
-          ) : (
-            <Button danger onClick={stopCollect}>按 ESC 停止</Button>
-          )
-        ) : (
-          <>
-            <Button onClick={closeCollect}>取消</Button>
-            <Button type="primary" onClick={confirmCollect}>确认</Button>
-          </>
-        )}
-        width={collectStarted ? 920 : 560}
-      >
-        {/* 进行中: 采集设置 + 采集情况 左右两卡片 */}
-        {collectStarted ? (
-          <div style={{ display: "flex", gap: 12 }}>
-            {/* 左: 采集设置 */}
-            <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0", maxHeight: 220, display: "flex", flexDirection: "column" }}>
-              <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0", flexShrink: 0 }}>采集设置</div>
-              <div style={{ overflow: "auto", flex: 1, minHeight: 0 }}>
-              {[
-                { label: "时间范围", value: dateRange ? `${dateRange[0].format("YYYY-MM-DD")} ~ ${dateRange[1].format("YYYY-MM-DD")}` : "全部" },
-                { label: "采集4指标", value: capture4metrics ? "开" : "关" },
-                { label: "采集阅读数", value: captureRead ? "开" : "关" },
-                { label: "保存Html", value: saveHtml ? "开" : "关" },
-                { label: "评论采集", value: captureComments ? "开" : "关" },
-                { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
-                { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
-                { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
-              ].map((row) => (
-                <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
-                  <span style={{ width: 110, color: "#888", whiteSpace: "nowrap" }}>{row.label}</span>
-                  <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
-                </div>
-              ))}
-              </div>
-            </div>
-            {/* 右: 采集情况 */}
-            <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0", maxHeight: 220, display: "flex", flexDirection: "column" }}>
-              <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0", flexShrink: 0 }}>采集情况</div>
-              <div style={{ overflow: "auto", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 10, padding: "10px 14px" }}>
-                <div>开始时间: <span style={{ color: "#333" }}>{collectStartTime}</span></div>
-                <div>已采集文章: <span style={{ color: "#333", fontWeight: 600 }}>{collectCount} 篇</span></div>
-                <div>采集速度: <span style={{ color: "#333" }}>{speed} 篇/分</span></div>
-                {captureComments && (
-                  <>
-                    <div>已采集评论: <span style={{ color: "#333", fontWeight: 600 }}>{collectComments} 条</span></div>
-                    <div>评论速度: <span style={{ color: "#333" }}>{collectCommentSpeed} 条/分</span></div>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        ) : (
-          // 确认阶段: 单一设置卡片
-          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0", marginBottom: 12 }}>
-            {[
-              { label: "时间范围", value: dateRange ? `${dateRange[0].format("YYYY-MM-DD")} ~ ${dateRange[1].format("YYYY-MM-DD")}` : "全部" },
-              { label: "采集4指标", value: capture4metrics ? "开" : "关" },
-              { label: "采集阅读数", value: captureRead ? "开" : "关" },
-              { label: "保存Html", value: saveHtml ? "开" : "关" },
-              { label: "评论采集", value: captureComments ? "开" : "关" },
-              { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
-              { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
-              { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
-            ].map((row) => (
-              <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
-                <span style={{ width: 110, color: "#888", whiteSpace: "nowrap" }}>{row.label}</span>
-                <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* 日志区(仅进行中显示) */}
-        {collectStarted && (
-          <div style={{ background: "#fafafa", border: "1px solid #eee", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
-            <Typography.Text strong style={{ fontSize: 13 }}>日志</Typography.Text>
-            <div ref={collectLogRef} style={{
-              marginTop: 8, height: 220, overflow: "auto",
-              background: "#1e1e1e", borderRadius: 6, padding: 8,
-              fontFamily: "Consolas, monospace", fontSize: 12, color: "#d4d4d4", whiteSpace: "pre-wrap",
-            }}>
-              {collectLogs.length === 0 ? (
-                <span style={{ color: "#888" }}>(暂无日志)</span>
-              ) : (
-                collectLogs.map((l, i) => {
-                  // [async:任务名] 异步统一青色; [step]橙 [ok]绿 [fail]红 [warn]黄
-                  const mAsync = l.match(/^\[async:([^\]]+)\]\s?([\s\S]*)/);
-                  const m = mAsync || l.match(/^\[(step|ok|fail|warn)\]\s?([\s\S]*)/);
-                  let text = l, color: string | undefined;
-                  if (mAsync) { color = "#36cfc9"; text = `[${mAsync[1]}] ${mAsync[2]}`; }
-                  else if (m) {
-                    color = { step: "#ffa940", ok: "#73d13d", fail: "#ff4d4f", warn: "#ffc53d" }[m[1]];
-                    text = m[2];
-                  }
-                  return <div key={i} style={color ? { color } : undefined}>{text}</div>;
-                })
-              )}
-            </div>
-          </div>
-        )}
-      </Modal>
+        started={collectStarted}
+        stopped={collectStopped || collectDone}
+        confirmFields={[
+          { label: "时间范围", value: dateRange ? `${dateRange[0].format("YYYY-MM-DD")} ~ ${dateRange[1].format("YYYY-MM-DD")}` : "全部" },
+          { label: "采集4指标", value: capture4metrics ? "开" : "关" },
+          { label: "采集阅读数", value: captureRead ? "开" : "关" },
+          { label: "保存格式", value: fmtLabel(saveFormats) },
+          { label: "评论采集", value: captureComments ? "开" : "关" },
+          { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
+          { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
+          { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
+          { label: "关键词查询", value: keywordQuery ? `${keywordQuery}` : "关" },
+        ]}
+        startedFields={[
+          { label: "时间范围", value: dateRange ? `${dateRange[0].format("YYYY-MM-DD")} ~ ${dateRange[1].format("YYYY-MM-DD")}` : "全部" },
+          { label: "采集4指标", value: capture4metrics ? "开" : "关" },
+          { label: "采集阅读数", value: captureRead ? "开" : "关" },
+          { label: "保存格式", value: fmtLabel(saveFormats) },
+          { label: "评论采集", value: captureComments ? "开" : "关" },
+          { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
+          { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
+          { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
+          { label: "关键词查询", value: keywordQuery ? `${keywordQuery}` : "关" },
+        ]}
+        stats={[
+          { label: "开始时间", value: collectStartTime },
+          { label: "已采集文章", value: `${collectCount} 篇` },
+          { label: "采集速度", value: `${speed} 篇/分` },
+          ...(captureComments ? [
+            { label: "已采集评论", value: `${collectComments} 条` },
+            { label: "评论速度", value: `${collectCommentSpeed} 条/分` },
+          ] : []),
+        ]}
+        logs={collectLogs}
+        onCancel={() => { if (collectStarted) { stopCollect(); return; } closeCollect(); }}
+        onConfirm={confirmCollect}
+        onCloseFinish={closeCollect}
+      />
 
       {/* 新增弹窗 */}
-      <Modal mask={{ closable: false }} title="新增公众号" open={addOpen} onOk={save} okText="保存" confirmLoading={saving}
+      <Modal destroyOnHidden mask={{ closable: false }} title="新增公众号" open={addOpen} onOk={save} okText="保存" confirmLoading={saving}
         onCancel={() => setAddOpen(false)} cancelText="取消">
         <Space vertical style={{ width: "100%" }} size="middle">
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>通过公众号文章链接自动获取：</Typography.Text>

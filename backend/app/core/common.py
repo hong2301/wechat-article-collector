@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+import logging
+
+log = logging.getLogger("collect.common")
+
 import base64
 import io, base64
 """backend.app.services.common: tasks 主函数共用的辅助工具
@@ -111,7 +115,7 @@ def _save_reads(biz, art, reads, logs=None):
         if logs is not None:
             logs.append(msg)
         else:
-            tasks_echo(msg)
+            log.info(msg)
     try:
         conn = get_conn()
         try:
@@ -129,9 +133,16 @@ def _finish(logs, copy_seen, ok, reason):
     """统一退出: copy_seen表明打开过文章页需Ctrl+W; 返回 (是否成功, 文本)"""
     if copy_seen:
         try:
+            if not ok:
+                # 失败收尾(重试后): 先点一次点位18把焦点带回微信, 再 Ctrl+W
+                # (采集成功时不点18: 弹出3点菜单会让 Ctrl+W 被菜单拦截失效)
+                p18 = _read_point(18)
+                if p18:
+                    pc.mouse_click(p18[0], p18[1])
+                    time.sleep(0.5)
             pc.ctrl_key("W")
-        except Exception:
-            pass
+        except Exception as e:
+            logs.append(f"关闭文章页异常: {type(e).__name__}: {e}")
         logs.append("已检测过复制字样, Ctrl+W 关闭文章页")
     text = "; ".join(logs)
     if reason:
@@ -251,6 +262,8 @@ def save_comments(art_biz, comment_list):
             conn.commit()
         finally:
             conn.close()
+        log.info("[comments.save] art=%.16s 写入 %d 条", art_biz, len(fresh))
         return len(fresh)
-    except Exception:
+    except Exception as e:
+        log.warning("[comments.save] art=%.16s 失败: %s", art_biz, e)
         return 0

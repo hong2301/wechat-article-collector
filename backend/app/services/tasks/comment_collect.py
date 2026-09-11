@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 """任务子包: 评论采集(展开回复/豆包AI识别/主采集循环)"""
+import logging
+
+log = logging.getLogger("collect.comment")
+
 from PIL import Image, ImageGrab
 from .helpers import _save_debug_shot_b64
 import io as _io, base64
@@ -33,7 +37,7 @@ def _expand_reply_buttons(x1, y1, x2, y2, max_rounds=3):
     for rnd in range(1, max_rounds + 1):
         shot, _b = pc.screenshot(x1, y1, x2, y2, img_format="png")
         if not shot:
-            tasks_echo("评论采集: 展开回复截图失败, 继续下一轮")
+            log.warning("评论采集: 展开回复截图失败, 继续下一轮")
             continue
         items = ocr_service.ocr(_PIL.open(shot).convert("RGB"))
         btn = None
@@ -49,18 +53,18 @@ def _expand_reply_buttons(x1, y1, x2, y2, max_rounds=3):
                     continue
         if not btn:
             # 没有更多回复按钮: 退出循环
-            tasks_echo(f"评论采集: 第{rnd}轮未发现更多回复按钮, 结束展开")
+            log.info(f"评论采集: 第{rnd}轮未发现更多回复按钮, 结束展开")
             return True
         bx, by, txt = btn
-        tasks_echo(f"评论采集: 点击'更多回复'按钮 {txt!r} @({bx},{by})")
+        log.info(f"评论采集: 点击'更多回复'按钮 {txt!r} @({bx},{by})")
         pc.mouse_click(bx, by)
         # 点击后: 35/36页面稳定检测(30次, 连续10次相同)
         ok_stable, info = wait_page_stable(
             x1, y1, x2, y2, same_need=10, timeout=30, interval=0.1)
-        tasks_echo(f"评论采集: 展开后稳定={ok_stable}({info})")
+        log.info(f"评论采集: 展开后稳定={ok_stable}({info})")
         if not ok_stable:
-            tasks_echo("评论采集: 展开后未稳定, 仍继续下一轮...")
-    tasks_echo(f"评论采集: 展开回复超过{max_rounds}轮, 结束")
+            log.info("评论采集: 展开后未稳定, 仍继续下一轮...")
+    log.info(f"评论采集: 展开回复超过{max_rounds}轮, 结束")
     return True
 
 
@@ -83,7 +87,7 @@ def _bg_ai_comments(shot_b64s, art_biz, max_level1, max_level2, shot_x=None):
             shot_b64s = [shot_b64s]
         shot_b64s = [b for b in shot_b64s if b]
         if not shot_b64s or not api_key:
-            tasks_echo(f"[async:{tag}] 无AI配置或截图失败, 评论识别跳过")
+            log.warning(f"[async:{tag}] 无AI配置或截图失败, 评论识别跳过")
             return
         # 多图(上一轮+本轮)拼接为一张完整图
         from ...core.common import merge_comment_shots
@@ -122,13 +126,13 @@ def _bg_ai_comments(shot_b64s, art_biz, max_level1, max_level2, shot_x=None):
         with ThreadPoolExecutor(max_workers=2) as ex:
             f_ai = ex.submit(_dec, _ai_b64, api_key)
             f_ocr = ex.submit(_ocr_levels)
-            comments = f_ai.result(timeout=60) or []
+            comments = f_ai.result(timeout=200) or []   # 放宽: doubao 单次 180s + 余量
             levels = f_ocr.result() or []
         for i, c in enumerate(comments):
             if i < len(levels):
                 c["层级"] = levels[i]
         if not comments:
-            tasks_echo(f"[async:{tag}] 豆包未识别到评论")
+            log.warning(f"[async:{tag}] 豆包未识别到评论")
             _save_debug_shot_b64(shot_b64s[0], "豆包", tag)
             return
         if max_level1 is not None and max_level1 > 0:
@@ -136,12 +140,11 @@ def _bg_ai_comments(shot_b64s, art_biz, max_level1, max_level2, shot_x=None):
         if max_level2 is not None and max_level2 >= 0:
             comments = [c for c in comments if int(c.get("层级", 1) or 1) == 1 or max_level2 > 0]
         if not comments:
-            tasks_echo(f"[async:{tag}] 无符合数量上限的评论")
+            log.info(f"[async:{tag}] 无符合数量上限的评论")
             _save_debug_shot_b64(shot_b64s[0], "豆包", tag)
             return
         from ...core.common import save_comments
         wrote = save_comments(art_biz, comments)
-        tasks_echo(f"[async:{tag}] 识别评论{len(comments)}条, 写入{wrote}条")
         # 更新采集计数(一级/二级/总数)
         with _comment_stats_lock:
             st = _comment_stats.setdefault(art_biz, {"l1": 0, "l2": 0, "total": 0})
@@ -152,6 +155,8 @@ def _bg_ai_comments(shot_b64s, art_biz, max_level1, max_level2, shot_x=None):
                 else:
                     st["l1"] += 1
             _total = st["total"]
+        # 写库结果与分级计数日志(供前端实时统计解析)
+        log.info(f"[async:{tag}] 识别评论{len(comments)}条, 写入{wrote}条(一级{st['l1']} 二级{st['l2']})")
         # 识别数持久化到 articles.comment_recog
         try:
             conn = get_conn()
@@ -164,7 +169,7 @@ def _bg_ai_comments(shot_b64s, art_biz, max_level1, max_level2, shot_x=None):
         except Exception:
             pass
     except Exception as e:
-        tasks_echo(f"[async:{tag}] 评论识别异常: {e}")
+        log.error(f"[async:{tag}] 评论识别异常: {e}")
 
 
 def _collect_comments(collect_type, link, art, biz,
@@ -178,36 +183,36 @@ def _collect_comments(collect_type, link, art, biz,
     _mc = "无限" if max_comments is None else str(max_comments)
     _m1 = "无限" if max_level1 is None else str(max_level1)
     _m2 = "无限" if max_level2 is None else str(max_level2)
-    tasks_echo(f"评论采集: 开始(文章评论数={_mc}, 一级评论数={_m1}, 每级二级评论数={_m2})")
+    log.info(f"评论采集: 开始(文章评论数={_mc}, 一级评论数={_m1}, 每级二级评论数={_m2})")
     p34 = _read_point(34)   # 评论按钮
     p35 = _read_point(35)   # 评论区左上
     p36 = _read_point(36)   # 评论区右下
     p30 = _read_point(30)   # 4指标区域左上(含评论按钮=第4值)
     p31 = _read_point(31)   # 4指标区域右下
     if not (p34 and p35 and p36):
-        tasks_echo("评论采集: 缺少点位34/35/36, 跳过")
+        log.warning("评论采集: 缺少点位34/35/36, 跳过")
         return
     # 点评论按钮前: 4指标区域(30/31)页面稳定检测(评论按钮即该区第4值留言), 逻辑同采集4指标
     if p30 and p31:
         ok_stable, info = wait_page_stable(
             p30[0], p30[1], p31[0], p31[1], same_need=15, timeout=50, interval=0.1)
-        tasks_echo(f"评论采集: 4指标区域稳定={ok_stable}({info})")
+        log.info(f"评论采集: 4指标区域稳定={ok_stable}({info})")
         if not ok_stable:
-            tasks_echo("评论采集: 4指标区域未稳定, 仍继续...")
+            log.info("评论采集: 4指标区域未稳定, 仍继续...")
         # 截图4指标区域 OCR 找"写留言": 有则说明无评论, 直接退出
         try:
             _sp, _ = pc.screenshot(p30[0], p30[1], p31[0], p31[1], img_format="png")
             if _sp:
                 _items = ocr_service.ocr(Image.open(_sp))
                 if any("写留言" in (it[2] or "") for it in _items):
-                    tasks_echo("评论采集: 检测到'写留言'(无评论), 退出")
+                    log.info("评论采集: 检测到'写留言'(无评论), 退出")
                     return
-                tasks_echo("评论采集: 4指标区域无'写留言'(有评论或需进评论区)")
+                log.info("评论采集: 4指标区域无'写留言'(有评论或需进评论区)")
         except Exception as e:
-            tasks_echo(f"评论采集: 写留言OCR检测失败: {e}")
+            log.error(f"评论采集: 写留言OCR检测失败: {e}")
     # 点击评论按钮进入评论区
     pc.mouse_click(p34[0], p34[1])
-    tasks_echo(f"评论采集: 点击评论按钮({p34[0]},{p34[1]})")
+    log.info(f"评论采集: 点击评论按钮({p34[0]},{p34[1]})")
     time.sleep(0.5)
 
     loop_n = 0
@@ -218,9 +223,9 @@ def _collect_comments(collect_type, link, art, biz,
         loop_n += 1
         ok_stable, info = wait_page_stable(
             p35[0], p35[1], p36[0], p36[1], same_need=10, timeout=60, interval=0.1)
-        tasks_echo(f"评论采集第{loop_n}轮: 评论区稳定={ok_stable}({info})")
+        log.info(f"评论采集第{loop_n}轮: 评论区稳定={ok_stable}({info})")
         if not ok_stable:
-            tasks_echo("评论采集: 评论区未稳定, 继续尝试...")
+            log.info("评论采集: 评论区未稳定, 继续尝试...")
 
         _expand_reply_buttons(p35[0], p35[1], p36[0], p36[1])
         # 展开后: 重新截图识别(转base64即时传递, 避免shot.png被后续覆盖)
@@ -237,7 +242,7 @@ def _collect_comments(collect_type, link, art, biz,
             _sub = [prev_b64, shot_b64] if prev_b64 else [shot_b64]
             _submit_bg(_bg_ai_comments, _sub, art,
                        max_level1, max_level2, shot_x=p35[0])
-            tasks_echo(f"评论采集第{loop_n}轮: 评论识别后台进行中...")
+            log.info(f"评论采集第{loop_n}轮: 评论识别后台进行中...")
             prev_b64 = shot_b64
 
         try:
@@ -265,16 +270,16 @@ def _collect_comments(collect_type, link, art, biz,
         elif max_comments is not None and max_comments > 0 and _total >= max_comments:
             _hit = f"文章评论数已达上限({_total}/{max_comments})"
         if _hit:
-            tasks_echo(f"评论采集: {_hit}, 停止")
+            log.info(f"评论采集: {_hit}, 停止")
             break
         # 2) 兜底: 连续3次准备采集的截图相同 = 无更多评论
         if same_shot_count >= 3:
-            tasks_echo(f"评论采集: 连续3次截图相同({same_shot_count}/3), 无更多评论, 停止")
+            log.info(f"评论采集: 连续3次截图相同({same_shot_count}/3), 无更多评论, 停止")
             break
 
         if s_dist > 0:
             pc.scroll(p35[0], p35[1], s_dist, direction=s_dir)
-            tasks_echo(f"评论采集第{loop_n}轮: 滚动评论区 {s_dist}px")
+            log.info(f"评论采集第{loop_n}轮: 滚动评论区 {s_dist}px")
             time.sleep(0.5)
 
 

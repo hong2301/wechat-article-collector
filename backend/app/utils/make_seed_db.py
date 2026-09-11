@@ -7,6 +7,8 @@
 输出: backend/assets/collector_seed.db
 用途: 打包/新装机时缺库则从种子库复制
 """
+import logging
+
 import os
 import shutil
 import sqlite3
@@ -32,16 +34,16 @@ def make(src, out):
         chk = {}
         for t in sorted(conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()):
             chk[t[0]] = conn.execute(f"SELECT COUNT(*) FROM {t[0]}").fetchone()[0]
-        print("tables:", chk)
+        logging.getLogger().info("tables:", chk)
         empty_keys = conn.execute("SELECT COUNT(*) FROM ai_model WHERE api_key<>''").fetchone()[0]
-        print("ai_model 非空key数:", empty_keys)
+        logging.getLogger().info("ai_model 非空key数:", empty_keys)
     finally:
         conn.close()
-    print("seed ->", out, os.path.getsize(out), "bytes")
+    logging.getLogger().info("seed ->", out, os.path.getsize(out), "bytes")
 
 
 if __name__ == "__main__":
     if not os.path.isfile(SRC):
-        print("! 找不到开发机数据库:", SRC)
+        logging.getLogger().warning("! 找不到开发机数据库:", SRC)
         raise SystemExit(1)
     make(SRC, OUT)

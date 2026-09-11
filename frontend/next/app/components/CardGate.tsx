@@ -120,7 +120,7 @@ export default function CardGate({ children }: { children: React.ReactNode }) {
       {state.loading && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(245,246,248,.85)",
                       display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000 }}>
-          <Spin size="large" tip="正在验证授权..." style={{ color: "#1565c0" }} />
+          <Spin size="large" description="正在验证授权..." style={{ color: "#1565c0" }} />
         </div>
       )}
     </div>

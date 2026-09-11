@@ -6,9 +6,11 @@ import requests as _requests
 from datetime import datetime
 import ctypes
 import hashlib
+import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
+import logging
 
 from ...core import computer as pc
 from ...core import obs
@@ -17,6 +19,19 @@ from ...core.common import (_read_point, _finish, _save_reads,
                             _extract_read_from_items, wait_page_stable)
 from ...core.robot import (request_stop, clear_stop, stop_requested,
                            bind_tasks_echo, tasks_echo)
+
+log = logging.getLogger("collect.article")   # 异步处理详情 -> data/logs/run.log(collect.* 前缀路由)
+
+# 会话级已采链接集合(本次采集任务内生效, art_biz 为键): 判重用
+_SESSION_ARTS = set()
+
+# 文章链接格式校验: 形如 https://mp.weixin.qq.com/s/<短id>
+_MP_LINK_RE = re.compile(r"^https?://mp\.weixin\.qq\.com/s/[A-Za-z0-9_-]+")
+
+
+def reset_session_links():
+    """新采集任务开始时清空会话去重集合(article_list/keyword 入口调用)"""
+    _SESSION_ARTS.clear()
 from ...database import get_conn
 from ...services.doubao_api import recognize_interact as doubao_recognize_interact
 from ...services.importer import extract_art_biz
@@ -30,7 +45,7 @@ from .wx_window import (init_wechat_window, search_window_init, search_query,
 @obs.timed("collect.list")
 def article_list_wait_stable(date_start="", date_end="", biz="",
                              capture_4metrics=False, capture_read=False,
-                             save_html=False, save_dir="",
+                             save_formats=None, save_dir="",
                              max_comments=None, max_level1=None, max_level2=0):
     """文章列表识别循环: 进入 while 循环, 每次循环第一步检查页面稳定。
     前提: 搜一搜查询(search_query)已加载出公众号链接(本函数不判定, 但依赖其结果)。
@@ -39,7 +54,7 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
       biz              所属公众号 biz 代码(点击文章后数据采集用)
       capture_4metrics 是否采集4指标
       capture_read     是否采集阅读数量
-      save_html        是否保存文章为本地HTML(含图片)
+      save_formats     保存格式列表(html/pdf/txt/md/word; None/空=不保存)
       save_dir         保存HTML根目录(空=默认D:/article_data)
     逻辑:
       while 循环(目前为占位, 后续补结束条件):
@@ -95,13 +110,13 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
                                              max(p[0] for p in sbox), max(p[1] for p in sbox))
             click_x, click_y = (_cx0 + _cx1) // 2, (_cy0 + _cy1) // 2
             logs.append(f"识别文章标记: {text!r} @({click_x},{click_y})")
-            tasks_echo(f"识别文章标记: {text!r} @({click_x},{click_y})")
+            log.info(f"识别文章标记: {text!r} @({click_x},{click_y})")
             pc.mouse_click(click_x, click_y)
             clicked = True
             break
         if not clicked:
             logs.append("未识别到文章标记(黑字白底), 跳过点击")
-            tasks_echo("未识别到文章标记(黑字白底), 跳过点击")
+            log.warning("未识别到文章标记(黑字白底), 跳过点击")
     except Exception as e:
         logs.append(f"文章标记识别失败: {e}")
 
@@ -111,11 +126,41 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
     same_shot = 0            # 连续相同截图次数
     date_out_count = 0       # 连续在日期范围之后次数(有日期范围时)
     loop_n = 0
+    reset_session_links()   # 新任务: 清空本次会话已采链接集合
 
     def echo(msg):
         """本轮日志: 存 logs 并实时转发(打印 + 后端钩子)"""
         logs.append(msg)
-        tasks_echo(msg)
+        log.info(msg)
+
+    def _do_scroll():
+        """滚动(滚动配置id3, 锚点点位15) + 滚动后鼠标移点位18; 第2次确认相同先反向回滚一半"""
+        try:
+            conn = get_conn()
+            try:
+                row = conn.execute("SELECT distance, direction FROM scrolls WHERE id=3").fetchone()
+            finally:
+                conn.close()
+            s_dist = int(float(row["distance"])) if row else 0
+            s_dir = row["direction"] if row else "down"
+        except Exception:
+            s_dist, s_dir = 0, "down"
+        if same_shot >= 2 and s_dist > 0:
+            back_dir = "up" if s_dir == "down" else "down"
+            back_dist = max(1, int(s_dist / 2))
+            pc.scroll(x1, y1, back_dist, direction=back_dir)
+            echo(f"第{loop_n}轮: 截图第{same_shot}次相同, 先向{back_dir}回滚 {back_dist}px 再继续")
+        if s_dist > 0:
+            pc.scroll(x1, y1, s_dist, direction=s_dir)
+            echo(f"第{loop_n}轮末尾: 在点位15({x1},{y1})向{s_dir}滚动 {s_dist}px")
+        else:
+            echo("滚动配置3无效, 跳过滚动")
+        p18 = _read_point(18)
+        if p18:
+            pc._u32().SetCursorPos(p18[0], p18[1])
+            echo(f"第{loop_n}轮滚动后鼠标已移到点位18({p18[0]},{p18[1]})")
+        else:
+            echo("第{loop_n}轮缺少点位18, 未移动鼠标")
 
     while True:
         if stop_requested():
@@ -136,6 +181,26 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
         if not shot_path:
             echo(f"第{loop_n}轮截图失败")
             return False, f"第{loop_n}轮截图失败"
+        # 截图相同判定(与上一轮): 立即算 md5(临时文件会被覆盖)
+        try:
+            with open(shot_path, "rb") as _f:
+                cur_shot_hash = hashlib.md5(_f.read()).hexdigest()
+        except Exception:
+            cur_shot_hash = None
+        if prev_shot_hash == cur_shot_hash:
+            same_shot = same_shot + 1
+        else:
+            same_shot = 1
+        prev_shot_hash = cur_shot_hash
+        # 连续5次相同 -> 无更多文章, 结束
+        if same_shot >= 5:
+            echo(f"第{loop_n}轮: 连续5次列表截图相同, 判定无更多文章, 停止")
+            return True, "无更多文章"
+        # 截图与上次相同(第2次起) -> 跳过本轮点位处理(点位已处理过), 直接滚动
+        if same_shot >= 2:
+            echo(f"第{loop_n}轮截图与上次相同, 跳过本轮点位处理, 直接滚动")
+            _do_scroll()
+            continue
         try:
             img = Image.open(shot_path)
             items = ocr_service.ocr(img)
@@ -242,7 +307,7 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             # 点击后: 采集该文章数据(获取链接+写文章表)
             ok_c, text_c = article_data_collect(
                 collect_type=1, capture_4metrics=capture_4metrics,
-                capture_read=capture_read, save_html=save_html, save_dir=save_dir, biz=biz,
+                capture_read=capture_read, save_formats=save_formats, save_dir=save_dir, biz=biz,
                 list_reads=pdata.get("reads"), list_likes=pdata.get("likes"),
                 max_comments=max_comments, max_level1=max_level1, max_level2=max_level2)
             echo(f"  文章数据采集: {'成功' if ok_c else '失败'} | {text_c}")
@@ -276,47 +341,8 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             else:
                 date_out_count = 0       # 本轮无时间点位, 不判定, 重置
 
-        # 停止条件: 连续3轮OCR列表截图完全相同 -> 无更多文章, 停止(返回True)
-        # 注意: 独立重新截图列表区域, 避免被各采集步骤的截图覆盖污染
-        cur_shot_hash = None
-        try:
-            _sp, _ = pc.screenshot(x1, y1, x2, y2, img_format="png")
-            if _sp:
-                with open(_sp, "rb") as _f:
-                    cur_shot_hash = hashlib.md5(_f.read()).hexdigest()
-        except Exception:
-            cur_shot_hash = None
-        if prev_shot_hash == cur_shot_hash:
-            same_shot = same_shot + 1
-        else:
-            same_shot = 1
-        prev_shot_hash = cur_shot_hash
-        if same_shot >= 5:
-            echo(f"第{loop_n}轮: 连续5次列表截图相同, 判定无更多文章, 停止")
-            return True, "无更多文章"
-
-        # 滚动: 鼠标移到点位15, 触发滚动配置 id=3(向下)
-        try:
-            conn = get_conn()
-            try:
-                row = conn.execute("SELECT distance, direction FROM scrolls WHERE id=3").fetchone()
-            finally:
-                conn.close()
-            s_dist = int(float(row["distance"])) if row else 0
-            s_dir = row["direction"] if row else "down"
-        except Exception:
-            s_dist, s_dir = 0, "down"
-        # 第二次确认截图相同(同2次)时: 滚动前先反向回滚 1/10 距离, 排除"假到底"
-        # (页面未刷新/加载动画未触发造成截图不变), 回滚再回来可能触发新内容
-        if same_shot == 2 and s_dist > 0:
-            back_dir = "up" if s_dir == "down" else "down"
-            pc.scroll(x1, y1, max(1, int(s_dist / 10)), direction=back_dir)
-            echo(f"第{loop_n}轮: 第2次确认相同, 先向{back_dir}回滚 {max(1, int(s_dist/10))}px 再继续")
-        if s_dist > 0:
-            pc.scroll(x1, y1, s_dist, direction=s_dir)
-            echo(f"第{loop_n}轮末尾: 在点位15({x1},{y1})向{s_dir}滚动 {s_dist}px")
-        else:
-            echo("滚动配置3无效, 跳过滚动")
+        # 滚动(配置id3, 反向逻辑与鼠标18都在 _do_scroll 内)
+        _do_scroll()
 
     return True, "; ".join(logs)
 
@@ -329,7 +355,8 @@ def _save_article_base(link, biz, list_reads=None, list_likes=None):
     try:
         art = extract_art_biz(link)
         tag = f"元数据#{art[:10]}"
-        tasks_echo(f"[async:{tag}] 正在采集...")
+        log.info(f"[async:{tag}] 正在采集...")
+        log.info("[db写表] 开始: art=%s link=%s", art[:10], link[:90])
         # 抓取文章元信息(网络请求, 失败不阻断, 失败仅写链接)
         meta = None
         try:
@@ -361,9 +388,11 @@ def _save_article_base(link, biz, list_reads=None, list_likes=None):
                         "UPDATE articles SET title=?, date=?, original=?, ip=?, write_time=? WHERE id=?",
                         (a_title, a_date, a_original, a_ip, wt, new_id))
                     logs.append(f"文章已存在, 更新元信息 id={new_id}")
+                    log.info("[db写表] 已存在->更新元信息 id=%d art=%s", new_id, art[:10])
                 else:
                     conn.execute("UPDATE articles SET write_time=? WHERE id=?", (wt, new_id))
                     logs.append(f"文章已存在, 复用 id={new_id}")
+                    log.info("[db写表] 已存在->复用 id=%d art=%s", new_id, art[:10])
             else:
                 wt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 cur = conn.execute(
@@ -372,11 +401,13 @@ def _save_article_base(link, biz, list_reads=None, list_likes=None):
                     (account_id, name, a_date, a_title, a_original, a_ip, art, biz, wt))
                 new_id = cur.lastrowid
                 logs.append(f"已写入文章表 id={new_id}")
+                log.info("[db写表] 新增 id=%d art=%s", new_id, art[:10])
             conn.commit()
         finally:
             conn.close()
     except Exception as e:
         logs.append(f"写入文章表失败: {e}")
+        log.error("[db写表] 失败: %s | link=%s", e, link[:90])
         return None, "", "", "; ".join(logs)
 
     # 列表页识别到的阅读数/点赞先更新
@@ -400,11 +431,12 @@ def _save_article_base(link, biz, list_reads=None, list_likes=None):
         except Exception as e:
             logs.append(f"列表阅读/赞写入失败: {e}")
 
-    tasks_echo(f"[async:{tag}] 采集完成, 文章已写入 id={new_id}")
+    log.info(f"[async:{tag}] 采集完成, 文章已写入 id={new_id}")
+    log.info("[db写表] 完成: id=%d", new_id)
     return new_id, name, art, "; ".join(logs)
 
 
-def _save_html_block(link, name="", tag="", base_dir=None):
+def _save_html_block(link, name="", tag="", base_dir=None, formats=None):
     """步骤3: 保存文章为本地HTML(公众号分类目录, 含图片本地化) - 独立流程
     后台异步执行(save_article_html 内含网络请求), 完成后回调日志"""
     if not tag:
@@ -412,13 +444,19 @@ def _save_html_block(link, name="", tag="", base_dir=None):
             tag = f"保存Html#{extract_art_biz(link)[:10]}"
         except Exception:
             tag = "保存Html"
-    tasks_echo(f"[async:{tag}] 正在保存...")
+    log.info(f"[async:{tag}] 正在保存...")
+    log.info("[存HTML] 开始: tag=%s link=%s", tag, link[:90])
     try:
-        html_path, info = save_article_html(link, account_name=name, base_dir=base_dir)
+        html_path, info = save_article_html(link, account_name=name, base_dir=base_dir, formats=formats)
         ok_txt = "成功: " + info if html_path else "失败: " + info
-        tasks_echo(f"[async:{tag}] {ok_txt}")
+        log.info(f"[async:{tag}] {ok_txt}")
+        if html_path:
+            log.info("[存HTML] 成功: %s | %s", html_path, info)
+        else:
+            log.warning("[存HTML] 失败: %s", info)
     except Exception as e:
-        tasks_echo(f"[async:{tag}] 异常: {e}")
+        log.error(f"[async:{tag}] 异常: {e}")
+        log.error("[存HTML] 异常: %s | link=%s", e, link[:90])
 
 def _bg_ai_metrics(shot_b64, api_key, model, biz, art):
     """后台线程任务: 豆包识图4指标(网络请求) -> 更新文章数据
@@ -427,14 +465,14 @@ def _bg_ai_metrics(shot_b64, api_key, model, biz, art):
     try:
         metrics = None
         if shot_b64 and api_key and model:
-            tasks_echo(f"[async:{tag}] 正在豆包识图...")
+            log.info(f"[async:{tag}] 正在豆包识图...")
             metrics = doubao_recognize_interact(shot_b64, api_key, model)
             if metrics is not None:
-                tasks_echo(f"[async:{tag}] 点赞{metrics[0]} 转发{metrics[1]} 喜欢{metrics[2]} 留言{metrics[3]}")
+                log.info(f"[async:{tag}] 点赞{metrics[0]} 转发{metrics[1]} 喜欢{metrics[2]} 留言{metrics[3]}")
             else:
-                tasks_echo(f"[async:{tag}] 识图失败")
+                log.warning(f"[async:{tag}] 识图失败")
         else:
-            tasks_echo(f"[async:{tag}] 未配置AI模型或截图失败")
+            log.warning(f"[async:{tag}] 未配置AI模型或截图失败")
 
         # 更新文章数据: 成功写指标值
         data = {"biz": biz, "art_biz": art}
@@ -453,16 +491,17 @@ def _bg_ai_metrics(shot_b64, api_key, model, biz, art):
                 _upd = (r.json() or {}).get("updated", 0)
             except Exception:
                 _upd = "?"
-            tasks_echo(f"[async:{tag}] 数据已更新(命中{_upd}行, art={art})")
+            log.info(f"[async:{tag}] 数据已更新(命中{_upd}行, art={art})")
         else:
-            tasks_echo(f"[async:{tag}] 更新失败: HTTP {r.status_code}")
+            log.error(f"[async:{tag}] 更新失败: HTTP {r.status_code}")
     except Exception as e:
-        tasks_echo(f"[async:{tag}] 异常: {e}")
+        log.error(f"[async:{tag}] 异常: {e}")
 
 
 def _collect_metrics(biz, art):
     """4指标采集: 截图30/31区域(主线程) -> 豆包识图异步提交(网络, 不阻塞)
     截图后立即返回, 识图与更新由后台线程完成"""
+    log.info("[4指标] 开始: biz=%s art=%s", biz, art[:10])
     # 实时输出: 每步直接 tasks_echo
     p30 = _read_point(30)   # 4指标区域左上
     p31 = _read_point(31)   # 4指标区域右下
@@ -471,18 +510,18 @@ def _collect_metrics(biz, art):
         # 页面稳定判断(30/31区域, 50次机会, 连续15次相同判稳定; 不稳定也继续执行)
         ok_stable, info = wait_page_stable(
             p30[0], p30[1], p31[0], p31[1], same_need=15, timeout=50, interval=0.1)
-        tasks_echo(f"4指标: 页面稳定={ok_stable}({info})")
+        log.info(f"4指标: 页面稳定={ok_stable}({info})")
         try:
             shot_path, shot_b64 = pc.screenshot(
                 p30[0], p30[1], p31[0], p31[1], img_format="png", as_base64=True)
             if not shot_b64:
-                tasks_echo("4指标区域截图失败")
+                log.warning("4指标区域截图失败")
                 shot_b64 = None
         except Exception as e:
-            tasks_echo(f"4指标区域截图失败: {e}")
+            log.error(f"4指标区域截图失败: {e}")
             shot_b64 = None
     else:
-        tasks_echo("缺少点位30/31(4指标区域), 跳过4指标")
+        log.warning("缺少点位30/31(4指标区域), 跳过4指标")
         shot_b64 = None
 
     # 从 ai_model 表取 key + 模型; 未配置则跳过识图只留截图
@@ -514,59 +553,60 @@ def _bg_reads_ocr(png_path, box, biz, art):
         items = ocr_service.ocr(img)
         reads = _extract_read_from_items(items, box, img=img)
         if reads is not None:
-            tasks_echo(f"[async:{tag}] 识别到阅读数 {reads}")
+            log.info(f"[async:{tag}] 识别到阅读数 {reads}")
             _save_reads(biz, art, reads)
         else:
-            tasks_echo(f"[async:{tag}] OCR未找到'阅读'+数字或颜色不符")
+            log.warning(f"[async:{tag}] OCR未找到'阅读'+数字或颜色不符")
     except Exception as e:
-        tasks_echo(f"[async:{tag}] 阅读数OCR异常: {e}")
+        log.error(f"[async:{tag}] 阅读数OCR异常: {e}")
 
 
 def _collect_reads(collect_type, link, biz, art):
     """采集阅读数: 滚到底->Ctrl+R刷新->稳定检测OCR识别
     写库按 biz+art_biz 匹配, 不依赖写表结果; 列表页已识别到阅读数时主函数跳过高不此调用"""
+    log.info("[阅读数] 开始: biz=%s art=%s", biz, art[:10])
     # 实时输出: 每步直接 tasks_echo
     p15 = _read_point(15)
     if not p15:
-        tasks_echo(f"[warn] 阅读数: 缺少点位15={bool(p15)}, 跳过阅读数采集")
+        log.warning(f"[warn] 阅读数: 缺少点位15={bool(p15)}, 跳过阅读数采集")
         return
     # 1) 鼠标移到文章列表左上(点位15), 向下滚动5000px(0.5s内完成)
     pc.scroll(p15[0], p15[1], 50000, direction="down", duration=0.5)
-    tasks_echo("阅读数: 在点位15滚动5000px")
+    log.info("阅读数: 在点位15滚动5000px")
     time.sleep(0.5)
     # 2) Ctrl+R 刷新当前页(刷新后阅读数区域可见), 等0.8s
     pc.ctrl_key("R")
-    tasks_echo("阅读数: Ctrl+R 刷新")
+    log.info("阅读数: Ctrl+R 刷新")
     time.sleep(0.8)
     # 3) 刷新后: 页面稳定检测(点位32/33区域, 50次机会, 连续20次相同) -> OCR提取阅读数
     p32 = _read_point(32)
     p33 = _read_point(33)
     if not (p32 and p33):
-        tasks_echo("缺少点位32/33(阅读数区域), 跳过阅读数识别")
+        log.warning("缺少点位32/33(阅读数区域), 跳过阅读数识别")
     else:
         ok_stable, info = wait_page_stable(
             p32[0], p32[1], p33[0], p33[1], same_need=20, timeout=50, interval=0.1)
         if not ok_stable:
             # 未稳定也继续: 页面可能仍在加载/动, 不等稳定直接截图识别
-            tasks_echo(f"阅读数: 结果页未稳定({info}), 继续尝试识别...")
+            log.info(f"阅读数: 结果页未稳定({info}), 继续尝试识别...")
         # 稳定或未稳定: 都截图 -> OCR识别丢后台异步, 识别到写文章表
         png_path, b64 = pc.screenshot(
             p32[0], p32[1], p33[0], p33[1], img_format="png", as_base64=True)
         if not b64:
-            tasks_echo("阅读数: 稳定后截图失败")
+            log.warning("阅读数: 稳定后截图失败")
         else:
-            tasks_echo("阅读数: 截图完成, OCR识别后台进行...")
+            log.info("阅读数: 截图完成, OCR识别后台进行...")
             _submit_bg(_bg_reads_ocr, png_path, (p32[0], p32[1]), biz, art)
 
 
 @obs.timed("collect.article")
 def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=False,
-                         save_html=False, save_dir="", biz="", list_reads=None, list_likes=None,
+                         save_formats=None, save_dir="", biz="", list_reads=None, list_likes=None,
                          max_comments=None, max_level1=None, max_level2=0):
     """文章数据采集(编排主函数, 各块拆分到 _save_article_base
     /_collect_metrics/_collect_reads/_collect_comments; 复制链接逻辑留本函数)。
     参数:
-      collect_type / capture_4metrics / capture_read / save_html / save_dir
+      collect_type / capture_4metrics / capture_read / save_formats / save_dir
       biz / list_reads / list_likes 同前
       max_comments     文章最大评论采集数(None=无限)
       max_level1       一级评论采集数(None=无限)
@@ -581,15 +621,15 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
     def step(msg):
         """步骤日志: 实时转发(带[step]标记) + 入汇总"""
         logs.append(msg)
-        tasks_echo(f"[step] {msg}")
+        log.info(f"[step] {msg}")
 
     if collect_type == 0:
         step("触发类型不确定, 无法采集")
         return _finish(logs, copy_seen, False, "触发类型不确定, 无法采集")
 
-    # 1) 获取复制链接(2次机会): 点18(3点菜单) -> 点27(复制链接) -> 读剪贴板60次
+    # 1) 获取复制链接(最多5次): 点18(3点菜单) -> 点27(复制链接) -> 读剪贴板3次
     #    (不依赖点位28/29: 不再截图OCR检测'复制'字样, 点18后直接点27再读剪贴板验证)
-    COPY_TRIES = 2          # 复制链接最大尝试次数(想改 5 次只需改这里)
+    COPY_TRIES = 5          # 复制链接最大尝试次数(重复链接也计入失败重试)
     p18 = _read_point(18)   # 文章右上角3点
     p27 = _read_point(27)   # 点击复制链接
     if not p18 or not p27:
@@ -601,30 +641,50 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
         pc.clear_clipboard()
         step(f"点击点位18(3点)({p18[0]},{p18[1]})")
         pc.mouse_click(p18[0], p18[1])
-        time.sleep(0.5)   # 等菜单弹出
+        time.sleep(0.3)   # 等菜单弹出
         # 直接点击复制链接按钮(点位27), 然后读剪贴板验证
         step(f"点击点位27(复制链接)({p27[0]},{p27[1]})")
         pc.mouse_click(p27[0], p27[1])
-        for _i in range(1, 60):
+        for _i in range(1, 4):    # 读剪贴板轮询 3 次
             time.sleep(0.1)
             v = pc.read_clipboard_text()
             if v:
                 link = v
                 break
+        _art = None
+        if link:
+            if not _MP_LINK_RE.match(link.strip()):
+                # 链接格式不符(非 mp 文章链接)视为复制失败, 走重试
+                step(f"链接格式异常(非mp文章链接): {link[:50]}, 视为失败进入重试")
+                log.warning("[复制链接] 格式异常: %s", link[:80])
+                link = None
+            else:
+                _art = extract_art_biz(link)
+                if _art and _art in _SESSION_ARTS:
+                    step(f"重复链接(本次已采过): {link[:60]}, 视为失败进入重试")
+                    log.warning("[复制链接] 重复链接(本次已采过): art=%s", _art[:10])
+                    # 重复链接 = 确认已点到复制链接按钮(打开过文章页)
+                    # 即使最终重试失败退出, 收尾也要 Ctrl+W 关闭标签页
+                    copy_seen = True
+                    link = None   # 重复 = 失败, 走下方重试(收起菜单/清剪贴板)
         step(f"已复制链接: {link[:60]}" if link else "未读取到剪贴板链接")
         if not link:
-            # 未读到: 点击右半屏中点(收起当前3点菜单), 等0.5s, 清剪贴板后进入下一次尝试
+            # 未读到: 点击右半屏中点(收起当前3点菜单), 等0.3s, 清剪贴板后进入下一次尝试
             _sw = ctypes.windll.user32.GetSystemMetrics(0)
             _sh = ctypes.windll.user32.GetSystemMetrics(1)
             _mx, _my = int(_sw * 3 / 4), int(_sh / 2)
             step(f"未读到链接, 点击右半屏中点({_mx},{_my})收起菜单")
             pc.mouse_click(_mx, _my)
-            time.sleep(1.0)   # 等菜单收起稳定, 下一轮重新点3点
+            time.sleep(0.3)   # 等菜单收起稳定, 下一轮重新点3点
         else:
             copy_seen = True    # 拿到链接=确实打开过文章页(收尾 Ctrl+W 关闭文章页合理)
+            if _art:
+                _SESSION_ARTS.add(_art)   # 记录本次已采, 后续重复判定依据
+            log.info("[复制链接] 成功(第%d次): %s", _try, link[:90])
             break   # 已拿到链接, 跳出
     if not link:
         step(f"{COPY_TRIES}次复制链接均未获取到, 本轮结束")
+        log.warning("[复制链接] %d次均未获取到, 本轮结束", COPY_TRIES)
         pc.mouse_click(p18[0], p18[1])
         return _finish(logs, copy_seen, False, "未获取到链接")
 
@@ -632,33 +692,41 @@ def article_data_collect(collect_type=0, capture_4metrics=False, capture_read=Fa
     art = extract_art_biz(link)
     if not art:
         step("链接提取art_biz失败")
+        log.error("[链接] art_biz 提取失败: %s", link[:90])
         return _finish(logs, copy_seen, False, "链接提取art_biz失败")
 
     # 2) 写文章表(完整流程: 抓元信息->写表, 整体异步提交, 不阻塞后续)
+    log.info("[采集链路] 提交写表异步: art=%s", art[:10])
     _submit_bg(_save_article_base, link, biz, list_reads, list_likes)
 
     # 3) 保存Html(独立流程, 并行异步)
-    if save_html:
-        _submit_bg(_save_html_block, link, base_dir=save_dir)  # 开始/完成日志由后台函数输出
+    if save_formats:
+        log.info("[采集链路] 提交保存HTML异步: art=%s", art[:10])
+        _submit_bg(_save_html_block, link, base_dir=save_dir, formats=save_formats)  # 开始/完成日志由后台函数输出
 
     # 4) 4指标(开启时)
     if capture_4metrics:
-        tasks_echo("[step] 正在采集4指标...")
+        log.info("[step] 正在采集4指标...")
+        log.info("[采集链路] 调用4指标采集")
         _collect_metrics(biz, art)
 
     # 5) 采集阅读数(开启且列表无阅读数时)
     # 列表页已识别到阅读数时不再重复采集
     if capture_read and list_reads is None:
-        tasks_echo("[step] 正在采集阅读数...")
+        log.info("[step] 正在采集阅读数...")
+        log.info("[采集链路] 调用阅读数采集(列表无阅读数)")
         _collect_reads(collect_type, link, biz, art)
 
     # 6) 采集评论(3个采集参数不全0时, 在阅读数之后)
     if not (max_comments == 0 and max_level1 == 0 and max_level2 == 0):
-        tasks_echo("[step] 正在采集评论...")
+        log.info("[step] 正在采集评论...")
+        log.info("[采集链路] 调用评论采集: max_comments=%s l1=%s l2=%s",
+                 max_comments, max_level1, max_level2)
         _collect_comments(collect_type, link, art, biz,
                           max_comments=max_comments, max_level1=max_level1, max_level2=max_level2)
 
     # 细节已实时输出, 最终只返回状态摘要
+    log.info("[采集链路] 完成: art=%s copy_seen=%s", art[:10], copy_seen)
     return _finish([], copy_seen, True, "采集完成")
 __all__ = ["init_wechat_window", "search_window_init", "search_query",
            "article_list_wait_stable", "init_app_window",

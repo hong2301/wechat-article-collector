@@ -140,7 +140,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
       // ---- 2 滚动设置: 按点位自动获取 ----
       if (stopRef.current) { add("[warn] 已停止: 不再继续(滚动设置)", "#d29922"); setFailed(true); return; }
       add("[step] 按点位自动获取滚动距离…", "#58a6ff");
-      for (const sid of [3, 5]) {
+      for (const sid of [3, 5, 10]) {   // 含公众号查询文章列表滚动(10)
         const d = await (await fetch(`${API_BASE}/api/auto-setup/scroll/${sid}`, { method: "POST", signal: sig })).json();
         if (d.ok) add(`[ok] ${d.name}: 距离=${d.distance} (由${d.from} y差计算)`, "#3fb950");
         else add(`[fail] ${(d.name || `#${sid}`)}: ${d.error}`, "#f85149");
@@ -177,7 +177,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
         collect_type: 1, name: nme, biz,
         link: `https://mp.weixin.qq.com/mp/profile_ext?action=home&__biz=${encodeURIComponent(biz || "")}`,
         date_start: today, date_end: today,
-        capture_4metrics: false, capture_read: false, save_html: false, save_dir: "",
+        capture_4metrics: false, capture_read: false, save_formats: [], save_dir: "",
         max_comments: 0, max_level1: 0, max_level2: 0,
       };
       const cResp = await fetch(API_BASE + "/api/collect/start", {
@@ -240,7 +240,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
   }, [open]);
 
   return (
-    <Modal mask={{ closable: false }} open={open} onCancel={closeDialog} keyboard={false} footer={null} width={780} title="快速开始" destroyOnHidden>
+    <Modal destroyOnHidden mask={{ closable: false }} open={open} onCancel={closeDialog} keyboard={false} footer={null} width={780} title="快速开始">
       <div style={{ display: "flex", flexDirection: "column", gap: 8, height: 420 }}>
         {setupStatus && (setupStatus.pts.length > 0 || setupStatus.scrs.length > 0) && (
           <div style={{ padding: "8px 10px", borderRadius: 8, background: "#fff1f0", border: "1px solid #ffa39e", fontSize: 13, color: "#b26a00" }}>

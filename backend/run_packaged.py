@@ -11,6 +11,8 @@
 import os
 os.environ.setdefault("BACKEND_PORT", "8001")  # 端口单一来源: 供内部自调用/其它模块读取
 os.environ.setdefault("WECHAT_ENV", "prod")  # 运行环境统一标记(env.is_prod/is_dev 判定)
+import multiprocessing
+multiprocessing.freeze_support()   # PyInstaller frozen 环境下 multiprocessing spawn 必需
 import threading
 import time
 
@@ -58,4 +60,5 @@ if __name__ == "__main__":
     if parent and parent.isdigit():
         start_watchdog(int(parent))
     port = int(os.environ.get("BACKEND_PORT", "8001"))   # 生产端口与开发(8000)区分
-    uvicorn.run(app, host="127.0.0.1", port=port, reload=False)
+    uvicorn.run(app, host="127.0.0.1", port=port, reload=False,
+                log_config=None)   # 日志统一走 app.main 分流(root handlers), 关 uvicorn 自带 dictConfig

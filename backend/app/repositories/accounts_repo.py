@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """公众号/文章/评论/排序 数据访问层: 集中 accounts / articles / comments / sort_config 相关 SQL"""
 from ..database import get_conn
+from ..core import logkit
+
+log = logkit.get_logger("repo.accounts")   # 数据层审计日志 -> run.log
 
 
 # ============ 公众号 accounts ============
@@ -61,6 +64,7 @@ def create(name: str, biz: str, status: str, remark: str) -> dict:
                      (new_id, (m if m is not None else 0) - 1, 'account'))
         conn.commit()
         row = conn.execute("SELECT a.* FROM accounts a WHERE a.id=?", (new_id,)).fetchone()
+        log.info("[repo] accounts.create id=%s name=%r", new_id, name)
         return dict(row)
     finally:
         conn.close()
@@ -74,6 +78,7 @@ def update(aid: int, fields: dict) -> dict:
             conn.execute(f"UPDATE accounts SET {sets} WHERE id=?", (*fields.values(), aid))
             conn.commit()
         row = conn.execute("SELECT * FROM accounts WHERE id=?", (aid,)).fetchone()
+        log.info("[repo] accounts.update id=%s fields=%s", aid, list(fields))
         return dict(row)
     finally:
         conn.close()
@@ -95,6 +100,7 @@ def delete(aid: int) -> bool:
         cur = conn.execute("DELETE FROM accounts WHERE id=?", (aid,))
         conn.execute("DELETE FROM sort_config WHERE record_id=?", (aid,))
         conn.commit()
+        log.info("[repo] accounts.delete id=%s -> %s", aid, cur.rowcount > 0)
         return cur.rowcount > 0
     finally:
         conn.close()
@@ -105,6 +111,7 @@ def clear() -> int:
     try:
         conn.execute("DELETE FROM accounts")
         conn.commit()
+        log.warning("[repo] accounts.clear 清空全部公众号(高危)")
         return conn.total_changes
     finally:
         conn.close()
@@ -121,6 +128,7 @@ def set_sort(ids: list) -> None:
                 "INSERT OR REPLACE INTO sort_config(record_id, sort_order, type) VALUES(?,?,?)",
                 [(rid, i + 1, 'account') for i, rid in enumerate(ids)])
         conn.commit()
+        log.info("[repo] accounts.set_sort 按 %d 个 id 重写排序", len(ids))
     finally:
         conn.close()
 
@@ -157,6 +165,7 @@ def article_delete(artid: int, biz: str = "") -> bool:
         else:
             cur = conn.execute("DELETE FROM articles WHERE id=?", (artid,))
         conn.commit()
+        log.info("[repo] articles.delete artid=%s biz=%r -> %s", artid, biz, cur.rowcount > 0)
         return cur.rowcount > 0
     finally:
         conn.close()
@@ -168,7 +177,92 @@ def article_update_by_biz_art(biz: str, art_biz: str, sets: list, vals: list) ->
     try:
         cur = conn.execute(f"UPDATE articles SET {', '.join(sets)} WHERE biz=? AND art_biz=?", vals)
         conn.commit()
+        log.info("[repo] articles.update biz=%.10s art=%.16s 行=%d", biz, art_biz, cur.rowcount)
         return cur.rowcount
+    finally:
+        conn.close()
+
+
+def article_get(art_biz: str, biz: str = "") -> dict | None:
+    """按 art_biz 取文章行(查看文件时补 title/date/name)"""
+    conn = get_conn()
+    try:
+        if biz:
+            row = conn.execute("SELECT * FROM articles WHERE biz=? AND art_biz=?",
+                               (biz, art_biz)).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM articles WHERE art_biz=?", (art_biz,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def article_saved_formats(art_biz: str, biz: str = "") -> str:
+    """读某文章已保存到本地的文件格式(逗号分隔; 找不到返回空串)"""
+    conn = get_conn()
+    try:
+        if biz:
+            row = conn.execute("SELECT saved_formats FROM articles WHERE biz=? AND art_biz=?",
+                               (biz, art_biz)).fetchone()
+        else:
+            row = conn.execute("SELECT saved_formats FROM articles WHERE art_biz=?", (art_biz,)).fetchone()
+        return (row[0] or "") if row else ""
+    finally:
+        conn.close()
+
+
+def article_merge_saved_formats(art_biz: str, formats, biz: str = "") -> str:
+    """合并写入某文章已保存文件格式(下载/扫描文件夹时更新); 返回写入后的值(逗号分隔)"""
+    new = []
+    for x in (formats or []):
+        x = str(x).strip().lower()
+        if x == "docx":
+            x = "word"          # 统一 word
+        if x and x not in new:
+            new.append(x)
+    conn = get_conn()
+    try:
+        if biz:
+            row = conn.execute("SELECT saved_formats FROM articles WHERE biz=? AND art_biz=?",
+                               (biz, art_biz)).fetchone()
+        else:
+            row = conn.execute("SELECT saved_formats FROM articles WHERE art_biz=?", (art_biz,)).fetchone()
+        old = [x for x in ((row[0] or "").split(",") if row else []) if x]
+        merged = old + [x for x in new if x not in old]
+        val = ",".join(merged)
+        if row:
+            if biz:
+                conn.execute("UPDATE articles SET saved_formats=? WHERE biz=? AND art_biz=?",
+                             (val, biz, art_biz))
+            else:
+                conn.execute("UPDATE articles SET saved_formats=? WHERE art_biz=?", (val, art_biz))
+            conn.commit()
+            log.info("[repo] articles.saved_formats art=%.16s | %s -> %s", art_biz, ",".join(old), val)
+        return val
+    finally:
+        conn.close()
+
+
+def article_set_saved_formats(art_biz: str, formats, biz: str = "") -> str:
+    """覆盖写入某文章已保存文件格式(以实际扫描为准, 文件删光=清空); 返回写入后的值"""
+    new = []
+    for x in (formats or []):
+        x = str(x).strip().lower()
+        if x == "docx":
+            x = "word"
+        if x and x not in new:
+            new.append(x)
+    val = ",".join(new)
+    conn = get_conn()
+    try:
+        if biz:
+            conn.execute("UPDATE articles SET saved_formats=? WHERE biz=? AND art_biz=?",
+                         (val, biz, art_biz))
+        else:
+            conn.execute("UPDATE articles SET saved_formats=? WHERE art_biz=?", (val, art_biz))
+        conn.commit()
+        log.info("[repo] articles.saved_formats 覆盖 art=%.16s -> %r", art_biz, val)
+        return val
     finally:
         conn.close()
 
@@ -180,6 +274,8 @@ def article_create(account_id, name, date, title, art_biz, biz) -> int:
             "INSERT INTO articles (account_id, name, date, title, art_biz, biz) VALUES (?,?,?,?,?,?)",
             (account_id, name, date, title, art_biz, biz))
         conn.commit()
+        log.info("[repo] articles.create id=%s art=%.16s", cur.lastrowid,
+                 art_biz or "")
         return cur.lastrowid if cur.lastrowid else 0
     finally:
         conn.close()
@@ -203,6 +299,7 @@ def article_insert_full(fields: dict) -> None:
             f"INSERT INTO articles({','.join(ks)}) VALUES({','.join(['?'] * len(ks))})",
             [fields[k] for k in ks])
         conn.commit()
+        log.info("[repo] articles.insert_full art=%.16s name=%r", str(fields.get("art_biz") or "")[:16], fields.get("name"))
     finally:
         conn.close()
 
@@ -225,6 +322,7 @@ def article_delete_by_account(artid: int, aid: int) -> bool:
     try:
         cur = conn.execute("DELETE FROM articles WHERE id=? AND account_id=?", (artid, aid))
         conn.commit()
+        log.info("[repo] articles.delete_by_account artid=%s aid=%s -> %s", artid, aid, cur.rowcount > 0)
         return cur.rowcount > 0
     finally:
         conn.close()
@@ -273,6 +371,7 @@ def comment_insert(fields: dict) -> None:
             f"INSERT INTO comments({','.join(ks)}) VALUES({','.join(['?'] * len(ks))})",
             [fields[k] for k in ks])
         conn.commit()
+        log.info("[repo] comments.insert art=%.16s author=%r", str(fields.get("art_biz") or "")[:16], fields.get("author"))
     finally:
         conn.close()
 
@@ -286,6 +385,7 @@ def comments_delete(ids: list, art_biz: str = "") -> int:
         else:
             cur = conn.execute(f"DELETE FROM comments WHERE id IN ({marks})", ids)
         conn.commit()
+        log.info("[repo] comments.delete %d 条(art=%s)", cur.rowcount, str(art_biz)[:16])
         return cur.rowcount
     finally:
         conn.close()

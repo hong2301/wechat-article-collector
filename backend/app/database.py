@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+import logging
+
+log = logging.getLogger("db")
+
 import json
 """SQLite 数据库连接 + 建表
 单文件: data/collector.db; 后续多表(设置/文章/评论等)在这里扩展"""
@@ -23,9 +27,16 @@ def default_html_dir():
 
 def get_conn():
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # 跨进程写(采集子进程/主进程读): WAL + busy 等待, 避免两进程写互锁
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA synchronous=NORMAL")
+    except Exception:
+        pass
     return conn
 
 
@@ -62,7 +73,8 @@ def init_db():
             write_time   TEXT DEFAULT '',
             original     TEXT DEFAULT '',
             ip           TEXT DEFAULT '',
-            comment_recog TEXT DEFAULT '0'
+            comment_recog TEXT DEFAULT '0',
+            saved_formats TEXT DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS comments (
             id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -139,24 +151,30 @@ def init_db():
         try:
             _del = conn.execute("DELETE FROM points WHERE name IN ('复制链接左上','复制链接右下')").rowcount
             if _del:
-                print(f"migrate: 删除点位 28/29({_del} 行)")
+                log.info(f"migrate: 删除点位 28/29({_del} 行)")
             conn.execute("DELETE FROM sort_config WHERE type='point' AND record_id IN (28,29)")
             # 点位27 依赖更新: 移除 28/29
             conn.execute("UPDATE points SET depend_points='[11,12,9,14,18]' WHERE name='点击复制链接'")
             conn.commit()
         except Exception as _e:
-            print(f"migrate: 删除点位28/29失败: {_e}")
+            log.info(f"migrate: 删除点位28/29失败: {_e}")
         # 迁移: articles 补 biz 列
         _acols = [r[1] for r in conn.execute("PRAGMA table_info(articles)").fetchall()]
         if "biz" not in _acols:
             conn.execute("ALTER TABLE articles ADD COLUMN biz TEXT DEFAULT ''")
             conn.commit()
+        # 迁移: articles 补 saved_formats 列(已保存到本地的文件格式, 逗号分隔)
+        _scols = [r[1] for r in conn.execute("PRAGMA table_info(articles)").fetchall()]
+        if "saved_formats" not in _scols:
+            conn.execute("ALTER TABLE articles ADD COLUMN saved_formats TEXT DEFAULT ''")
+            conn.commit()
+            log.info("migrate: articles.saved_formats 已添加")
         # 迁移: 旧表 link -> biz
         cols = [r[1] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()]
         if "link" in cols and "biz" not in cols:
             conn.execute("ALTER TABLE accounts RENAME COLUMN link TO biz")
             conn.commit()
-            print("migrate: accounts.link -> biz")
+            log.info("migrate: accounts.link -> biz")
         # 迁移: articles.link -> art_biz (文章id, 清空旧数据)
         _newacols = [r[1] for r in conn.execute("PRAGMA table_info(articles)").fetchall()]
         if "link" in _newacols and "art_biz" not in _newacols:
@@ -167,7 +185,7 @@ def init_db():
                 pass
             conn.execute("ALTER TABLE articles RENAME COLUMN link TO art_biz")
             conn.commit()
-            print("migrate: articles.link -> art_biz (清空)")
+            log.info("migrate: articles.link -> art_biz (清空)")
         # 迁移: comments 补 is_first 列
         _ccols = [r[1] for r in conn.execute("PRAGMA table_info(comments)").fetchall()]
         if _ccols and "is_first" not in _ccols:
@@ -178,7 +196,7 @@ def init_db():
         if _pcols and "depend_points" not in _pcols:
             conn.execute("ALTER TABLE points ADD COLUMN depend_points TEXT DEFAULT '[]'")
             conn.commit()
-            print("migrate: points.depend_points")
+            log.info("migrate: points.depend_points")
         # 迁移: sort_config 加 type 列(account/point 共用排序表, 唯一(type, sort_order))
         _scols = [r[1] for r in conn.execute("PRAGMA table_info(sort_config)").fetchall()]
         if _scols and "type" not in _scols:
@@ -192,6 +210,6 @@ def init_db():
             conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_articles_biz_art ON articles(biz, art_biz) WHERE art_biz IS NOT NULL AND art_biz<>''")
             conn.commit()
         except Exception as e:
-            print("articles unique index:", e)
+            log.info("articles unique index:", e)
     finally:
         conn.close()

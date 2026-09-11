@@ -68,7 +68,7 @@ export default function AiDialog({
   }
 
   return (
-    <Modal mask={{ closable: false }}
+    <Modal destroyOnHidden mask={{ closable: false }}
       title="AI模型设置" open={open}
       onOk={save} okText="保存" confirmLoading={saving}
       onCancel={onClose} cancelText="取消"

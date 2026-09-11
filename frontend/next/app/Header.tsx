@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { API_BASE } from "./lib/api";
-import { Tooltip } from "antd";
+import { Button, Tooltip } from "antd";
 import { ExclamationCircleOutlined } from "@ant-design/icons";
 import { useWechatStatus } from "./components/useWechatStatus";
 import QuickStartDialog from "./components/QuickStartDialog";

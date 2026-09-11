@@ -1,5 +1,7 @@
 "use client";
 
+import CollectDialog from "../components/CollectDialog";
+import SaveFormatSelect, { fmtLabel } from "../components/SaveFormatSelect";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { API_BASE } from "../lib/api";
 import dayjs from "dayjs";
@@ -49,6 +51,9 @@ interface Article {
   ip: string;
   comment_count?: number;   // 实际采集评论数(comments表)
   comment_recog?: number;   // 识别出来的评论数
+  acc_name?: string;        // 公众号名称
+  biz?: string;             // 公众号id
+  saved_formats?: string;   // 已保存到本地的文件格式(逗号分隔, 下载/查看文件时更新)
 }
 
 export default function ArticlePage() {
@@ -78,7 +83,7 @@ export default function ArticlePage() {
   // 更新设置(与公众号页共享配置): 窗口分离/4指标/阅读数/保存Html
   const [capture4metrics, setCapture4metrics] = useState(false);
   const [captureRead, setCaptureRead] = useState(false);
-  const [saveHtml, setSaveHtml] = useState(false);
+  const [saveFormats, setSaveFormats] = useState<string[]>([]);
   // 评论采集设置(独立key updateConfig)
   const [captureComments, setCaptureComments] = useState(false);
   const [maxComments, setMaxComments] = useState<number | null>(null);
@@ -91,7 +96,8 @@ export default function ArticlePage() {
       const d = JSON.parse(localStorage.getItem("updateConfig") || "{}");
             if (typeof d.capture_4metrics === "boolean") setCapture4metrics(d.capture_4metrics);
       if (typeof d.capture_read === "boolean") setCaptureRead(d.capture_read);
-      if (typeof d.save_html === "boolean") setSaveHtml(d.save_html);
+      if (Array.isArray(d.save_formats)) setSaveFormats(d.save_formats);
+      else if (typeof d.save_html === "boolean") setSaveFormats(d.save_html ? ["html"] : []);   // 旧配置兼容
       if (typeof d.capture_comments === "boolean") setCaptureComments(d.capture_comments);
       if ("max_comments" in d) setMaxComments(d.max_comments);
       if ("max_level1" in d) setMaxLevel1(d.max_level1);
@@ -107,7 +113,7 @@ export default function ArticlePage() {
     try {
       const d = JSON.parse(localStorage.getItem("updateConfig") || "{}");
       d.capture_4metrics = capture4metrics;
-      d.capture_read = captureRead; d.save_html = saveHtml;
+      d.capture_read = captureRead; d.save_formats = saveFormats;
       d.capture_comments = captureComments; d.max_comments = maxComments;
       d.max_level1 = maxLevel1; d.max_level2 = maxLevel2;
       d.date_start = dateRange ? dateRange[0].format("YYYY-MM-DD") : "";
@@ -115,7 +121,7 @@ export default function ArticlePage() {
       d.quick = quickActive;
       localStorage.setItem("updateConfig", JSON.stringify(d));
     } catch { /* 忽略 */ }
-  }, [cfgLoaded, capture4metrics, captureRead, saveHtml, captureComments, maxComments, maxLevel1, maxLevel2, dateRange, quickActive]);
+  }, [cfgLoaded, capture4metrics, captureRead, saveFormats, captureComments, maxComments, maxLevel1, maxLevel2, dateRange, quickActive]);
   const NUM_FIELDS = [
     { key: "reads", label: "阅读" },
     { key: "likes", label: "点赞" },
@@ -242,7 +248,7 @@ export default function ArticlePage() {
     }
     finally { setLoading(false); }
   }
-  // 下载当前文章为本地HTML(保存到对应公众号文件夹)
+  // 下载当前文章(按当前保存格式, 未选格式默认html; 保存到对应公众号文件夹)
   async function downloadHtml(a: Article) {
     if (!a.art_biz) { message.warning("该文章无art_biz"); return; }
     if (dlKey) { message.info("正在下载其他文章, 请稍候"); return; }
@@ -252,17 +258,21 @@ export default function ArticlePage() {
     try {
       const d = await (await fetch(API_BASE + "/api/settings/save-article-html", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ link, account_name: name || "" }),
+        body: JSON.stringify({ link, account_name: name || "", formats: saveFormats.length ? saveFormats : ["html"], art_biz: a.art_biz, biz: a.biz || biz || "" }),
       })).json();
       hint();
-      if (d.ok) message.success("已保存: " + (d.info || d.path || ""));
-      else message.error(d.error || "保存失败");
+      if (d.ok) {
+        message.success("已保存: " + (d.info || d.path || ""));
+        if (d.saved_formats !== undefined) {
+          setArticles((p) => p.map((x) => x.id === a.id ? { ...x, saved_formats: d.saved_formats } : x));
+        }
+      } else message.error(d.error || "保存失败");
     } catch {
       hint();
       message.error("无法连接后端");
     } finally { setDlKey(""); }
   }
-  // 下载选中文章: 弹窗显示进度, 逐篇保存HTML到公众号文件夹
+  // 下载选中文章: 弹窗显示进度, 逐篇按当前保存格式保存到公众号文件夹
   async function downloadSelected() {
     if (selectedKeys.length === 0) { message.warning("请先勾选要下载的文章"); return; }
     const rows = shown.filter((s) => selectedKeys.includes(s.id));
@@ -284,11 +294,16 @@ export default function ArticlePage() {
         const link = `https://mp.weixin.qq.com/s/${a.art_biz}`;
         const resp = await fetch(API_BASE + "/api/settings/save-article-html", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ link, account_name: name || "" }),
+          body: JSON.stringify({ link, account_name: name || "", formats: saveFormats.length ? saveFormats : ["html"], art_biz: a.art_biz, biz: a.biz || biz || "" }),
           signal: dlAbortRef.current?.signal,
         });
         const d = await resp.json();
-        if (d.ok) setDlItems((p) => p.map((x, j) => j === i ? { ...x, status: "成功", msg: (d.info || "").slice(0, 60) } : x));
+        if (d.ok) {
+          setDlItems((p) => p.map((x, j) => j === i ? { ...x, status: "成功", msg: (d.info || "").slice(0, 60) } : x));
+          if (d.saved_formats !== undefined) {
+            setArticles((p) => p.map((x) => x.id === a.id ? { ...x, saved_formats: d.saved_formats } : x));
+          }
+        }
         else setDlItems((p) => p.map((x, j) => j === i ? { ...x, status: "失败", msg: d.error || "" } : x));
       } catch (e: unknown) {
         if ((e as Error)?.name === "AbortError") break;  // 用户取消
@@ -301,6 +316,24 @@ export default function ArticlePage() {
     const cancelled = dlAbortRef.current?.signal.aborted;
     if (cancelled) message.warning(`已取消, 完成 ${done} 篇`);
     else message.success(`下载完成: ${done} 篇`);
+  }
+  // 查看文件: 打开该文章文件夹, 并扫描实际格式更新"文章文件"列
+  async function viewFiles(r: Article) {
+    if (!r.art_biz) { message.warning("该文章无art_biz"); return; }
+    const hint = message.loading("正在打开文件夹...", 0);
+    try {
+      const d = await (await fetch(API_BASE + "/api/settings/article-files", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ art_biz: r.art_biz, biz: r.biz || biz || "", name: r.acc_name || name || "",
+                               title: r.title || "", date: r.date || "" }),
+      })).json();
+      hint();
+      if (d.ok) {
+        const v = d.saved_formats || "";
+        setArticles((p) => p.map((x) => x.id === r.id ? { ...x, saved_formats: v } : x));
+        if (d.changed) message.success(`文件夹已打开, 文件保存列已更新: ${(d.formats || []).join(", ") || "无"}`);
+      } else message.warning(d.error || "打开失败");
+    } catch { hint(); message.error("无法连接后端"); }
   }
   // 单篇更新: 打开更新确认弹窗(队列=1个)
   function openUpdate(a: Article) {
@@ -372,7 +405,7 @@ export default function ArticlePage() {
       link,
       capture_4metrics: capture4metrics,
       capture_read: captureRead,
-      save_html: saveHtml,
+      save_formats: saveFormats,
       save_dir: "",
       max_comments: captureComments ? maxComments : 0,
       max_level1: captureComments ? maxLevel1 : 0,
@@ -440,7 +473,7 @@ export default function ArticlePage() {
       const all = Array.isArray(d.articles) ? d.articles : (d.items || []);
       if (all.length === 0) { message.info("没有可导出的数据"); return; }
       const rows = all.map((a: Article) => ({
-        "ID": a.id, "标题": a.title || "", "日期": a.date || "",
+        "ID": a.id, "公众号": a.acc_name || "", "标题": a.title || "", "日期": a.date || "",
         "art_biz": a.art_biz || "", "阅读": a.reads ?? "", "点赞": a.likes ?? "",
         "转发": a.forwards ?? "", "喜欢": a.favorites ?? "", "评论": (a as any).comments ?? "",
         "原创": a.original || "", "IP属地": a.ip || "", "写入时间": a.write_time || "",
@@ -630,8 +663,8 @@ export default function ArticlePage() {
           </Tooltip>
           <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集阅读数</span>
           <Switch checked={captureRead} onChange={setCaptureRead} />
-          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存Html</span>
-          <Switch checked={saveHtml} onChange={setSaveHtml} />
+          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存格式</span>
+          <SaveFormatSelect value={saveFormats} onChange={setSaveFormats} />
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，评论采集不可用:\n${si.ai.join("\n")}` : undefined}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
@@ -800,6 +833,12 @@ export default function ArticlePage() {
             { title: "喜欢", dataIndex: "favorites", width: 80, sorter: true, sortOrder: sortInfo.key === "favorites" ? sortInfo.order : null },
             { title: "IP", dataIndex: "ip", width: 80 },
             {
+              title: "文章文件", dataIndex: "saved_formats", width: 110,
+              render: (v: string) => v
+                ? <span>{v.split(",").filter(Boolean).map((f) => <Tag key={f} color="blue" style={{ marginInlineEnd: 4 }}>{f}</Tag>)}</span>
+                : <span style={{ color: "#bbb" }}>—</span>,
+            },
+            {
               title: "写入时间", dataIndex: "write_time", width: 70, sorter: true,
               sortOrder: sortInfo.key === "write_time" ? sortInfo.order : null,
               render: (v: string) => {
@@ -809,10 +848,11 @@ export default function ArticlePage() {
                 return <Tooltip title={t}><span style={{ cursor: "default" }}>{short}</span></Tooltip>;
               },
             },
-            { title: "操作", dataIndex: "op", width: 180, align: "center", fixed: "right",
+            { title: "操作", dataIndex: "op", width: 250, align: "center", fixed: "right",
               render: (_: unknown, r: Article) => (
                 <Space>
                   <Button size="small" type="link" icon={<DownloadOutlined />} loading={dlKey === (r.art_biz || "")} onClick={() => downloadHtml(r)}>下载</Button>
+                  <Button size="small" type="link" icon={<FolderOpenOutlined />} onClick={() => viewFiles(r)}>查看文件</Button>
                   <Tooltip
                     title={(si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能更新" : wxLogged === false ? "请先登录微信后再更新" : undefined)}>
                     <Button size="small" type="link" disabled={si.points.length + si.scrolls.length > 0 || wxLogged === false}
@@ -842,7 +882,7 @@ export default function ArticlePage() {
         </div>
       </div>
       {/* 导入进度/失败弹窗 */}
-      <Modal mask={{ closable: false }} title={failedLinks.length || dupRows.length ? "导入结果" : "正在导入"} open={importing}
+      <Modal destroyOnHidden mask={{ closable: false }} title={failedLinks.length || dupRows.length ? "导入结果" : "正在导入"} open={importing}
         footer={(failedLinks.length || dupRows.length) ? <Button type="primary" onClick={() => setImporting(false)}>关闭</Button> : null}
         closable={(failedLinks.length || dupRows.length) > 0} onCancel={() => setImporting(false)} width={520}>
         {(failedLinks.length || dupRows.length) ? (
@@ -877,7 +917,7 @@ export default function ArticlePage() {
       </Modal>
 
       {/* 下载选中进度弹窗 */}
-      <Modal title={`下载进度 ${dlCount}/${dlItems.length}`} open={dlOpen}
+      <Modal destroyOnHidden title={`下载进度 ${dlCount}/${dlItems.length}`} open={dlOpen}
         footer={dlRun ? <Button danger onClick={() => { dlAbortRef.current?.abort(); setDlRun(false); setDlOpen(false); }}>取消</Button>
                       : <Button type="primary" onClick={() => setDlOpen(false)}>关闭</Button>}
         closable={false} mask={{ closable: false }} width={520}>
@@ -894,7 +934,7 @@ export default function ArticlePage() {
         </div>
       </Modal>
 
-      <Modal mask={{ closable: false }} title="新增文章" open={addOpen} onOk={saveNew} confirmLoading={saving} onCancel={() => setAddOpen(false)}
+      <Modal destroyOnHidden mask={{ closable: false }} title="新增文章" open={addOpen} onOk={saveNew} confirmLoading={saving} onCancel={() => setAddOpen(false)}
         okText="保存" cancelText="取消">
         <Space vertical style={{ width: "100%" }}>
           <div>请输入文章链接，保存后显示在标题列（无标题则显示链接）。</div>
@@ -903,100 +943,39 @@ export default function ArticlePage() {
       </Modal>
 
       {/* 更新弹窗: 确认阶段 -> 更新进行中 */}
-      <Modal mask={{ closable: false }}
+            <CollectDialog
         open={updOpen}
         title={updStarted ? `正在更新「${updTask?.title || updTask?.art_biz || ""}」 (${updIdx}/${updQueue.length || 1})` : updQueue.length > 1 ? `确认更新设置 (共 ${updQueue.length} 个)` : "确认更新设置"}
+        started={updStarted}
+        stopped={updStopped}
+        confirmFields={[
+          { label: "采集4指标", value: capture4metrics ? "开" : "关" },
+          { label: "采集阅读数", value: captureRead ? "开" : "关" },
+          { label: "保存格式", value: fmtLabel(saveFormats) },
+          { label: "评论采集", value: captureComments ? "开" : "关" },
+          { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
+          { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
+          { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
+        ]}
+        startedFields={[
+          { label: "采集4指标", value: capture4metrics ? "开" : "关" },
+          { label: "采集阅读数", value: captureRead ? "开" : "关" },
+          { label: "保存格式", value: fmtLabel(saveFormats) },
+          { label: "评论采集", value: captureComments ? "开" : "关" },
+          { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
+          { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
+          { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
+        ]}
+        stats={updQueue.length > 1 ? [
+          { label: "开始时间", value: updStartTime },
+          { label: "已更新文章", value: `${updCount} 篇` },
+          { label: "更新速度", value: `${updSpeed} 篇/分` },
+        ] : []}
+        logs={updLogs}
         onCancel={() => { if (updStarted) { stopUpdate(); return; } closeUpd(); }}
-        footer={updStarted ? (
-          updStopped ? (
-            <Button type="primary" onClick={closeUpd}>关闭</Button>
-          ) : (
-            <Button danger onClick={stopUpdate}>按 ESC 停止</Button>
-          )
-        ) : (
-          <>
-            <Button onClick={closeUpd}>取消</Button>
-            <Button type="primary" onClick={confirmUpdate}>确认</Button>
-          </>
-        )}
-        width={updStarted ? 880 : 520}
-      >
-        {updStarted ? (
-          <div style={{ display: "flex", gap: 12 }}>
-            <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
-              <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0" }}>更新设置</div>
-              {[
-                { label: "采集4指标", value: capture4metrics ? "开" : "关" },
-                { label: "采集阅读数", value: captureRead ? "开" : "关" },
-                { label: "保存Html", value: saveHtml ? "开" : "关" },
-                { label: "评论采集", value: captureComments ? "开" : "关" },
-                { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
-                { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
-                { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
-              ].map((row) => (
-                <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
-                  <span style={{ width: 110, color: "#888", whiteSpace: "nowrap" }}>{row.label}</span>
-                  <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
-                </div>
-              ))}
-            </div>
-            {updQueue.length > 1 && (
-            <div style={{ flex: 1, background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
-              <div style={{ padding: "7px 14px", fontSize: 13, fontWeight: 600, color: "#333", borderBottom: "1px solid #f0f0f0" }}>更新情况</div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, padding: "10px 14px", fontSize: 13, color: "#555" }}>
-                <div>开始时间: <span style={{ color: "#333" }}>{updStartTime}</span></div>
-                <div>已更新文章: <span style={{ color: "#333", fontWeight: 600 }}>{updCount} 篇</span></div>
-                <div>更新速度: <span style={{ color: "#333" }}>{updSpeed} 篇/分</span></div>
-              </div>
-            </div>
-            )}
-          </div>
-        ) : (
-          <div style={{ background: "#fff", border: "1px solid #eee", borderRadius: 8, padding: "4px 0" }}>
-            {[
-              { label: "采集4指标", value: capture4metrics ? "开" : "关" },
-              { label: "采集阅读数", value: captureRead ? "开" : "关" },
-              { label: "保存Html", value: saveHtml ? "开" : "关" },
-              { label: "评论采集", value: captureComments ? "开" : "关" },
-              { label: "文章评论数", value: captureComments ? (maxComments == null ? "无限" : String(maxComments)) : "0" },
-              { label: "一级评论数", value: captureComments ? (maxLevel1 == null ? "无限" : String(maxLevel1)) : "0" },
-              { label: "每级二级评论数", value: captureComments ? (maxLevel2 == null ? "无限" : String(maxLevel2)) : "0" },
-            ].map((row) => (
-              <div key={row.label} style={{ display: "flex", alignItems: "center", padding: "7px 14px", fontSize: 13 }}>
-                <span style={{ width: 110, color: "#888", whiteSpace: "nowrap" }}>{row.label}</span>
-                <span style={{ color: "#333", fontWeight: 500 }}>{row.value}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        {updStarted && (
-          <div style={{ background: "#fafafa", border: "1px solid #eee", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
-            <Typography.Text strong style={{ fontSize: 13 }}>日志</Typography.Text>
-            <div ref={updLogRef} style={{
-              marginTop: 8, height: 220, overflow: "auto",
-              background: "#1e1e1e", borderRadius: 6, padding: 8,
-              fontFamily: "Consolas, monospace", fontSize: 12, color: "#d4d4d4", whiteSpace: "pre-wrap",
-            }}>
-              {updLogs.length === 0 ? (
-                <span style={{ color: "#888" }}>(暂无日志)</span>
-              ) : (
-                updLogs.map((l, i) => {
-                  // [async:任务名] 异步统一青色; [step]橙 [ok]绿 [fail]红 [warn]黄
-                  const mAsync = l.match(/^\[async:([^\]]+)\]\s?([\s\S]*)/);
-                  const m = mAsync || l.match(/^\[(step|ok|fail|warn)\]\s?([\s\S]*)/);
-                  let text = l, color: string | undefined;
-                  if (mAsync) { color = "#36cfc9"; text = `[${mAsync[1]}] ${mAsync[2]}`; }
-                  else if (m) {
-                    color = { step: "#ffa940", ok: "#73d13d", fail: "#ff4d4f", warn: "#ffc53d" }[m[1]];
-                    text = m[2];
-                  }
-                  return <div key={i} style={color ? { color } : undefined}>{text}</div>;
-                })
-              )}
-            </div>
-          </div>
-        )}
-      </Modal>
+        onConfirm={confirmUpdate}
+        onCloseFinish={closeUpd}
+      />
     </div>
   );
 }

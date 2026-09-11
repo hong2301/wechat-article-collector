@@ -45,13 +45,9 @@ def _guest_key_path():
     ov = os.environ.get("WECHAT_GUEST_KEY_PATH")
     if ov:
         return ov
-    from .. import env as _env
-    if _env.is_prod():
-        import sys
-        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(sys.executable))))
-    else:
-        base = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-    return os.path.join(base, "guest.key")
+    # 与数据库同目录(打包时 build.js 随模板库一起放入 data/guest.key)
+    from ..database import data_dir
+    return os.path.join(data_dir(), "guest.key")
 
 
 def has_guest_key() -> bool:

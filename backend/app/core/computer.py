@@ -1022,3 +1022,33 @@ def process_working_set(pid):
         return pmc.WorkingSetSize if ok else 0
     finally:
         ctypes.windll.kernel32.CloseHandle(h)
+
+
+def hide_taskbar():
+    """隐藏 Windows 任务栏(采集/自动设置期间: 屏幕全高无任务栏, 与窗口布局假设一致)
+    找到 Shell_TrayWnd 并 SW_HIDE; 失败静默(不影响流程)"""
+    try:
+        hwnd = _u32().FindWindowW("Shell_TrayWnd", None)
+        if hwnd:
+            _u32().ShowWindow(hwnd, 0)   # SW_HIDE
+    except Exception:
+        pass
+
+
+def show_taskbar():
+    """恢复任务栏(SW_SHOW); 失败静默"""
+    try:
+        hwnd = _u32().FindWindowW("Shell_TrayWnd", None)
+        if hwnd:
+            _u32().ShowWindow(hwnd, 5)   # SW_SHOW
+    except Exception:
+        pass
+
+
+def taskbar_visible():
+    """任务栏当前是否可见(IsWindowVisible)"""
+    try:
+        hwnd = _u32().FindWindowW("Shell_TrayWnd", None)
+        return bool(hwnd and _u32().IsWindowVisible(hwnd))
+    except Exception:
+        return True

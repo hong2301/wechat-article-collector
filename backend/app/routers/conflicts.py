@@ -5,24 +5,28 @@ import json
 import subprocess
 
 from fastapi import APIRouter
-
+from ..core import logkit
 from ..services import conflict_check
 from ..repositories import settings_repo  # noqa: F401  (保持风格占位)
 
 router = APIRouter(prefix="/api/conflicts", tags=["conflicts"])
+log = logkit.get_logger("api.conflicts")
 
 
 @router.get("/check")
 def check():
     """检测本机冲突软件: {ok: 无冲突?, conflicts: [...], }"""
     ok, conflicts = conflict_check.check_conflicts()
+    log.info("[conflicts.check] ok=%s 冲突=%d", ok, len(conflicts))
     return {"ok": ok, "conflicts": conflicts}
 
 
 @router.get("")
 def list_all():
     """冲突软件表全部条目(供前端展示/编辑)"""
-    return {"items": conflict_check.list_conflicts()}
+    items = conflict_check.list_conflicts()
+    log.info("[conflicts.list] %d 条配置", len(items))
+    return {"items": items}
 
 
 @router.post("/kill")
@@ -33,6 +37,7 @@ def kill(names: dict):
     """
     want = set((names or {}).get("names") or [])
     ok_all, conflicts = conflict_check.check_conflicts()
+    log.info("[conflicts.kill] 关闭目标=%s", sorted(want) or "(全部)")
     killed, failed = [], []
     for c in conflicts:
         if want and c["name"] not in want:
@@ -49,4 +54,5 @@ def kill(names: dict):
             except Exception:
                 bad.append(pid)
         (failed if bad else killed).append({"name": c["name"], "pids": [p for p in pids if p not in bad]})
+    log.info("[conflicts.kill] 成功 %d, 失败 %d", len(killed), len(failed))
     return {"ok": not failed, "killed": killed, "failed": failed}
