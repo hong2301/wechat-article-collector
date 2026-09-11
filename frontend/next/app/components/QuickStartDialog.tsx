@@ -140,7 +140,7 @@ export default function QuickStartDialog({ open, onClose }: { open: boolean; onC
       // ---- 2 滚动设置: 按点位自动获取 ----
       if (stopRef.current) { add("[warn] 已停止: 不再继续(滚动设置)", "#d29922"); setFailed(true); return; }
       add("[step] 按点位自动获取滚动距离…", "#58a6ff");
-      for (const sid of [3, 5]) {
+      for (const sid of [3, 5, 10]) {   // 含公众号查询文章列表滚动(10)
         const d = await (await fetch(`${API_BASE}/api/auto-setup/scroll/${sid}`, { method: "POST", signal: sig })).json();
         if (d.ok) add(`[ok] ${d.name}: 距离=${d.distance} (由${d.from} y差计算)`, "#3fb950");
         else add(`[fail] ${(d.name || `#${sid}`)}: ${d.error}`, "#f85149");
