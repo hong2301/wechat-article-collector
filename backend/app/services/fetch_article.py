@@ -353,6 +353,7 @@ def offline_placeholder(html_path):
         html = html.replace("http://wxsnsdythumb.wxs.qq.com/", _px)
         html = html.replace("http://badjs.weixinbridge.com/", _lo)
         html = html.replace("https://ad.wx.com:12638/", _lo)
+        html = html.replace("https://open.weixin.qq.com/", _lo)
         _bs = chr(92)
         # mmbiz 整 URL 扫描删除(正常与 JS 转义两种前缀)
         for _pfx in ("https://mmbiz.qpic.cn/", "https:" + _bs + "/" + _bs + "/mmbiz.qpic.cn" + _bs + "/"):
@@ -381,6 +382,35 @@ def offline_placeholder(html_path):
             with open(html_path, "w", encoding="utf-8") as f:
                 f.write(html)
             log.info("[fetch] 残留URL消杀完成")
+        # ---- 扩展到 assets/*.js|css 内容(微信JS内置上报/接口也在里面) ----
+        orig2 = html
+        _bs2 = chr(92)
+        _asi = os.path.join(os.path.dirname(html_path), "assets")
+        if os.path.isdir(_asi):
+            for _fn in os.listdir(_asi):
+                if not _fn.endswith((".js", ".css")):
+                    continue
+                _fp = os.path.join(_asi, _fn)
+                try:
+                    _tx = open(_fp, encoding="utf-8", errors="ignore").read()
+                except Exception:
+                    continue
+                _o = _tx
+                _tx = _tx.replace("https://badjs.weixinbridge.com/", _lo)
+                _tx = _tx.replace("http://badjs.weixinbridge.com/", _lo)
+                _tx = _tx.replace("https://mp.weixin.qq.com/mp/", _lo)
+                _tx = _tx.replace("https://open.weixin.qq.com/", _lo)
+                _tx = _tx.replace(_bs2 + "/mp" + _bs2 + "/", _bs2 + "/offline" + _bs2 + "/")  # 转义 \/mp\/
+                _tx = _tx.replace('"/mp/', '"/offline/').replace("'/mp/", "'/offline/")
+                if _tx != _o:
+                    with open(_fp, "w", encoding="utf-8") as f:
+                        f.write(_tx)
+        # html 里的根相对 /mp/ 接口(JS字符串) -> 本地回环
+        html = html.replace('"/mp/', '"/offline/').replace("'/mp/", "'/offline/")
+        html = html.replace(_bs2 + "/mp" + _bs2 + "/", _bs2 + "/offline" + _bs2 + "/")
+        if html != orig2:
+            with open(html_path, "w", encoding="utf-8") as f:
+                f.write(html)
     except Exception as e:
         log.warning("[fetch] 残留URL消杀异常: %s", e)
 
