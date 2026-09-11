@@ -135,7 +135,22 @@ def localize_article_images(html_path, timeout=20):
         import requests
         with open(html_path, encoding="utf-8") as f:
             html = f.read()
-        imgs = re.findall(r'(?:data-src|src)="([^"]+)"', html)
+        # 收集: img属性(src/data-src) + JS字符串里的微信图片URL(https与JSON转义形态都覆盖)
+        _urls = list(re.findall(r'(?:data-src|src)="([^"]+)"', html))
+        for _m in re.finditer(r"https?:[^\"'<>]+", html):
+            _u0 = _m.group(0)
+            if _u0 not in _urls:
+                _urls.append(_u0)
+        imgs = []
+        for _u in _urls:
+            _uu = _u
+            if chr(92) + "/" in _uu:
+                _uu = _uu.replace(chr(92) + "/", "/")     # JS JSON 转义 \/ -> /
+            if "res.wx.qq.com" in _uu and not _uu.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):
+                continue            # 微信静态资源(js/css)绝不处理
+            if ("mmbiz" in _uu or "wx_fmt=" in _uu
+                    or _uu.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"))) and _u not in imgs:
+                imgs.append(_u)      # 保留原文形态(JS里可能带 \/ 转义), 替换用原文
         if not imgs:
             return 0
         img_dir = os.path.join(os.path.dirname(html_path), "images")
@@ -160,6 +175,10 @@ def localize_article_images(html_path, timeout=20):
                 if r.status_code != 200:
                     fail += 1
                     continue
+                _ct = (r.headers.get("Content-Type") or "").lower()
+                if not _ct.startswith("image"):
+                    fail += 1
+                    continue                # 非图片内容(如误抓js/css)拒绝落盘
                 ext = os.path.splitext(fetch_url.split("?")[0])[1]
                 if not ext or len(ext) > 5:
                     m = re.search(r"wx_fmt=([a-zA-Z]+)", fetch_url)
