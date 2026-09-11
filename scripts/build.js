@@ -178,6 +178,15 @@ try {
   // ---- 0. 预检: release 是否被占用(提前失败, 避免白打包) ----
   preflightCheck();
 
+  // ---- 0.2 版本同步(构建前): 根 package.json 为唯一版本来源, 强制同步 electron/next/frontend/backend/.env
+  // 否则 electron-builder 打包 WeChatCollector.exe 会读到旧的 electron/package.json 版本(历史踩坑)
+  try {
+    require(path.join(__dirname, 'sync-version.js'))
+    console.log('  版本已同步: 根 package.json 版本驱动全部子包')
+  } catch (e) {
+    console.log('  (版本同步跳过: ' + (e && e.message || e) + ')')
+  }
+
   // ---- 0.5 生成内置版本文件 version_info.py: 读根 .env(APP_VERSION/WECHAT_VERSION), 缺失回退根 package.json
   (() => {
     const envPath = path.join(ROOT, '.env')
