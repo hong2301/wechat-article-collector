@@ -183,6 +183,90 @@ def article_update_by_biz_art(biz: str, art_biz: str, sets: list, vals: list) ->
         conn.close()
 
 
+def article_get(art_biz: str, biz: str = "") -> dict | None:
+    """按 art_biz 取文章行(查看文件时补 title/date/name)"""
+    conn = get_conn()
+    try:
+        if biz:
+            row = conn.execute("SELECT * FROM articles WHERE biz=? AND art_biz=?",
+                               (biz, art_biz)).fetchone()
+        else:
+            row = conn.execute("SELECT * FROM articles WHERE art_biz=?", (art_biz,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def article_saved_formats(art_biz: str, biz: str = "") -> str:
+    """读某文章已保存到本地的文件格式(逗号分隔; 找不到返回空串)"""
+    conn = get_conn()
+    try:
+        if biz:
+            row = conn.execute("SELECT saved_formats FROM articles WHERE biz=? AND art_biz=?",
+                               (biz, art_biz)).fetchone()
+        else:
+            row = conn.execute("SELECT saved_formats FROM articles WHERE art_biz=?", (art_biz,)).fetchone()
+        return (row[0] or "") if row else ""
+    finally:
+        conn.close()
+
+
+def article_merge_saved_formats(art_biz: str, formats, biz: str = "") -> str:
+    """合并写入某文章已保存文件格式(下载/扫描文件夹时更新); 返回写入后的值(逗号分隔)"""
+    new = []
+    for x in (formats or []):
+        x = str(x).strip().lower()
+        if x == "docx":
+            x = "word"          # 统一 word
+        if x and x not in new:
+            new.append(x)
+    conn = get_conn()
+    try:
+        if biz:
+            row = conn.execute("SELECT saved_formats FROM articles WHERE biz=? AND art_biz=?",
+                               (biz, art_biz)).fetchone()
+        else:
+            row = conn.execute("SELECT saved_formats FROM articles WHERE art_biz=?", (art_biz,)).fetchone()
+        old = [x for x in ((row[0] or "").split(",") if row else []) if x]
+        merged = old + [x for x in new if x not in old]
+        val = ",".join(merged)
+        if row:
+            if biz:
+                conn.execute("UPDATE articles SET saved_formats=? WHERE biz=? AND art_biz=?",
+                             (val, biz, art_biz))
+            else:
+                conn.execute("UPDATE articles SET saved_formats=? WHERE art_biz=?", (val, art_biz))
+            conn.commit()
+            log.info("[repo] articles.saved_formats art=%.16s | %s -> %s", art_biz, ",".join(old), val)
+        return val
+    finally:
+        conn.close()
+
+
+def article_set_saved_formats(art_biz: str, formats, biz: str = "") -> str:
+    """覆盖写入某文章已保存文件格式(以实际扫描为准, 文件删光=清空); 返回写入后的值"""
+    new = []
+    for x in (formats or []):
+        x = str(x).strip().lower()
+        if x == "docx":
+            x = "word"
+        if x and x not in new:
+            new.append(x)
+    val = ",".join(new)
+    conn = get_conn()
+    try:
+        if biz:
+            conn.execute("UPDATE articles SET saved_formats=? WHERE biz=? AND art_biz=?",
+                         (val, biz, art_biz))
+        else:
+            conn.execute("UPDATE articles SET saved_formats=? WHERE art_biz=?", (val, art_biz))
+        conn.commit()
+        log.info("[repo] articles.saved_formats 覆盖 art=%.16s -> %r", art_biz, val)
+        return val
+    finally:
+        conn.close()
+
+
 def article_create(account_id, name, date, title, art_biz, biz) -> int:
     conn = get_conn()
     try:

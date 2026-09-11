@@ -73,7 +73,8 @@ def init_db():
             write_time   TEXT DEFAULT '',
             original     TEXT DEFAULT '',
             ip           TEXT DEFAULT '',
-            comment_recog TEXT DEFAULT '0'
+            comment_recog TEXT DEFAULT '0',
+            saved_formats TEXT DEFAULT ''
         );
         CREATE TABLE IF NOT EXISTS comments (
             id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -162,6 +163,12 @@ def init_db():
         if "biz" not in _acols:
             conn.execute("ALTER TABLE articles ADD COLUMN biz TEXT DEFAULT ''")
             conn.commit()
+        # 迁移: articles 补 saved_formats 列(已保存到本地的文件格式, 逗号分隔)
+        _scols = [r[1] for r in conn.execute("PRAGMA table_info(articles)").fetchall()]
+        if "saved_formats" not in _scols:
+            conn.execute("ALTER TABLE articles ADD COLUMN saved_formats TEXT DEFAULT ''")
+            conn.commit()
+            log.info("migrate: articles.saved_formats 已添加")
         # 迁移: 旧表 link -> biz
         cols = [r[1] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()]
         if "link" in cols and "biz" not in cols:

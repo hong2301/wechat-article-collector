@@ -274,6 +274,7 @@ def account_articles_by_biz(biz: str = "", page: int = 0, page_size: int = 20, d
                  "original": d["original"], "ip": d["ip"], "acc_name": d["name"] or "",
                  "comment_count": cnt_map.get(d["art_biz"], 0),   # 实际采集评论数(comments表)
                  "comment_recog": int(d["comment_recog"] or 0),  # 识别的评论数
+                 "saved_formats": d["saved_formats"] or "",      # 已保存到本地的文件格式(下载/查看文件时更新)
                  } for d in rows]
         if page <= 0:
             return {"biz": biz, "name": name, "articles": arts}

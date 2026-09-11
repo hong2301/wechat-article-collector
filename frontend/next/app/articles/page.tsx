@@ -52,6 +52,8 @@ interface Article {
   comment_count?: number;   // 实际采集评论数(comments表)
   comment_recog?: number;   // 识别出来的评论数
   acc_name?: string;        // 公众号名称
+  biz?: string;             // 公众号id
+  saved_formats?: string;   // 已保存到本地的文件格式(逗号分隔, 下载/查看文件时更新)
 }
 
 export default function ArticlePage() {
@@ -256,11 +258,15 @@ export default function ArticlePage() {
     try {
       const d = await (await fetch(API_BASE + "/api/settings/save-article-html", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ link, account_name: name || "", formats: saveFormats.length ? saveFormats : ["html"] }),
+        body: JSON.stringify({ link, account_name: name || "", formats: saveFormats.length ? saveFormats : ["html"], art_biz: a.art_biz, biz: a.biz || biz || "" }),
       })).json();
       hint();
-      if (d.ok) message.success("已保存: " + (d.info || d.path || ""));
-      else message.error(d.error || "保存失败");
+      if (d.ok) {
+        message.success("已保存: " + (d.info || d.path || ""));
+        if (d.saved_formats !== undefined) {
+          setArticles((p) => p.map((x) => x.id === a.id ? { ...x, saved_formats: d.saved_formats } : x));
+        }
+      } else message.error(d.error || "保存失败");
     } catch {
       hint();
       message.error("无法连接后端");
@@ -288,11 +294,16 @@ export default function ArticlePage() {
         const link = `https://mp.weixin.qq.com/s/${a.art_biz}`;
         const resp = await fetch(API_BASE + "/api/settings/save-article-html", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ link, account_name: name || "", formats: saveFormats.length ? saveFormats : ["html"] }),
+          body: JSON.stringify({ link, account_name: name || "", formats: saveFormats.length ? saveFormats : ["html"], art_biz: a.art_biz, biz: a.biz || biz || "" }),
           signal: dlAbortRef.current?.signal,
         });
         const d = await resp.json();
-        if (d.ok) setDlItems((p) => p.map((x, j) => j === i ? { ...x, status: "成功", msg: (d.info || "").slice(0, 60) } : x));
+        if (d.ok) {
+          setDlItems((p) => p.map((x, j) => j === i ? { ...x, status: "成功", msg: (d.info || "").slice(0, 60) } : x));
+          if (d.saved_formats !== undefined) {
+            setArticles((p) => p.map((x) => x.id === a.id ? { ...x, saved_formats: d.saved_formats } : x));
+          }
+        }
         else setDlItems((p) => p.map((x, j) => j === i ? { ...x, status: "失败", msg: d.error || "" } : x));
       } catch (e: unknown) {
         if ((e as Error)?.name === "AbortError") break;  // 用户取消
@@ -305,6 +316,24 @@ export default function ArticlePage() {
     const cancelled = dlAbortRef.current?.signal.aborted;
     if (cancelled) message.warning(`已取消, 完成 ${done} 篇`);
     else message.success(`下载完成: ${done} 篇`);
+  }
+  // 查看文件: 打开该文章文件夹, 并扫描实际格式更新"文章文件"列
+  async function viewFiles(r: Article) {
+    if (!r.art_biz) { message.warning("该文章无art_biz"); return; }
+    const hint = message.loading("正在打开文件夹...", 0);
+    try {
+      const d = await (await fetch(API_BASE + "/api/settings/article-files", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ art_biz: r.art_biz, biz: r.biz || biz || "", name: r.acc_name || name || "",
+                               title: r.title || "", date: r.date || "" }),
+      })).json();
+      hint();
+      if (d.ok) {
+        const v = d.saved_formats || "";
+        setArticles((p) => p.map((x) => x.id === r.id ? { ...x, saved_formats: v } : x));
+        if (d.changed) message.success(`文件夹已打开, 文件保存列已更新: ${(d.formats || []).join(", ") || "无"}`);
+      } else message.warning(d.error || "打开失败");
+    } catch { hint(); message.error("无法连接后端"); }
   }
   // 单篇更新: 打开更新确认弹窗(队列=1个)
   function openUpdate(a: Article) {
@@ -804,6 +833,12 @@ export default function ArticlePage() {
             { title: "喜欢", dataIndex: "favorites", width: 80, sorter: true, sortOrder: sortInfo.key === "favorites" ? sortInfo.order : null },
             { title: "IP", dataIndex: "ip", width: 80 },
             {
+              title: "文章文件", dataIndex: "saved_formats", width: 110,
+              render: (v: string) => v
+                ? <span>{v.split(",").filter(Boolean).map((f) => <Tag key={f} color="blue" style={{ marginInlineEnd: 4 }}>{f}</Tag>)}</span>
+                : <span style={{ color: "#bbb" }}>—</span>,
+            },
+            {
               title: "写入时间", dataIndex: "write_time", width: 70, sorter: true,
               sortOrder: sortInfo.key === "write_time" ? sortInfo.order : null,
               render: (v: string) => {
@@ -813,10 +848,11 @@ export default function ArticlePage() {
                 return <Tooltip title={t}><span style={{ cursor: "default" }}>{short}</span></Tooltip>;
               },
             },
-            { title: "操作", dataIndex: "op", width: 180, align: "center", fixed: "right",
+            { title: "操作", dataIndex: "op", width: 250, align: "center", fixed: "right",
               render: (_: unknown, r: Article) => (
                 <Space>
                   <Button size="small" type="link" icon={<DownloadOutlined />} loading={dlKey === (r.art_biz || "")} onClick={() => downloadHtml(r)}>下载</Button>
+                  <Button size="small" type="link" icon={<FolderOpenOutlined />} onClick={() => viewFiles(r)}>查看文件</Button>
                   <Tooltip
                     title={(si.points.length + si.scrolls.length > 0 ? "点位/滚动设置有残缺，需补全后才能更新" : wxLogged === false ? "请先登录微信后再更新" : undefined)}>
                     <Button size="small" type="link" disabled={si.points.length + si.scrolls.length > 0 || wxLogged === false}

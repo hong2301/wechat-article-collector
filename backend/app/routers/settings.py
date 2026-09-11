@@ -94,6 +94,69 @@ def open_downloads(sub: str = ""):
         return {"ok": False, "error": str(e)}
 
 
+@router.post("/article-files")
+def article_files(payload: dict = None):
+    """查看某文章已保存的文件: 打开其文件夹, 扫描实际格式(有变化则更新 articles.saved_formats)
+    payload: {art_biz, biz?, name?, title?, date?}  (name/title/date 缺省从库补齐)
+    返回: {ok, dir, formats: [...], saved_formats, changed}"""
+    from ..repositories import accounts_repo
+    from ..services.fetch_article import clean_filename, default_html_dir
+    p = payload or {}
+    art_biz = (p.get("art_biz") or "").strip()
+    if not art_biz:
+        log.warning("[settings.article-files] 缺少 art_biz")
+        return {"ok": False, "error": "缺少 art_biz"}
+    biz = (p.get("biz") or "").strip()
+    name = (p.get("name") or "").strip()
+    title = (p.get("title") or "").strip()
+    date = (p.get("date") or "").strip()
+    row = None
+    if not (name and title and date):
+        row = accounts_repo.article_get(art_biz, biz)
+        if row:
+            name = name or (row.get("name") or "")
+            title = title or (row.get("title") or "")
+            date = date or (row.get("date") or "")
+    if not (name and title):
+        log.warning("[settings.article-files] 无法定位文件夹 art=%.16s name=%r title=%r", art_biz, name, title)
+        return {"ok": False, "error": "无法定位文章文件夹(缺少公众号名/标题)"}
+    folder = f"{date[:10]}_{clean_filename(title)}" if date else clean_filename(title)
+    d = os.path.join(default_html_dir(), clean_filename(name), folder)
+    if not os.path.isdir(d):
+        log.info("[settings.article-files] 尚未保存 art=%.16s dir=%s", art_biz, d)
+        return {"ok": False, "error": "该文章还没有保存过本地文件"}
+    # 扫描顶层文件格式(不含 images/mdimgs 子目录)
+    _ext = {".html": "html", ".pdf": "pdf", ".txt": "txt", ".md": "md", ".docx": "word", ".doc": "word"}
+    _order = ["html", "pdf", "txt", "md", "word"]
+    found = []
+    try:
+        for fn in os.listdir(d):
+            if not os.path.isfile(os.path.join(d, fn)):
+                continue
+            fmt = _ext.get(os.path.splitext(fn)[1].lower())
+            if fmt and fmt not in found:
+                found.append(fmt)
+    except Exception as e:
+        log.error("[settings.article-files] 扫描失败 %s: %s", d, e)
+        return {"ok": False, "error": f"扫描失败: {e}"}
+    found.sort(key=lambda x: _order.index(x) if x in _order else 99)
+    old = (row.get("saved_formats") or "") if row else accounts_repo.article_saved_formats(art_biz, biz)
+    # 以实际扫描为准覆盖写(文件删光也清空); 无变化则不写
+    if ",".join(found) != (old or ""):
+        saved = accounts_repo.article_set_saved_formats(art_biz, found, biz)
+        changed = True
+    else:
+        saved = old
+        changed = False
+    try:
+        os.startfile(d)
+    except Exception as e:
+        log.error("[settings.article-files] 打开失败 %s: %s", d, e)
+        return {"ok": False, "error": f"打开文件夹失败: {e}"}
+    log.info("[settings.article-files] art=%.16s dir=%s 格式=%s 变化=%s", art_biz, d, found, changed)
+    return {"ok": True, "dir": d, "formats": found, "saved_formats": saved, "changed": changed}
+
+
 @router.post("/pick-dir")
 def pick_dir(current: str = ""):
     """弹系统文件夹选择器(initialdir=当前保存路径), 返回选中的目录; 取消返回空"""
@@ -130,7 +193,13 @@ def save_article_html_api(payload: dict = None):
     if path:
         log.info("[settings.save-article-html] 保存成功 account=%s formats=%s link=%.40s",
                  p.get("account_name") or "", fmts or ["html"], link)
-        return {"ok": True, "path": path, "info": info}
+        # 文章"文件保存"列: 下载时更新(合并已有)
+        saved = ""
+        _art = (p.get("art_biz") or "").strip()
+        if _art:
+            from ..repositories import accounts_repo
+            saved = accounts_repo.article_merge_saved_formats(_art, fmts or ["html"], (p.get("biz") or "").strip())
+        return {"ok": True, "path": path, "info": info, "saved_formats": saved}
     log.warning("[settings.save-article-html] 保存失败: %.60s", info)
     return {"ok": False, "error": info}
 
