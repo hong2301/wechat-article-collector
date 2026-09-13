@@ -94,9 +94,20 @@ def get_dup_biz(biz: str, exclude_id: int):
 
 
 def delete(aid: int) -> bool:
-    """删公众号 + 其排序记录"""
+    """删公众号 + 其排序记录 + 该公众号全部文章及其评论(级联)"""
     conn = get_conn()
     try:
+        biz_row = conn.execute("SELECT biz FROM accounts WHERE id=?", (aid,)).fetchone()
+        if biz_row and biz_row["biz"]:
+            biz = biz_row["biz"]
+            arts = conn.execute("SELECT art_biz FROM articles WHERE biz=?", (biz,)).fetchall()
+            abizs = [r["art_biz"] for r in arts]
+            conn.execute("DELETE FROM articles WHERE biz=?", (biz,))
+            if abizs:
+                marks = ",".join("?" * len(abizs))
+                conn.execute(f"DELETE FROM comments WHERE art_biz IN ({marks})", abizs)
+            log.info("[repo] accounts.delete 级联: 公众号biz=%.10s 删除文章%d篇 评论%d条(对应删除)",
+                     biz, len(abizs), conn.total_changes)
         cur = conn.execute("DELETE FROM accounts WHERE id=?", (aid,))
         conn.execute("DELETE FROM sort_config WHERE record_id=?", (aid,))
         conn.commit()

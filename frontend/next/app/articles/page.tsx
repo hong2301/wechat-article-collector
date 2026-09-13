@@ -663,8 +663,6 @@ export default function ArticlePage() {
           </Tooltip>
           <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集阅读数</span>
           <Switch checked={captureRead} onChange={setCaptureRead} />
-          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存格式</span>
-          <SaveFormatSelect value={saveFormats} onChange={setSaveFormats} />
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，评论采集不可用:\n${si.ai.join("\n")}` : undefined}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
@@ -687,6 +685,11 @@ export default function ArticlePage() {
               onChange={(v) => setMaxLevel2(typeof v === "number" && v >= 0 ? v : null)} style={{ width: 90 }} />
           </div>
         )}
+        {/* 保存格式行(独立一行, 卡片最后一行) */}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", paddingTop: 10 }}>
+          <span style={{ fontSize: 14, color: "#555" }}>保存格式</span>
+          <SaveFormatSelect value={saveFormats} onChange={setSaveFormats} />
+        </div>
       </div>
       {/* 筛选面板 */}
       <div style={{ background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(0,0,0,.06)", padding: "14px 18px", margin: "0 0 12px", flexShrink: 0 }}>
@@ -772,7 +775,7 @@ export default function ArticlePage() {
           </Space>
         </div>
         ) : shown.length > 0 ? (
-        <div ref={tableWrapRef} style={{ flex: 1, minHeight: 0, position: "relative", overflow: "auto" }}>
+        <div ref={tableWrapRef} style={{ flex: 1, minHeight: 0, position: "relative", overflowX: "auto", overflowY: "hidden" }}>
         <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" scroll={{ x: 1500, y: tableY }}
           onChange={(_p: any, _f: any, sorter: any) => {
             const s = Array.isArray(sorter) ? sorter[0] : sorter;

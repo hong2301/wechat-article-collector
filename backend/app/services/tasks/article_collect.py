@@ -15,6 +15,7 @@ import logging
 from ...core import computer as pc
 from ...core import obs
 from ...core import ocr as ocr_service
+from ...core.ocr import feature_similar
 from ...core.common import (_read_point, _finish, _save_reads,
                             _extract_read_from_items, wait_page_stable)
 from ...core.robot import (request_stop, clear_stop, stop_requested,
@@ -127,6 +128,7 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
     date_out_count = 0       # 连续在日期范围之后次数(有日期范围时)
     loop_n = 0
     reset_session_links()   # 新任务: 清空本次会话已采链接集合
+    last_feat = None        # 上一篇文章点位特征(base64_feature), 跨轮保留(滚动重叠去重)
 
     def echo(msg):
         """本轮日志: 存 logs 并实时转发(打印 + 后端钩子)"""
@@ -295,6 +297,15 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
             if not should_click:
                 echo(f"  跳过文章[{seq}] {ptxt!r} 时间{t} 不在范围")
                 continue
+            # 特征去重: 与上一点位相同率>=70% -> 滚动重叠重复, 跳过
+            feat = pdata.get("base64_feature")
+            if feat and last_feat:
+                sim = feature_similar(feat, last_feat)
+                if sim >= 0.98:
+                    echo(f"  跳过文章[{seq}] {ptxt!r} 特征与上一点位重复(相似{sim:.0%}>=98%)")
+                    last_feat = feat
+                    continue
+            last_feat = feat
             # box 四点取 最小x + 中心y(按y序文章中心)
             xs = [p[0] for p in pbox]
             ys = [p[1] for p in pbox]

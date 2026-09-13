@@ -15,6 +15,7 @@ from PIL import Image
 
 from ...core import computer as pc
 from ...core import ocr as ocr_service
+from ...core.ocr import extract_reads
 from ...core.common import wait_page_stable, _read_point
 from ...database import get_conn
 from .article_collect import article_data_collect, reset_session_links
@@ -27,7 +28,6 @@ from .wx_window import WECHAT_APPEX
 # 文章点位结构特征
 # ---------------------------------------------------------------------------
 # 阅读量部分格式固定: "阅读" + 数字(可含千分位逗号)
-_READ_RE = re.compile(r"阅读\s*([\d,，]+)")
 
 
 def _extract_article_points(ocr_items, shot_path, region):
@@ -35,8 +35,8 @@ def _extract_article_points(ocr_items, shot_path, region):
     判定条件(满足其一):
       A) 文本含 '阅读' + 数字(格式: 阅读+数字) -> 灰字白底
       B) 文本含 '最近读过'(被读过的文章无'阅读', 显示'最近读过') -> 不做颜色判定
-    返回: [{cx, cy, text, time, reads, box}, ...] 按屏幕绝对坐标;
-          点击 x 取点位43(x1=region起点), 即列表最左缘整行点击
+    返回: [(y, "article", 文本, box绝对四角, data模板), ...] 与普通分支 classify_items 结构一致;
+          点击 x 由调用方取点位43(region起点), 即列表最左缘整行点击
     """
     points = []
     try:
@@ -53,19 +53,18 @@ def _extract_article_points(ocr_items, shot_path, region):
         if not text:
             continue
         # 文本识别: A=含'最近读过'(被读过文章, 无'阅读'); B=含'阅读'+数字
-        rm = None
         recent = False
         if "最近读过" in text:
             recent = True
+            reads = None                       # '最近读过'无阅读数字 -> 走阅读数采集
         else:
             if "阅读" not in text:
                 log.info("[kw-extract] 不含'阅读/最近读过'(跳过): %r", text)
                 continue
-            rm = _READ_RE.search(text)
-            if not rm:
+            reads = extract_reads(text)        # 与普通分支同算法: 支持"1.5万"->15000, 提取不到 None
+            if reads is None:
                 log.info("[kw-extract] 含'阅读'但无数字(跳过): %r", text)
                 continue
-        reads = rm.group(1) if rm else None   # '最近读过'型无数字 -> reads=None(走阅读数采集)
         # 颜色: 按类型要求 B=灰字白底('阅读'+数字); A=白底+(蓝或彩)('最近读过',
         #   蓝色 OCR 判定不稳, 高饱和蓝常被归为'彩', 故'彩'白底也算命中)
         if _im is not None and sbox:
@@ -97,13 +96,19 @@ def _extract_article_points(ocr_items, shot_path, region):
             click_x, click_y = region[0], cy
         log.info("[kw-extract] 命中%s: %r -> 阅读=%s @(%s,%s)",
                  '(最近读过)' if recent else '', text, reads, click_x, click_y)
-        points.append({
-            "cx": click_x, "cy": click_y,
-            "text": text.strip(),
-            "time": None,
-            "reads": reads,
-            "box": sbox,
-        })
+        try:
+            box_abs = [ocr_service.ocr_abs(_im, region, int(p[0]), int(p[1])) for p in sbox]
+        except Exception:
+            box_abs = list(sbox)
+        # 统一结构(与普通分支 classify_items 一致): (y, 类型, 文本, box绝对, data模板)
+        # data = {time, reads, likes}: 关键词分支无提取算法, 用空模板(time/likes=None, reads有则填)
+        try:
+            feat = ocr_service.make_base64_feature(_im, sbox) if _im is not None else None
+        except Exception:
+            feat = None
+        points.append((click_y, "article", text.strip(), box_abs,
+                       {"time": None, "reads": reads, "likes": None,
+                        "base64_feature": feat}))
     return points
 
 
@@ -127,6 +132,7 @@ def gzh_query_page_article_loop(date_start="", date_end="", biz="",
 
     返回: (成功?, 说明文本) —— 死循环一般由外部停止信号/异常打断
     """
+    last_feat_kw = None        # 上一篇文章点位特征(跨轮, 滚动重叠去重)
     reset_session_links()   # 新任务: 清空本次会话已采链接集合
     from ...core.robot import stop_requested, request_stop, tasks_echo
     logs = []
@@ -212,19 +218,26 @@ def gzh_query_page_article_loop(date_start="", date_end="", biz="",
             echo(f"第{loop_n}轮识别文章点位 {len(points)} 个")
             log.info("[kw-loop] 第%d轮提取结果: %d 个文章点位", loop_n, len(points))
             for pt in points:
-                echo(f"  文章: 阅读{pt['reads']} | {pt['text']} @({pt['cx']},{pt['cy']})")
+                echo(f"  文章: 阅读{pt[4]['reads']} | {pt[2]} @({region[0]},{pt[0]})")
 
-            # 5b) 遍历文章点位: 点击 -> 等待0.3s -> article_data_collect(collect_type=1)
-            #     (参考 article_list: 点击后采集, 无日期范围等时间判断)
+            # 5b) 遍历文章点位: 特征去重(滚动重叠) -> 点击 -> article_data_collect(collect_type=1)
             for seq, pt in enumerate(points, 1):
-                echo(f"  点击文章[{seq}] {pt['text']!r} 阅读{pt['reads']} @({pt['cx']},{pt['cy']})")
-                pc.mouse_click(pt["cx"], pt["cy"])
+                _feat = pt[4].get("base64_feature")
+                if _feat and last_feat_kw:
+                    _sim = ocr_service.feature_similar(_feat, last_feat_kw)
+                    if _sim >= 0.98:
+                        echo(f"  跳过文章[{seq}] {pt[2]!r} 特征与上一点位重复(相似{_sim:.0%}>=98%)")
+                        last_feat_kw = _feat
+                        continue
+                last_feat_kw = _feat
+                echo(f"  点击文章[{seq}] {pt[2]!r} 阅读{pt[4]['reads']} @({region[0]},{pt[0]})")
+                pc.mouse_click(region[0], pt[0])
                 _time.sleep(0.3)
                 ok_c, text_c = article_data_collect(
                     collect_type=1, capture_4metrics=capture_4metrics,
                     capture_read=capture_read, save_formats=save_formats,
                     save_dir=save_dir, biz=biz,
-                    list_reads=pt["reads"], list_likes=None,
+                    list_reads=pt[4]["reads"], list_likes=None,
                     max_comments=max_comments, max_level1=max_level1,
                     max_level2=max_level2)
                 echo(f"  文章[{seq}]数据采集: {'成功' if ok_c else '失败'} | {text_c}")
