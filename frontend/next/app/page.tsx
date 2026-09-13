@@ -727,8 +727,6 @@ export default function Home() {
           </Tooltip>
           <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>采集阅读数</span>
           <Switch checked={captureRead} onChange={setCaptureRead} />
-          <span style={{ marginLeft: 12, fontSize: 14, color: "#555" }}>保存格式</span>
-          <SaveFormatSelect value={saveFormats} onChange={setSaveFormats} />
           <Tooltip
             title={si.ai.length > 0 ? `AI模型未配置，评论采集不可用:\n${si.ai.join("\n")}` : undefined}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
@@ -766,6 +764,11 @@ export default function Home() {
               onChange={(e) => setKeywordQuery(e.target.value)} style={{ width: 280 }} />
           </div>
         )}
+        {/* 保存格式行(独立一行, 位于设置按钮行上方) */}
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <span style={{ fontSize: 14, color: "#555" }}>保存格式</span>
+          <SaveFormatSelect value={saveFormats} onChange={setSaveFormats} />
+        </div>
         {/* 设置按钮行(第三行) */}
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Tooltip
