@@ -415,3 +415,5 @@ app/services/tasks/wx_window.py,_is_main,43,0,0,已检查-无需(高频/调用�
 app/utils/make_seed_db.py,make,25,0,0,已检查-无需(高频/调用方覆盖/加密不落盘),✓
 app/utils/migrate.py,_collected_path,11,0,0,已检查-无需(高频/调用方覆盖/加密不落盘),✓
 app/utils/migrate.py,migrate_collected,15,0,0,已检查-无需(高频/调用方覆盖/加密不落盘),✓
+app/core/ocr.py,make_base64_feature,216,0,1,已检查-关键路径有日志(异常warning, 新加点位特征生成),✓
+app/core/ocr.py,feature_similar,238,0,1,已检查-关键路径有日志(异常warning, 新加点位特征相似度),✓

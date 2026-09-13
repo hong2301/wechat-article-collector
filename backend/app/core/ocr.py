@@ -213,6 +213,71 @@ def ocr_abs(img, bbox, x, y):
     return _pc.shot_abs(img, bbox, x, y)
 
 
+def make_base64_feature(img, sbox, side="left"):
+    """点位特征: 条带矩形 -> base64(固定128x8灰度PNG)
+    side="left": 截图左边缘 -> box 右边缘(整行, 含标题, 关键词分支用)
+    side="right": box 左边缘 -> 截图右边缘(普通分支用, 行右侧内容)
+    img: 区域截图 PIL; sbox: 相对截图的四角
+    用于滚动重叠去重(同一篇文章行滚动重叠时特征应高度一致)"""
+    try:
+        import base64
+        import io
+        from PIL import Image
+        xl = int(min(p[0] for p in sbox))
+        xr = int(max(p[0] for p in sbox))
+        yt = int(min(p[1] for p in sbox))
+        yb = int(max(p[1] for p in sbox))
+        w = img.size[0]
+        if yb <= yt:
+            return None
+        if side == "right":
+            if xl >= w:
+                return None
+            box = (xl, yt, w, yb)
+        else:
+            box = (0, yt, xr, yb)
+        crop = img.crop(box).resize((128, 8), Image.LANCZOS).convert("L")
+        buf = io.BytesIO()
+        crop.save(buf, format="PNG")
+        return base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception as e:
+        _logging.getLogger("ocr").warning("OCR 点位特征生成失败: %s", e)
+        return None
+
+
+def feature_similar(a, b, thresh=12):
+    """两个 base64 特征相同率(感知哈希 aHash + 空白保护); 返回 0~1; 空值/空白图返回 0
+    空白保护: 内容像素(灰度<200)占比 <3% 视为无区分度条带 -> 0(不判重, 防误杀)"""
+    if not a or not b:
+        return 0.0
+    try:
+        import base64
+        import io
+        from PIL import Image
+        ia = Image.open(io.BytesIO(base64.b64decode(a))).convert("L")
+        ib = Image.open(io.BytesIO(base64.b64decode(b))).convert("L")
+        pa = list(ia.getdata())
+        pb = list(ib.getdata())
+        if len(pa) != len(pb) or not pa:
+            return 0.0
+        # 空白保护: 任一幅内容像素占比过低 -> 相似无意义, 返回0(不触发跳过)
+        if (sum(1 for v in pa if v < 200) / len(pa) < 0.03 or
+                sum(1 for v in pb if v < 200) / len(pb) < 0.03):
+            return 0.0
+        # aHash: 各自与均值比较得 64bit; 相同率 = 1 - 汉明距离/64
+        avg_a = sum(pa) / len(pa)
+        avg_b = sum(pb) / len(pb)
+        ha = 1 if pa[0] > avg_a else 0
+        diff = 0
+        buf_a = [1 if v > avg_a else 0 for v in pa]
+        buf_b = [1 if v > avg_b else 0 for v in pb]
+        diff = sum(1 for x, y in zip(buf_a, buf_b) if x != y)
+        return 1.0 - diff / len(buf_a)
+    except Exception as e:
+        _logging.getLogger("ocr").warning("OCR 点位特征比对失败: %s", e)
+        return 0.0
+
+
 def classify_items(items, box=None, img=None):
     """对 OCR 原始数据分类识别时间/文章点位。
     参数:
@@ -254,14 +319,16 @@ def classify_items(items, box=None, img=None):
             if d is None:
                 continue                      # 解析不出标准日期(如日期区间'8.31-9.6') -> 非法时间点位, 忽略
             data = {"time": d.strftime("%Y/%m/%d"),
-                    "reads": None, "likes": None}
+                    "reads": None, "likes": None,
+                    "base64_feature": make_base64_feature(img, sbox, side="right")}
             ordered.append((cy, "time", text,
                             [_abs_sbox(p, sbox, box, img) for p in sbox],
                             data))
         elif m_read or m_pay:
             data = {"time": None,
                     "reads": extract_reads(text),
-                    "likes": extract_likes(text)}
+                    "likes": extract_likes(text),
+                    "base64_feature": make_base64_feature(img, sbox, side="right")}
             ordered.append((cy, "article", text,
                             [_abs_sbox(p, sbox, box, img) for p in sbox],
                             data))

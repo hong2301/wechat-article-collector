@@ -102,8 +102,13 @@ def _extract_article_points(ocr_items, shot_path, region):
             box_abs = list(sbox)
         # 统一结构(与普通分支 classify_items 一致): (y, 类型, 文本, box绝对, data模板)
         # data = {time, reads, likes}: 关键词分支无提取算法, 用空模板(time/likes=None, reads有则填)
+        try:
+            feat = ocr_service.make_base64_feature(_im, sbox) if _im is not None else None
+        except Exception:
+            feat = None
         points.append((click_y, "article", text.strip(), box_abs,
-                       {"time": None, "reads": reads, "likes": None}))
+                       {"time": None, "reads": reads, "likes": None,
+                        "base64_feature": feat}))
     return points
 
 
@@ -127,6 +132,7 @@ def gzh_query_page_article_loop(date_start="", date_end="", biz="",
 
     返回: (成功?, 说明文本) —— 死循环一般由外部停止信号/异常打断
     """
+    last_feat_kw = None        # 上一篇文章点位特征(跨轮, 滚动重叠去重)
     reset_session_links()   # 新任务: 清空本次会话已采链接集合
     from ...core.robot import stop_requested, request_stop, tasks_echo
     logs = []
@@ -214,9 +220,16 @@ def gzh_query_page_article_loop(date_start="", date_end="", biz="",
             for pt in points:
                 echo(f"  文章: 阅读{pt[4]['reads']} | {pt[2]} @({region[0]},{pt[0]})")
 
-            # 5b) 遍历文章点位: 点击 -> 等待0.3s -> article_data_collect(collect_type=1)
-            #     (参考 article_list: 点击后采集, 无日期范围等时间判断)
+            # 5b) 遍历文章点位: 特征去重(滚动重叠) -> 点击 -> article_data_collect(collect_type=1)
             for seq, pt in enumerate(points, 1):
+                _feat = pt[4].get("base64_feature")
+                if _feat and last_feat_kw:
+                    _sim = ocr_service.feature_similar(_feat, last_feat_kw)
+                    if _sim >= 0.98:
+                        echo(f"  跳过文章[{seq}] {pt[2]!r} 特征与上一点位重复(相似{_sim:.0%}>=98%)")
+                        last_feat_kw = _feat
+                        continue
+                last_feat_kw = _feat
                 echo(f"  点击文章[{seq}] {pt[2]!r} 阅读{pt[4]['reads']} @({region[0]},{pt[0]})")
                 pc.mouse_click(region[0], pt[0])
                 _time.sleep(0.3)
