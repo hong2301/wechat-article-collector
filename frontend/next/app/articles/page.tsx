@@ -772,7 +772,7 @@ export default function ArticlePage() {
           </Space>
         </div>
         ) : shown.length > 0 ? (
-        <div ref={tableWrapRef} style={{ flex: 1, minHeight: 0, position: "relative", overflow: "auto" }}>
+        <div ref={tableWrapRef} style={{ flex: 1, minHeight: 0, position: "relative", overflowX: "auto", overflowY: "hidden" }}>
         <Table className="articles-table" rowKey="id" dataSource={shown} loading={loading} pagination={false} showSorterTooltip={false} size="small" scroll={{ x: 1500, y: tableY }}
           onChange={(_p: any, _f: any, sorter: any) => {
             const s = Array.isArray(sorter) ? sorter[0] : sorter;
