@@ -374,7 +374,12 @@ def comment_dup_count(art_biz: str, comment_biz: str) -> int:
 
 def comment_insert(fields: dict) -> None:
     """插入评论(fields 含 comment_biz,parent_comment_biz,art_biz,author,content,time,likes,ip,
-    is_author,is_top,is_first,is_author_reply,is_author_like,level)"""
+    is_author,is_top,is_first,is_author_reply,is_author_like,level)
+    入库前把相对时间(x小时前等)统一转绝对时间, 保证日期筛选可用"""
+    from ..core.common import comment_time_to_abs
+    _tm = comment_time_to_abs(fields.get("time"))
+    if _tm is not None and _tm != fields.get("time"):
+        fields = {**fields, "time": _tm}
     ks = list(fields.keys())
     conn = get_conn()
     try:

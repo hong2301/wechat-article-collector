@@ -11,7 +11,9 @@ import io, base64
 只依赖 computer / ocr / database, 不依赖 tasks 主函数。
 """
 import hashlib
+import re
 import time
+from datetime import datetime, timedelta
 
 from . import computer as pc
 from ..database import get_conn
@@ -194,6 +196,47 @@ def clean_comment_text(text):
     排除词由 _COMMENT_EXCLUDE_CHARS 记录, 可按需增补"""
     t = str(text or "")
     return "".join(ch for ch in t if ch not in _COMMENT_EXCLUDE_CHARS)
+
+
+def comment_time_to_abs(t, now=None):
+    """评论显示时间 -> 绝对时间字符串 'YYYY-MM-DD HH:MM:SS'(相对时间按 now 换算)
+    支持: N分钟/小时/天/周/个月 前; 昨天/今天/刚刚;
+    中文绝对: YYYY年M月D日[ HH:MM]; 绝对: YYYY-MM-DD[ HH:MM[:SS]] / YYYY/MM/DD[ HH:MM]; 纯 HH:MM[::SS]=当天
+    解析失败返回原文(不破坏数据)"""
+    if not t:
+        return None
+    _t = str(t).strip()
+    if not _t:
+        return None
+    now = now or datetime.now()
+    for _f in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
+               "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(_t, _f).strftime("%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+    _m = re.fullmatch(r"(\d{1,2}):(\d{2})(?::\d{2})?", _t)
+    if _m:
+        _d = now.replace(hour=int(_m.group(1)), minute=int(_m.group(2)), second=0, microsecond=0)
+        return _d.strftime("%Y-%m-%d %H:%M:%S")
+    _m = re.fullmatch(r"\s*(\d{4})年(\d{1,2})月(\d{1,2})日(?:\s+(\d{1,2}):(\d{2})(?::\d{2})?)?\s*", _t)
+    if _m:
+        _y, _mo, _d = int(_m.group(1)), int(_m.group(2)), int(_m.group(3))
+        _hh = int(_m.group(4)) if _m.group(4) else 0
+        _mm = int(_m.group(5)) if _m.group(5) else 0
+        return datetime(_y, _mo, _d, _hh, _mm, 0).strftime("%Y-%m-%d %H:%M:%S")
+    _m = re.fullmatch(r"\s*(\d+)\s*(分钟|小时|天|周|个月)前\s*", _t)
+    if _m:
+        _n = int(_m.group(1))
+        _dt = {"分钟": timedelta(minutes=_n), "小时": timedelta(hours=_n),
+               "天": timedelta(days=_n), "周": timedelta(weeks=_n),
+               "个月": timedelta(days=_n * 30)}[_m.group(2)]
+        return (now - _dt).strftime("%Y-%m-%d %H:%M:%S")
+    if "昨天" in _t:
+        return (now - timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+    if "今天" in _t or _t in ("刚刚", "即时"):
+        return now.strftime("%Y-%m-%d %H:%M:%S")
+    return _t
 
 
 def calc_comment_id(name, loc, t, likes, text, level):
