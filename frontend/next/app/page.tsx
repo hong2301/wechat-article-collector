@@ -226,6 +226,11 @@ export default function Home() {
     return () => window.removeEventListener("save-dir-changed", onSd);
   }, []);
 
+  // 快捷按钮active: 日期范围起点=今天-backDays 且终点=今天
+  const quickActive = (backDays: number) => !!dateRange &&
+    dateRange[0].isSame(dayjs().subtract(backDays, "day"), "day") &&
+    dateRange[1].isSame(dayjs(), "day");
+
   // 保存采集配置到 localStorage(加载完成后生效, 避免初始默认覆盖记忆)
   // 说明: 存储路径 save_dir 已改由数据库记录, 不再进 localStorage
   useEffect(() => {
@@ -710,10 +715,10 @@ export default function Home() {
             onClick={() => setDateRange(null)}>全部</Button>
           <Button size="small" type={dateRange && dateRange[0].isSame(dateRange[1], "day") && dateRange[0].isSame(dayjs(), "day") ? "primary" : "default"}
             onClick={() => setDateRange([dayjs(), dayjs()])}>今天</Button>
-          <Button size="small" onClick={() => setDateRange([dayjs().subtract(2, "day"), dayjs()])}>近3天</Button>
-          <Button size="small" onClick={() => setDateRange([dayjs().subtract(6, "day"), dayjs()])}>近一周</Button>
-          <Button size="small" onClick={() => setDateRange([dayjs().subtract(29, "day"), dayjs()])}>近一月</Button>
-          <Button size="small" onClick={() => setDateRange([dayjs().subtract(364, "day"), dayjs()])}>近一年</Button>
+          <Button size="small" type={quickActive(2) ? "primary" : "default"} onClick={() => setDateRange([dayjs().subtract(2, "day"), dayjs()])}>近3天</Button>
+          <Button size="small" type={quickActive(6) ? "primary" : "default"} onClick={() => setDateRange([dayjs().subtract(6, "day"), dayjs()])}>近一周</Button>
+          <Button size="small" type={quickActive(29) ? "primary" : "default"} onClick={() => setDateRange([dayjs().subtract(29, "day"), dayjs()])}>近一月</Button>
+          <Button size="small" type={quickActive(364) ? "primary" : "default"} onClick={() => setDateRange([dayjs().subtract(364, "day"), dayjs()])}>近一年</Button>
         </div>
         {/* 采集开关行(第二行) */}
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minHeight: 32 }}>
@@ -739,7 +744,7 @@ export default function Home() {
             title={captureKeyword ? "开启后按关键词筛选要采集的文章" : undefined}>
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
               <span style={{ fontSize: 14, color: "#555" }}>关键词查询</span>
-              <Switch checked={captureKeyword} onChange={setCaptureKeyword} />
+              <Switch checked={captureKeyword} onChange={(v) => { setCaptureKeyword(v); if (!v) setKeywordQuery(""); }} />
             </span>
           </Tooltip>
         </div>
