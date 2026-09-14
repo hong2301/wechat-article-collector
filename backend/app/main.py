@@ -19,7 +19,7 @@ from .core import logkit
 logkit.setup()
 
 
-app = FastAPI(title="微信公众号采集器后端", version="4.5.2")
+app = FastAPI(title="微信公众号采集器后端", version="4.5.3")
 
 # CORS: 允许前端(localhost:3000 / Electron)访问
 app.add_middleware(
