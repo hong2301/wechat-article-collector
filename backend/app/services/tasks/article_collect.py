@@ -343,8 +343,8 @@ def article_list_wait_stable(date_start="", date_end="", biz="",
                     date_out_count = date_out_count + 1
                     echo(f"第{loop_n}轮: 时间点位已过日期范围(比范围早)({date_out_count}/2)")
                     if date_out_count >= 2:
-                        echo("连续2次已过日期范围, 停止")
-                        return False, "连续2次已过日期范围"
+                        echo("连续2次已过日期范围, 停止(正常: 已采集到日期范围边缘)")
+                        return True, "已到达日期范围(采集完毕)"
                 else:
                     # 时间比范围晚(顶部还有更新的, 未滚到范围) -> 继续滚动
                     date_out_count = 0
