@@ -1045,6 +1045,22 @@ def show_taskbar():
         pass
 
 
+def get_taskbar_height():
+    """任务栏占用高度(屏幕高 - 工作区高); 任务栏自动隐藏/不可见时 SPI_GETWORKAREA 返回全屏 -> 0"""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        class _R(ctypes.Structure):
+            _fields_ = [("left", wintypes.LONG), ("top", wintypes.LONG),
+                        ("right", wintypes.LONG), ("bottom", wintypes.LONG)]
+        r = _R()
+        _u32().SystemParametersInfoW(0x0030, 0, ctypes.byref(r), 0)   # SPI_GETWORKAREA
+        sh = _u32().GetSystemMetrics(SM_CYSCREEN)
+        return max(0, sh - (r.bottom - r.top))
+    except Exception:
+        return 0
+
+
 def taskbar_visible():
     """任务栏当前是否可见(IsWindowVisible)"""
     try:

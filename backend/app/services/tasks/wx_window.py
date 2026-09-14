@@ -80,7 +80,7 @@ def init_wechat_window():
         u32_sm = pc._u32()
         sw = u32_sm.GetSystemMetrics(pc.SM_CXSCREEN)
         sh = u32_sm.GetSystemMetrics(pc.SM_CYSCREEN)
-        pc.move_window(hwnd, 0, 0, sw // 2, sh)
+        pc.move_window(hwnd, 0, 0, sw // 2, sh - pc.get_taskbar_height())   # 底部留任务栏高度
 
         # 4) 校验是否就位左半屏
         r = wt.RECT()
@@ -224,7 +224,7 @@ def search_window_init():
     sw = u32_sm.GetSystemMetrics(pc.SM_CXSCREEN)
     sh = u32_sm.GetSystemMetrics(pc.SM_CYSCREEN)      # 全屏高(不再避让任务栏, 底部填满)
     # 分离后: 把搜一搜窗口移到左半屏(确保位置统一)
-    pc.move_window(hwnd, 0, 0, sw // 2, sh)
+    pc.move_window(hwnd, 0, 0, sw // 2, sh - pc.get_taskbar_height())   # 底部留任务栏高度
     time.sleep(0.5)
 
     def check():
@@ -238,7 +238,7 @@ def search_window_init():
         return True, "; ".join(logs)
 
     # 3b) 不在左半屏 -> 移动到左半边
-    pc.move_window(hwnd, 0, 0, sw // 2, sh)
+    pc.move_window(hwnd, 0, 0, sw // 2, sh - pc.get_taskbar_height())   # 底部留任务栏高度
     logs.append("WeChatAppEx 已移到左半屏")
     if check():
         return True, "; ".join(logs)
@@ -334,7 +334,7 @@ def init_app_window():
         return True, "; ".join(logs)
 
     # 3) 移动到右半边
-    pc.move_window(hwnd, half, 0, half, sh)
+    pc.move_window(hwnd, half, 0, half, sh - pc.get_taskbar_height())   # 底部留任务栏高度
     logs.append("采集器窗口已移到右半屏")
     return True, "; ".join(logs)
 
