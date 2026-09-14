@@ -265,9 +265,9 @@ def account_articles_by_biz(biz: str = "", page: int = 0, page_size: int = 20, d
         if biz and biz != "all":
             where.append("biz=?"); params.append(biz)
         if date_start:
-            where.append("date >= ?"); params.append(date_start)
+            where.append("substr(date,1,10) >= ?"); params.append(date_start)          # date 含时分, 只比日期部分
         if date_end:
-            where.append("date <= ?"); params.append(date_end)
+            where.append("substr(date,1,10) <= ?"); params.append(date_end)
         if kw:
             where.append("title LIKE ?"); params.append(f"%{kw}%")
         # 数值范围(articles 数值为 TEXT, CAST 比较)
@@ -328,9 +328,9 @@ def article_comments(art_biz: str = "", page: int = 0, page_size: int = 20, date
         where = ["art_biz=?"]
         params = [art_biz]
         if date_start:
-            where.append("time >= ?"); params.append(date_start)
+            where.append("substr(time,1,10) >= ? AND time LIKE '____-__-__%'"); params.append(date_start)  # 只筛绝对时间(未转相对文本不参与)
         if date_end:
-            where.append("time <= ?"); params.append(date_end)
+            where.append("substr(time,1,10) <= ? AND time LIKE '____-__-__%'"); params.append(date_end)
         if kw:
             like = f"%{kw}%"
             where.append("(author LIKE ? OR content LIKE ?)")
